@@ -75,12 +75,18 @@ struct RootView: View {
             }
             Tab("收藏", systemImage: "heart", value: AppTab.favorites) {
                 NavigationStack {
-                    FavoritesView().appDestinations()
+                    Group {
+                        if mode == .music { MusicTrackListView(kind: .favorites) } else { FavoritesView() }
+                    }
+                    .appDestinations()
                 }
             }
             Tab("历史", systemImage: "clock.arrow.circlepath", value: AppTab.history) {
                 NavigationStack {
-                    HistoryView().appDestinations()
+                    Group {
+                        if mode == .music { MusicTrackListView(kind: .history) } else { HistoryView() }
+                    }
+                    .appDestinations()
                 }
             }
             Tab("我的", systemImage: "person.crop.circle", value: AppTab.settings) {

@@ -1,25 +1,16 @@
 import SwiftUI
 
-/// 音乐首页：上方整块是 Folia 歌词动画，中间是进度条和切歌，底栏上方是收藏 / 播放历史卡片
+/// 音乐首页：上方整块是 Folia 歌词动画，下方是进度条和切歌。收藏 / 播放历史在底栏对应的标签里。
+///
+/// 播放时进度每 0.25 秒刷新一次。读进度的部分（歌词动画、控制区）各自是独立的视图，
+/// 这一层只依赖封面取色，特效菜单展开时不会被反复重建（否则点按、按住滑选都会失灵）
 struct MusicHomeView: View {
     @State private var player = MusicPlayer.shared
-    @State private var library = MusicLibrary.shared
-    @State private var sources = LXSourceStore.shared
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
     @State private var tint: PosterTint?
-    @State private var sheet: MusicSheet?
-    @State private var scrubbing = false
-    @State private var scrubValue = 0.0
-    @Environment(\.scenePhase) private var scenePhase
+    @State private var showQueue = false
 
-    enum MusicSheet: String, Identifiable {
-        case favorites, history, queue
-        var id: String { rawValue }
-    }
-
-    private var mode: FoliaMode { FoliaMode(rawValue: modeRaw) ?? .classic }
-    private var background: FoliaBackground { FoliaBackground(rawValue: backgroundRaw) ?? .latent }
     private var theme: FoliaTheme { FoliaTheme(tint: tint) }
 
     var body: some View {
@@ -28,25 +19,26 @@ struct MusicHomeView: View {
                 .ignoresSafeArea()
                 .animation(.easeInOut(duration: 0.6), value: theme)
             VStack(spacing: 0) {
-                lyricsArea
-                    .mask(
-                        LinearGradient(stops: [
-                            .init(color: .black, location: 0),
-                            .init(color: .black, location: 0.82),
-                            .init(color: .clear, location: 1),
-                        ], startPoint: .top, endPoint: .bottom)
-                    )
-                    .ignoresSafeArea(edges: .top)
-                controls
+                MusicLyricsArea(
+                    mode: FoliaMode(rawValue: modeRaw) ?? .classic,
+                    background: FoliaBackground(rawValue: backgroundRaw) ?? .latent,
+                    theme: theme
+                )
+                .mask(
+                    LinearGradient(stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black, location: 0.82),
+                        .init(color: .clear, location: 1),
+                    ], startPoint: .top, endPoint: .bottom)
+                )
+                .ignoresSafeArea(edges: .top)
+                MusicControls(accent: theme.accent) { showQueue = true }
                     .padding(.horizontal, 22)
-                    .padding(.bottom, 14)
-                libraryCard
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
+                    .padding(.bottom, 18)
             }
         }
         .overlay(alignment: .topTrailing) {
-            effectMenu
+            FoliaEffectMenu()
                 .padding(.trailing, 16)
                 .padding(.top, 4)
         }
@@ -62,24 +54,23 @@ struct MusicHomeView: View {
             let value = await ImageCache.shared.tint(cover)
             withAnimation(.easeInOut(duration: 0.6)) { tint = value }
         }
-        .sheet(item: $sheet) { sheet in
-            switch sheet {
-            case .favorites:
-                MusicTrackListSheet(title: "我的收藏", tracks: library.favorites,
-                                    onDelete: { library.removeFavorites(at: $0) }, onClear: nil)
-            case .history:
-                MusicTrackListSheet(title: "播放历史", tracks: library.history,
-                                    onDelete: { library.removeHistory(at: $0) }, onClear: { library.clearHistory() })
-            case .queue:
-                MusicQueueSheet()
-            }
+        .sheet(isPresented: $showQueue) {
+            MusicQueueSheet()
         }
     }
+}
 
-    // MARK: 歌词动画
+// MARK: 歌词动画
 
-    @ViewBuilder
-    private var lyricsArea: some View {
+private struct MusicLyricsArea: View {
+    let mode: FoliaMode
+    let background: FoliaBackground
+    let theme: FoliaTheme
+    @State private var player = MusicPlayer.shared
+    @State private var sources = LXSourceStore.shared
+    @Environment(\.scenePhase) private var scenePhase
+
+    var body: some View {
         if FoliaSchemeHandler.isAvailable {
             FoliaLyricsView(
                 player: player, mode: mode, background: background, theme: theme,
@@ -115,10 +106,20 @@ struct MusicHomeView: View {
             .allowsHitTesting(false)
         }
     }
+}
 
-    // MARK: 播放控制
+// MARK: 播放控制
 
-    private var controls: some View {
+private struct MusicControls: View {
+    let accent: UIColor
+    let onQueue: () -> Void
+    @State private var player = MusicPlayer.shared
+    @State private var library = MusicLibrary.shared
+    @State private var sources = LXSourceStore.shared
+    @State private var scrubbing = false
+    @State private var scrubValue = 0.0
+
+    var body: some View {
         VStack(spacing: 12) {
             HStack(alignment: .center, spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -171,7 +172,7 @@ struct MusicHomeView: View {
                         }
                     }
                 )
-                .tint(Color(uiColor: theme.accent))
+                .tint(Color(uiColor: accent))
                 .disabled(player.current == nil)
                 HStack {
                     Text((scrubbing ? scrubValue : player.displayTime).clockText)
@@ -214,7 +215,7 @@ struct MusicHomeView: View {
                     Image(systemName: "forward.fill").font(.title2).frame(width: 54, height: 54)
                 }
                 Spacer()
-                Button { sheet = .queue } label: {
+                Button(action: onQueue) {
                     Image(systemName: "list.bullet")
                         .font(.body.weight(.semibold))
                         .frame(width: 44, height: 44)
@@ -232,50 +233,19 @@ struct MusicHomeView: View {
         }
         return "\(track.singer) · \(track.source.short)"
     }
+}
 
-    // MARK: 收藏 / 历史卡片
+// MARK: 特效切换（右上角，和左上角的模式切换一样是原生下拉菜单）
 
-    private var libraryCard: some View {
-        GlassEffectContainer(spacing: 12) {
-            HStack(spacing: 12) {
-                cardButton("我的收藏", icon: "heart.fill", count: library.favorites.count) { sheet = .favorites }
-                cardButton("播放历史", icon: "clock.arrow.circlepath", count: library.history.count) { sheet = .history }
-            }
-        }
-    }
+/// 只依赖两个设置项，播放进度刷新时不会重建，菜单展开后能正常点按和滑选
+private struct FoliaEffectMenu: View {
+    @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
+    @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
 
-    private func cardButton(_ title: String, icon: String, count: Int, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.title3)
-                    .foregroundStyle(Color(uiColor: theme.accent))
-                    .frame(width: 28)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(title)
-                        .font(.subheadline.weight(.semibold))
-                    Text("\(count) 首")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-            }
-            .padding(.leading, 18)
-            .padding(.trailing, 16)
-            .padding(.vertical, 11)
-            .frame(maxWidth: .infinity)
-            .contentShape(Capsule())
-            .glassEffect(.regular.interactive(), in: Capsule())
-        }
-        .buttonStyle(.plain)
-    }
+    private var mode: FoliaMode { FoliaMode(rawValue: modeRaw) ?? .classic }
+    private var background: FoliaBackground { FoliaBackground(rawValue: backgroundRaw) ?? .latent }
 
-    // MARK: 特效切换（右上角，和左上角的模式切换一样是原生下拉菜单）
-
-    private var effectMenu: some View {
+    var body: some View {
         Menu {
             Picker("歌词特效", selection: $modeRaw) {
                 ForEach(FoliaMode.allCases) { item in
@@ -360,59 +330,59 @@ struct MusicTrackRow: View {
     }
 }
 
-struct MusicTrackListSheet: View {
-    let title: String
-    let tracks: [MusicTrack]
-    let onDelete: (IndexSet) -> Void
-    let onClear: (() -> Void)?
+/// 音乐模式下底栏「收藏」「历史」标签的内容
+struct MusicTrackListView: View {
+    enum Kind { case favorites, history }
+    let kind: Kind
     @State private var player = MusicPlayer.shared
     @State private var library = MusicLibrary.shared
     @State private var confirmClear = false
-    @Environment(\.dismiss) private var dismiss
+
+    private var tracks: [MusicTrack] { kind == .favorites ? library.favorites : library.history }
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(tracks) { track in
-                    Button {
-                        player.play(track, in: tracks)
-                    } label: {
-                        MusicTrackRow(track: track, isCurrent: player.current?.id == track.id)
-                    }
-                    .buttonStyle(.plain)
-                    .contextMenu { MusicTrackMenu(track: track) }
+        List {
+            ForEach(tracks) { track in
+                Button {
+                    player.play(track, in: tracks)
+                } label: {
+                    MusicTrackRow(track: track, isCurrent: player.current?.id == track.id)
                 }
-                .onDelete(perform: onDelete)
+                .buttonStyle(.plain)
+                .contextMenu { MusicTrackMenu(track: track) }
             }
-            .listStyle(.plain)
-            .overlay {
-                if tracks.isEmpty {
-                    ContentUnavailableView(title == "我的收藏" ? "还没有收藏" : "还没有播放记录",
-                                           systemImage: title == "我的收藏" ? "heart" : "clock")
+            .onDelete { offsets in
+                if kind == .favorites { library.removeFavorites(at: offsets) } else { library.removeHistory(at: offsets) }
+            }
+        }
+        .listStyle(.plain)
+        .overlay {
+            if tracks.isEmpty {
+                if kind == .favorites {
+                    ContentUnavailableView("还没有收藏", systemImage: "heart", description: Text("在音乐页点 ♡ 收藏正在播放的歌"))
+                } else {
+                    ContentUnavailableView("还没有播放记录", systemImage: "clock", description: Text("听过的歌会出现在这里"))
                 }
             }
-            .navigationTitle(title)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭", systemImage: "xmark") { dismiss() }
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    if let onClear, !tracks.isEmpty {
-                        Button("清空", systemImage: "trash") { confirmClear = true }
-                            .confirmationDialog("清空播放历史？", isPresented: $confirmClear) {
-                                Button("清空", role: .destructive) { onClear() }
-                            }
-                    }
-                    if !tracks.isEmpty {
-                        Button("全部播放", systemImage: "play.fill") {
-                            if let first = tracks.first { player.play(first, in: tracks) }
+        }
+        .navigationTitle(kind == .favorites ? "音乐收藏" : "播放历史")
+        .toolbar {
+            if kind == .history, !tracks.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("清空", systemImage: "trash") { confirmClear = true }
+                        .confirmationDialog("清空播放历史？", isPresented: $confirmClear) {
+                            Button("清空", role: .destructive) { library.clearHistory() }
                         }
+                }
+            }
+            if !tracks.isEmpty {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("全部播放", systemImage: "play.fill") {
+                        if let first = tracks.first { player.play(first, in: tracks) }
                     }
                 }
             }
         }
-        .presentationDetents([.medium, .large])
     }
 }
 
