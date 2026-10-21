@@ -1,0 +1,138 @@
+name: UI Test
+
+# 在 iOS 模拟器里跑 UI 测试复现问题；截图和结论提交到 ui-test-results 分支的 runs/<运行号>/ 下
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "只跑某个测试，例如 AstraUITests/AstraUITests/testGlassVariants（留空全跑）"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  uitest:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -n 1)
+          if [ -z "$XCODE" ]; then XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1); fi
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build Folia lyric effects
+        run: bash Tools/FoliaEmbed/build.sh
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick simulator
+        run: |
+          UDID=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          devices = json.load(sys.stdin)["devices"]
+          for runtime in sorted(devices, reverse=True):
+              if "iOS-26" not in runtime:
+                  continue
+              for device in devices[runtime]:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone") and "Pro" in device["name"]:
+                      print(device["udid"], device["name"], runtime, file=sys.stderr)
+                      with open("sim.txt", "w") as out:
+                          print(device["name"], runtime, file=out)
+                      print(device["udid"])
+                      sys.exit(0)
+          ')
+          echo "UDID=$UDID" >> "$GITHUB_ENV"
+          { echo "xcode: $(xcodebuild -version | head -n 1)"; echo "installed: $(ls -d /Applications/Xcode*.app | xargs -n1 basename | tr '\n' ' ')"; echo "runtimes: $(xcrun simctl list runtimes | grep -i ios | tr '\n' ';')"; } > env.txt
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl ui "$UDID" appearance light || true
+
+      - name: Run UI tests
+        run: |
+          set +e
+          ONLY=""
+          if [ -n "${{ inputs.only }}" ]; then ONLY="-only-testing:${{ inputs.only }}"; fi
+          xcodebuild test \
+            -project Astra.xcodeproj \
+            -scheme Astra \
+            -destination "id=$UDID" \
+            -resultBundlePath result.xcresult \
+            $ONLY \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            > test.log 2>&1
+          echo "xcodebuild exit $?"
+          grep -E "UITEST|error:|Test Case .*(passed|failed)|XCTAssert|\*\* TEST" test.log | head -300
+          true
+
+      - name: Collect app log
+        if: always()
+        run: |
+          DATA=$(xcrun simctl get_app_container "$UDID" xyy.astra data 2>/dev/null)
+          LOG="$DATA/Documents/uitest.log"
+          if [ ! -f "$LOG" ]; then
+            LOG=$(find ~/Library/Developer/CoreSimulator/Devices/$UDID/data/Containers/Data/Application -name uitest.log 2>/dev/null | head -n 1)
+          fi
+          if [ -n "$LOG" ] && [ -f "$LOG" ]; then
+            wc -l "$LOG"
+            # 只留分段标记和 SwiftUI 的重绘原因，连续重复的行合并成「次数 内容」
+            grep -E "=====|changed\.|^BARS " "$LOG" | uniq -c | head -c 600000 > app-log.txt
+          else
+            echo "no app log" > app-log.txt
+          fi
+          head -n 80 app-log.txt
+
+      - name: Export screenshots
+        if: always()
+        run: |
+          mkdir -p shots small
+          xcrun xcresulttool export attachments --path result.xcresult --output-path shots > /dev/null 2>&1 || echo "export failed"
+          python3 - <<'PY'
+          import json, os, subprocess
+          manifest = json.load(open("shots/manifest.json")) if os.path.exists("shots/manifest.json") else []
+          for test in manifest:
+              for item in test.get("attachments", []):
+                  src = os.path.join("shots", item["exportedFileName"])
+                  name = item.get("suggestedHumanReadableName", item["exportedFileName"]).split("_0_")[0]
+                  out = os.path.join("small", name + ".jpg")
+                  subprocess.run(["sips", "-Z", "900", src, "-s", "format", "jpeg", "-s", "formatOptions", "70", "--out", out],
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+          PY
+          ls -la small
+
+      - name: Publish results to ui-test-results branch
+        if: always()
+        run: |
+          OUT="$RUNNER_TEMP/out"
+          RUN_DIR="runs/${{ github.run_id }}"
+          mkdir -p "$OUT/$RUN_DIR"
+          cp small/*.jpg "$OUT/$RUN_DIR/" 2>/dev/null || true
+          cp app-log.txt "$OUT/$RUN_DIR/" 2>/dev/null || true
+          { echo "simulator: $(cat sim.txt 2>/dev/null)"; cat env.txt 2>/dev/null; grep -E "UITEST|error:|Test Case .*(passed|failed)|\*\* TEST" test.log; } > "$OUT/$RUN_DIR/summary.txt" || true
+          cd "$OUT"
+          git init -q
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          if git fetch -q origin ui-test-results 2>/dev/null; then
+            git checkout -q -b ui-test-results FETCH_HEAD
+          else
+            git checkout -q --orphan ui-test-results
+          fi
+          git add runs
+          git commit -q -m "UI test results ${{ github.run_id }}"
+          git push -q origin ui-test-results
+          echo "published $RUN_DIR"

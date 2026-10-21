@@ -1,0 +1,68 @@
+name: Novel Engine Test
+
+on:
+  push:
+    paths:
+      - 'Sources/Novel/Engine/**'
+      - 'Tools/NovelEngineCLI/**'
+      - '.github/workflows/engine-test.yml'
+  workflow_dispatch:
+    inputs:
+      keyword:
+        description: 搜索关键词
+        default: 凡人修仙传
+      sources:
+        description: 书源地址（JSON）
+        default: https://legado.aoaostar.com/sources/71e56d4f.json
+      filter:
+        description: 只测这些书源（名称关键词，逗号分隔，会打印详细日志）
+        default: ''
+
+jobs:
+  test:
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -n 1)
+          if [ -z "$XCODE" ]; then XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1); fi
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build engine CLI
+        run: |
+          xcodegen generate
+          set +e
+          xcodebuild -project Astra.xcodeproj -scheme NovelEngineCLI -configuration Debug \
+            -destination 'platform=macOS' -derivedDataPath build build > build.log 2>&1
+          STATUS=$?
+          grep -E "error:" build.log | sort -u | head -80
+          echo "---- warnings in engine sources ----"
+          grep -E "/Sources/Novel/.*warning:" build.log | sort -u | head -60 || true
+          if [ $STATUS -ne 0 ]; then tail -40 build.log; exit 1; fi
+
+      - name: Run against book sources
+        env:
+          KEYWORD: ${{ github.event.inputs.keyword || '凡人修仙传' }}
+          SOURCES: ${{ github.event.inputs.sources || 'https://legado.aoaostar.com/sources/71e56d4f.json' }}
+        run: |
+          curl -sL "$SOURCES" -o sources.json
+          ls -l sources.json
+          BIN=$(find build/Build/Products -name novel-engine -type f | head -1)
+          "$BIN" sources.json "$KEYWORD" 40 "${{ github.event.inputs.filter }}" | tee result.txt
+          # 再用一份更大的书源集合测一遍
+          if [ -z "${{ github.event.inputs.sources }}" ] && [ -z "${{ github.event.inputs.filter }}" ]; then
+            curl -sL "https://legado.aoaostar.com/sources/4dc410d1.json" -o sources2.json
+            "$BIN" sources2.json "$KEYWORD" 60 | tee -a result.txt
+          fi
+          {
+            echo '## 书源测试'
+            echo '```'
+            grep '汇总' result.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

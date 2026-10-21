@@ -1,0 +1,97 @@
+name: Build IPA
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      bundle_id:
+        description: "包名（默认 xyy.astra；填旧包名 com.zry.kazumiglass 可以覆盖安装旧版，用来导出备份）"
+        required: false
+        default: "xyy.astra"
+      display_name:
+        description: "主屏显示的名字"
+        required: false
+        default: "Astra"
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        run: |
+          XCODE=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -vi beta | sort -V | tail -n 1)
+          if [ -z "$XCODE" ]; then XCODE=$(ls -d /Applications/Xcode*.app | sort -V | tail -n 1); fi
+          echo "Using $XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build Folia lyric effects
+        run: bash Tools/FoliaEmbed/build.sh
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build
+        env:
+          APP_BUNDLE_ID: ${{ inputs.bundle_id || 'xyy.astra' }}
+          APP_DISPLAY_NAME: ${{ inputs.display_name || 'Astra' }}
+        run: |
+          if ! [[ "$APP_BUNDLE_ID" =~ ^[A-Za-z0-9.-]+$ ]]; then echo "包名只能包含字母、数字、点和横线：$APP_BUNDLE_ID"; exit 1; fi
+          echo "包名 $APP_BUNDLE_ID，显示名 $APP_DISPLAY_NAME"
+          if [ "$APP_BUNDLE_ID" = "xyy.astra" ]; then echo "ARTIFACT=Astra-ipa" >> "$GITHUB_ENV"; else echo "ARTIFACT=Astra-ipa-$APP_BUNDLE_ID" >> "$GITHUB_ENV"; fi
+          set +e
+          xcodebuild \
+            -project Astra.xcodeproj \
+            -scheme Astra \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            APP_BUNDLE_ID="$APP_BUNDLE_ID" APP_DISPLAY_NAME="$APP_DISPLAY_NAME" \
+            build > build.log 2>&1
+          STATUS=$?
+          {
+            echo "## 编译结果"
+            if [ $STATUS -eq 0 ]; then echo "✅ 成功"; else echo "❌ 失败"; fi
+            echo '```'
+            grep -E "error:" build.log | sort -u | head -80
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          grep -E "error:" build.log | sort -u | head -80
+          echo "---- warnings in project sources ----"
+          grep -E "/(Sources)/.*warning:" build.log | sort -u | head -80 || true
+          if [ $STATUS -ne 0 ]; then tail -60 build.log; exit 1; fi
+
+      - name: Package IPA
+        run: |
+          APP="build/Build/Products/Release-iphoneos/Astra.app"
+          plutil -p "$APP/Info.plist" | grep -E "CFBundleIdentifier|CFBundleDisplayName|UIFileSharingEnabled|LSSupportsOpeningDocumentsInPlace|AppIcon-" || true
+          rm -rf Payload && mkdir Payload
+          cp -R "$APP" Payload/
+          zip -qry Astra.ipa Payload
+          ls -lh Astra.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT }}
+          path: Astra.ipa
+
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log
+          path: build.log
+          if-no-files-found: ignore
