@@ -6,6 +6,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.filterAdultKey) private var filterAdult = true
     @State private var appIcon = AppIconOption.current
     @AppStorage(AppAccent.key) private var accentHex = ""
+    @AppStorage(ContentModeMenu.nativeKey) private var nativeModeMenu = false
 
     private var version: String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -79,8 +80,13 @@ struct SettingsView: View {
                         Label("强调色", systemImage: "paintpalette")
                     }
                 }
+                Toggle(isOn: $nativeModeMenu) {
+                    Label("首页模式菜单用系统原生样式", systemImage: "filemenu.and.selection")
+                }
             } header: {
                 Text("外观")
+            } footer: {
+                Text("首页左上角的模式切换菜单。原生样式在播放音乐时点按、滑选更稳定，但外观和原来的不同。")
             }
 
             Section {
@@ -346,12 +352,17 @@ struct JMFavoritesView: View {
         .navigationTitle("云端收藏")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
+            // 图标按钮：iOS 26 上 Picker 当工具栏按钮时会撑成一条长胶囊，文字还左右跳
             ToolbarItem(placement: .navigationBarTrailing) {
-                Picker("排序", selection: $sort) {
-                    Text("按收藏时间").tag("mr")
-                    Text("按更新时间").tag("mp")
+                Menu {
+                    Picker("排序", selection: $sort) {
+                        Text("按收藏时间").tag("mr")
+                        Text("按更新时间").tag("mp")
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
                 }
-                .pickerStyle(.menu)
+                .accessibilityLabel("排序")
             }
         }
         .task(id: folderID + sort) {

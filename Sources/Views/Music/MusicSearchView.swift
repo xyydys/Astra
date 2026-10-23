@@ -97,12 +97,17 @@ struct MusicSearchView: View {
                 }
             }
         } header: {
-            HStack {
+            HStack(alignment: .center) {
                 Text("搜索历史")
+                    .font(.subheadline.weight(.semibold))
                 Spacer()
-                Button("清空") { historyRaw = "" }
-                    .font(.footnote)
+                Button("清空", icon: "trash") { historyRaw = "" }
+                    .font(.footnote.weight(.medium))
+                    .glassButtonStyle()
+                    .controlSize(.small)
+                    .textCase(nil)
             }
+            .textCase(nil)
         }
     }
 

@@ -135,6 +135,26 @@ enum ReaderPageMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
+/// 点按屏幕左右两侧时怎么翻页（中间始终是呼出菜单）
+enum ReaderTapMode: String, Codable, CaseIterable, Identifiable {
+    /// 左边上一页，右边下一页
+    case sides
+    /// 两边都是下一页（单手阅读）
+    case forward
+    /// 不翻页，点哪里都是呼出菜单
+    case off
+
+    var id: String { rawValue }
+
+    var name: String {
+        switch self {
+        case .sides: return "左上右下"
+        case .forward: return "都下一页"
+        case .off: return "关闭"
+        }
+    }
+}
+
 struct ReaderSettings: Codable, Equatable {
     var fontSize: Double = 19
     /// 行间距、段间距都按字号的倍数
@@ -153,6 +173,10 @@ struct ReaderSettings: Codable, Equatable {
     var imageDim: Double = 0.25
     /// 换了背景图时加 1，用来触发重排（文字颜色可能变）
     var imageVersion = 0
+    /// 点按两侧翻页
+    var tapMode: ReaderTapMode = .sides
+    /// 音量键翻页（加大上一页、减小下一页）
+    var volumeKeys = false
 
     init() {}
 
@@ -172,6 +196,8 @@ struct ReaderSettings: Codable, Equatable {
         followSystemDark = (try? c.decodeIfPresent(Bool.self, forKey: .followSystemDark)) ?? d.followSystemDark
         imageDim = (try? c.decodeIfPresent(Double.self, forKey: .imageDim)) ?? d.imageDim
         imageVersion = (try? c.decodeIfPresent(Int.self, forKey: .imageVersion)) ?? d.imageVersion
+        tapMode = (try? c.decodeIfPresent(ReaderTapMode.self, forKey: .tapMode)) ?? d.tapMode
+        volumeKeys = (try? c.decodeIfPresent(Bool.self, forKey: .volumeKeys)) ?? d.volumeKeys
     }
 }
 
@@ -560,6 +586,7 @@ struct ReaderPager: UIViewControllerRepresentable {
         weak var pager: UIPageViewController?
         private var revision = -1
         private var contentRevision = -1
+        private var turnID = 0
 
         init(model: NovelReaderModel) {
             self.model = model
@@ -575,6 +602,7 @@ struct ReaderPager: UIViewControllerRepresentable {
         }
 
         func reset() {
+            turnID = model.turnRequest.id
             revision = model.revision
             contentRevision = model.contentRevision
             pager?.setViewControllers([controller(for: model.position)], direction: .forward, animated: false)
@@ -583,6 +611,10 @@ struct ReaderPager: UIViewControllerRepresentable {
         /// 设置变化重排版时整页重建；当前页是占位页（章节还在加载）时，加载完换成正文
         func sync() {
             guard let pager else { return }
+            if turnID != model.turnRequest.id {
+                turnID = model.turnRequest.id
+                turn(forward: model.turnRequest.forward)
+            }
             if revision != model.revision {
                 reset()
                 return
@@ -630,13 +662,10 @@ struct ReaderPager: UIViewControllerRepresentable {
                 model.showsMenu = false
                 return
             }
-            let x = recognizer.location(in: view).x / max(view.bounds.width, 1)
-            if x < 0.3 {
-                turn(forward: false)
-            } else if x > 0.7 {
-                turn(forward: true)
-            } else {
-                model.showsMenu = true
+            switch model.tapAction(x: recognizer.location(in: view).x / max(view.bounds.width, 1)) {
+            case .previous: turn(forward: false)
+            case .next: turn(forward: true)
+            case .menu: model.showsMenu = true
             }
         }
 
@@ -667,15 +696,31 @@ struct ReaderScrollPage: UIViewRepresentable {
     let page: Int
     let theme: ReaderTheme
     let margin: CGFloat
+    /// 点按：参数是点按位置在页面宽度上的比例（0 左 ~ 1 右）
+    var onTap: (CGFloat) -> Void = { _ in }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> ReaderPageView {
         let view = ReaderPageView()
         view.showsChrome = false
         view.drawsBackground = false
+        // 用 UIKit 的点按识别：和滚动不冲突，还能拿到点按位置（iOS 15 的 SwiftUI 点按拿不到）
+        view.addGestureRecognizer(UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tapped(_:))))
         return view
     }
 
+    final class Coordinator: NSObject {
+        var onTap: (CGFloat) -> Void = { _ in }
+
+        @objc func tapped(_ recognizer: UITapGestureRecognizer) {
+            guard let view = recognizer.view else { return }
+            onTap(recognizer.location(in: view).x / max(view.bounds.width, 1))
+        }
+    }
+
     func updateUIView(_ view: ReaderPageView, context: Context) {
+        context.coordinator.onTap = onTap
         view.theme = theme
         view.insets = UIEdgeInsets(top: 0, left: margin, bottom: 0, right: margin)
         view.content = ReaderPageView.Content(layout: layout, page: page, header: "", footerLeft: "", footerRight: "")

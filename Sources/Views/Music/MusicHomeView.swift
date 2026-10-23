@@ -43,8 +43,7 @@ struct MusicHomeView: View {
                 .padding(.top, 4)
         }
         .environment(\.colorScheme, .dark)
-        // 这一页始终是深色，底栏也明确用深色：交给系统按背景判断时，切换页面后底栏常常保持上一页的浅色
-        .darkTabBarCompat()
+        // 底栏的深浅由 RootView 直接设置（见 updateTabBarStyle）
         .navigationBarHiddenCompat()
         .task(id: player.current?.cover) {
             guard let cover = player.current?.cover, !cover.isEmpty else {

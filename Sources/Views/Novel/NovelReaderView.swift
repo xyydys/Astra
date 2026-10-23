@@ -27,6 +27,31 @@ final class NovelReaderModel: ObservableObject {
         didSet { if oldValue != systemDark, settings.followSystemDark { relayout() } }
     }
     @Published var showsMenu = false
+    /// 音量键等外部触发的翻页，翻页控件看到 id 变了就翻一页
+    @Published private(set) var turnRequest = TurnRequest()
+
+    struct TurnRequest: Equatable {
+        var id = 0
+        var forward = true
+    }
+
+    enum TapAction {
+        case previous, next, menu
+    }
+
+    func requestTurn(forward: Bool) {
+        turnRequest = TurnRequest(id: turnRequest.id + 1, forward: forward)
+    }
+
+    /// 点按位置（页面宽度的比例）对应的动作：两侧 30% 按设置翻页，中间呼出菜单
+    func tapAction(x: CGFloat) -> TapAction {
+        let side: TapAction? = x < 0.3 ? .previous : x > 0.7 ? .next : nil
+        switch (settings.tapMode, side) {
+        case (.sides, let action?): return action
+        case (.forward, _?): return .next
+        default: return .menu
+        }
+    }
 
     @Published private(set) var metrics = ReaderPaginator.Metrics(size: .zero, insets: .zero)
     @Published private(set) var position: ReaderPosition
@@ -333,6 +358,7 @@ struct NovelReaderView: View {
     @Environment(\.openURL) private var openURL
     /// 顶栏中间胶囊的高度，左右两个按钮跟它一样高
     @State private var titleHeight: CGFloat = 52
+    @State private var volumePager = VolumeKeyPager()
 
     init(request: NovelReadRequest) {
         _model = StateObject(wrappedValue: NovelReaderModel(request: request, settings: ReaderSettingsStore.shared.settings))
@@ -374,6 +400,8 @@ struct NovelReaderView: View {
         .sheet(isPresented: $showSettings) {
             ReaderSettingsSheet(store: store)
                 .sheetDetents([.height(430), .large], interactiveUpThrough: .height(430))
+                // 面板跟着阅读主题的深浅走（夜读时面板也是深色），不跟系统
+                .readerColorScheme(model.theme.colorScheme)
         }
         .sheet(isPresented: $showTOC) {
             NovelTOCSheet(chapters: model.chapters, current: model.position.chapter) { index in
@@ -381,7 +409,9 @@ struct NovelReaderView: View {
                 model.showsMenu = false
                 model.jump(to: index)
             }
+            .readerColorScheme(model.theme.colorScheme)
         }
+        .onChangeCompat(of: store.settings.volumeKeys, initial: true) { _, enabled in updateVolumeKeys(enabled) }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
             model.ensureLoaded(model.position.chapter)
@@ -389,6 +419,7 @@ struct NovelReaderView: View {
             sliderValue = Double(model.position.chapter)
         }
         .onDisappear {
+            volumePager.stop()
             UIApplication.shared.isIdleTimerDisabled = false
             saveTask?.cancel()
             saveRecord(model)
@@ -397,6 +428,16 @@ struct NovelReaderView: View {
         .onChangeCompat(of: systemScheme, initial: true) { _, scheme in model.systemDark = scheme == .dark }
         .onChangeCompat(of: model.position.chapter) { _, chapter in
             if !sliding { sliderValue = Double(chapter) }
+        }
+    }
+
+    private func updateVolumeKeys(_ enabled: Bool) {
+        if enabled {
+            let model = model
+            volumePager.onPress = { up in model.requestTurn(forward: !up) }
+            volumePager.start()
+        } else {
+            volumePager.stop()
         }
     }
 
@@ -587,12 +628,32 @@ struct ReaderScrollView: View {
             pages
         }
         .hideScrollIndicators()
-        .onTapGesture { model.showsMenu.toggle() }
         .onChangeCompat(of: scrolled) { _, position in
             if let position { model.didShow(position) }
         }
         .onChangeCompat(of: model.revision, initial: true) { restore() }
         .onChangeCompat(of: model.contentRevision) { restore() }
+        .onChangeCompat(of: model.turnRequest) { _, request in turn(forward: request.forward) }
+    }
+
+    /// 正文页上的点按（页面里用 UIKit 识别，拿得到位置）
+    private func tap(_ x: CGFloat) {
+        if model.showsMenu {
+            model.showsMenu = false
+            return
+        }
+        switch model.tapAction(x: x) {
+        case .previous: turn(forward: false)
+        case .next: turn(forward: true)
+        case .menu: model.showsMenu = true
+        }
+    }
+
+    /// 滚动模式的「翻一页」：滚到下一页 / 上一页的顶部
+    private func turn(forward: Bool) {
+        let current = scrolled ?? model.position
+        guard let target = forward ? model.position(after: current) : model.position(before: current) else { return }
+        withAnimation(.easeInOut(duration: 0.25)) { scrolled = target }
     }
 
     private var pages: some View {
@@ -626,11 +687,14 @@ struct ReaderScrollView: View {
     private func chapterView(_ chapter: Int) -> some View {
         if let layout = model.layout(chapter) {
             ForEach(layout.pages.indices, id: \.self) { index in
-                ReaderScrollPage(layout: layout, page: index, theme: model.theme, margin: CGFloat(model.settings.margin))
+                ReaderScrollPage(layout: layout, page: index, theme: model.theme, margin: CGFloat(model.settings.margin), onTap: tap)
                     .frame(height: layout.pages[index].usedHeight)
                     .scrollItem(ReaderPosition(chapter: chapter, page: index))
             }
-            Color.clear.frame(height: 48)
+            Color.clear
+                .frame(height: 48)
+                .contentShape(Rectangle())
+                .onTapGesture { model.showsMenu.toggle() }
         } else {
             VStack(spacing: 12) {
                 Text(model.chapters[chapter].title)
@@ -645,9 +709,19 @@ struct ReaderScrollView: View {
             }
             .foregroundStyle(Color(uiColor: model.theme.secondary))
             .frame(maxWidth: .infinity, minHeight: 320)
+            .contentShape(Rectangle())
+            .onTapGesture { model.showsMenu.toggle() }
             .scrollItem(ReaderPosition(chapter: chapter, page: 0))
             .onAppear { model.ensureLoaded(chapter) }
         }
+    }
+}
+
+private extension View {
+    /// 弹出面板的深浅色：SwiftUI 内容和面板本身（系统材质背景）都改
+    func readerColorScheme(_ scheme: ColorScheme) -> some View {
+        environment(\.colorScheme, scheme)
+            .preferredColorScheme(scheme)
     }
 }
 
@@ -812,6 +886,13 @@ struct ReaderSettingsSheet: View {
                     }
                 }
 
+                row("点按") {
+                    Picker("点按翻页", selection: $store.settings.tapMode) {
+                        ForEach(ReaderTapMode.allCases) { Text($0.name).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                }
+                Toggle("音量键翻页（加上一页，减下一页）", isOn: $store.settings.volumeKeys)
                 Toggle("首行缩进", isOn: $store.settings.indent)
                 Toggle("两端对齐", isOn: $store.settings.justify)
                 Toggle("深色模式时自动切到夜读", isOn: $store.settings.followSystemDark)

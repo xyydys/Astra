@@ -79,6 +79,13 @@ struct RootView: View {
         }
         .onChangeCompat(of: tab) { old, new in
             if new == .search, old != .search { tabBeforeSearch = old }
+            updateTabBarStyle()
+        }
+        .onChangeCompat(of: mode) { updateTabBarStyle() }
+        .onAppear {
+            updateTabBarStyle()
+            // 冷启动时 TabView 底下的 UITabBarController 可能还没建好，稍后再设一次
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { updateTabBarStyle() }
         }
         .onOpenURL { url in
             Task {
@@ -108,6 +115,30 @@ struct RootView: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
+    }
+
+    /// 音乐首页是深色的，底栏也要深色；其他页面跟随系统。
+    /// 直接改 UIKit 底栏的深浅：用 SwiftUI 的 toolbarColorScheme 切换标签时生效很慢，
+    /// 经常停在别的页面了底栏还是上一页的颜色
+    private func updateTabBarStyle() {
+        let style: UIUserInterfaceStyle = tab == .home && mode == .music ? .dark : .unspecified
+        for scene in UIApplication.shared.connectedScenes {
+            for window in (scene as? UIWindowScene)?.windows ?? [] {
+                guard let controller = Self.tabBarController(in: window.rootViewController) else { continue }
+                if controller.tabBar.overrideUserInterfaceStyle != style {
+                    controller.tabBar.overrideUserInterfaceStyle = style
+                }
+            }
+        }
+    }
+
+    private static func tabBarController(in root: UIViewController?) -> UITabBarController? {
+        guard let root else { return nil }
+        if let controller = root as? UITabBarController { return controller }
+        for child in root.children {
+            if let found = tabBarController(in: child) { return found }
+        }
+        return nil
     }
 
     private func restore(_ item: IncomingBackup) {
@@ -222,15 +253,52 @@ struct ContentModeMenu: View {
     @AppStorage("comicAgeConfirmed") private var ageConfirmed = false
     @State private var askAge = false
 
+    /// 设置里可以改成 UIKit 菜单（音乐播放时更稳），默认是原来的 SwiftUI 菜单
+    @AppStorage(ContentModeMenu.nativeKey) private var native = false
+
+    static let nativeKey = "contentModeMenuNative"
+
     var body: some View {
-        MenuButton(title: mode.title, systemImage: mode.icon, menuKey: mode) {
-            UIMenu.picker(
-                options: ContentMode.allCases.map { MenuOption(value: $0, title: $0.title, subtitle: $0.subtitle, systemImage: $0.icon) },
-                selected: mode
-            ) { select($0) }
+        Group {
+            if native {
+                MenuButton(title: mode.title, systemImage: mode.icon, menuKey: mode) {
+                    UIMenu.picker(
+                        options: ContentMode.allCases.map { MenuOption(value: $0, title: $0.title, subtitle: $0.subtitle, systemImage: $0.icon) },
+                        selected: mode
+                    ) { select($0) }
+                }
+                .fixedSize()
+                .glass(in: Capsule())
+            } else {
+                Menu {
+                    Picker("内容", selection: Binding(get: { mode }, set: { select($0) })) {
+                        ForEach(ContentMode.allCases) { item in
+                            Label {
+                                Text(item.title)
+                                Text(item.subtitle)
+                            } icon: {
+                                Image(systemName: item.icon)
+                            }
+                            .tag(item)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: mode.icon)
+                        Text(mode.title)
+                        Image(systemName: "chevron.down")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .glass(interactive: true, in: Capsule())
+            }
         }
-        .fixedSize()
-        .glass(in: Capsule())
         .accessibilityLabel("切换内容：当前\(mode.title)")
         .alert("成人内容提示", isPresented: $askAge) {
             Button("取消", role: .cancel) {}
