@@ -270,6 +270,7 @@ enum AppBackup {
         LXSourceStore.shared.reload()
         MusicLibrary.shared.reload()
         ReaderSettingsStore.shared.reload()
+        ReaderBackground.shared.reload()
     }
 }
 

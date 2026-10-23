@@ -5,6 +5,7 @@ import AVFoundation
 @main
 struct AstraApp: App {
     @StateObject private var ruleStore = RuleStore()
+    @AppStorage(AppAccent.key) private var accentHex = ""
 
     init() {
         #if DEBUG
@@ -39,7 +40,10 @@ struct AstraApp: App {
                 #endif
             }
             .environmentObject(ruleStore)
-            .tint(.pink)
+            .tint(AppAccent.color(accentHex))
+            .accentColor(AppAccent.color(accentHex))
+            .onAppear { AppAccent.applyToWindows(accentHex) }
+            .onChangeCompat(of: accentHex) { AppAccent.applyToWindows(accentHex) }
         }
     }
 }
@@ -53,6 +57,17 @@ struct RootView: View {
     /// 进入搜索标签前所在的标签，关闭搜索时回到这里
     @State private var tabBeforeSearch: AppTab = .home
     @AppStorage(AppSettings.contentModeKey) private var mode: ContentMode = .anime
+    @EnvironmentObject private var ruleStore: RuleStore
+    /// 从其他 App 打开的文件的导入结果
+    @State private var incomingMessage: String?
+    @State private var incomingBackup: IncomingBackup?
+
+    struct IncomingBackup: Identifiable {
+        let id = UUID()
+        let name: String
+        let archive: AppBackup.Archive
+        let summary: AppBackup.Summary
+    }
 
     var body: some View {
         Group {
@@ -65,12 +80,45 @@ struct RootView: View {
         .onChangeCompat(of: tab) { old, new in
             if new == .search, old != .search { tabBeforeSearch = old }
         }
+        .onOpenURL { url in
+            Task {
+                switch await IncomingFile.handle(url, rules: ruleStore) {
+                case .message(let text): incomingMessage = text
+                case .backup(let name, let archive, let summary):
+                    incomingBackup = IncomingBackup(name: name, archive: archive, summary: summary)
+                case nil: break
+                }
+            }
+        }
+        .alert("导入", isPresented: Binding(get: { incomingMessage != nil }, set: { if !$0 { incomingMessage = nil } })) {
+            Button("好") { incomingMessage = nil }
+        } message: {
+            Text(incomingMessage ?? "")
+        }
+        .alert("恢复备份", isPresented: Binding(get: { incomingBackup != nil }, set: { if !$0 { incomingBackup = nil } }), presenting: incomingBackup) { item in
+            Button("取消", role: .cancel) {}
+            Button("恢复") { restore(item) }
+        } message: { item in
+            Text("\(item.name)\n\n\(item.summary.text.isEmpty ? "备份是空的" : item.summary.text)\n\n片源、书源、音源、书架和设置会换成备份里的内容，收藏和历史会合并。恢复前会自动把当前数据另存一份备份。")
+        }
         .background {
             HiddenWebViewHost(webView: XPathEngine.shared.webView)
                 .frame(width: 2, height: 2)
                 .opacity(0.02)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
+        }
+    }
+
+    private func restore(_ item: IncomingBackup) {
+        Task {
+            do {
+                _ = try? await AppBackup.export(prefix: "恢复前自动备份")
+                try await AppBackup.restore(item.archive, rules: ruleStore)
+                incomingMessage = "已恢复：\(item.summary.text)"
+            } catch {
+                incomingMessage = "恢复失败：\(error.localizedDescription)"
+            }
         }
     }
 
@@ -175,42 +223,14 @@ struct ContentModeMenu: View {
     @State private var askAge = false
 
     var body: some View {
-        Menu {
-            Picker("内容", selection: Binding(
-                get: { mode },
-                set: { newMode in
-                    if newMode == .comic, !ageConfirmed {
-                        askAge = true
-                    } else {
-                        withAnimation(.smoothCompat) { mode = newMode }
-                    }
-                }
-            )) {
-                ForEach(ContentMode.allCases) { item in
-                    Label {
-                        Text(item.title)
-                        Text(item.subtitle)
-                    } icon: {
-                        Image(systemName: item.icon)
-                    }
-                    .tag(item)
-                }
-            }
-            .pickerStyle(.inline)
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: mode.icon)
-                Text(mode.title)
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
-            }
-            .font(.subheadline.weight(.semibold))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .contentShape(Capsule())
+        MenuButton(title: mode.title, systemImage: mode.icon, menuKey: mode) {
+            UIMenu.picker(
+                options: ContentMode.allCases.map { MenuOption(value: $0, title: $0.title, subtitle: $0.subtitle, systemImage: $0.icon) },
+                selected: mode
+            ) { select($0) }
         }
-        .buttonStyle(.plain)
-        .glass(interactive: true, in: Capsule())
+        .fixedSize()
+        .glass(in: Capsule())
         .accessibilityLabel("切换内容：当前\(mode.title)")
         .alert("成人内容提示", isPresented: $askAge) {
             Button("取消", role: .cancel) {}
@@ -220,6 +240,14 @@ struct ContentModeMenu: View {
             }
         } message: {
             Text("漫画模式的资源来自禁漫天堂，含有成人内容，仅限已满 18 岁的用户使用。请先了解当地法律。")
+        }
+    }
+
+    private func select(_ newMode: ContentMode) {
+        if newMode == .comic, !ageConfirmed {
+            askAge = true
+        } else {
+            withAnimation(.smoothCompat) { mode = newMode }
         }
     }
 }

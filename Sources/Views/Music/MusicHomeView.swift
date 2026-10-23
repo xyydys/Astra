@@ -239,7 +239,7 @@ private struct MusicControls: View {
 
 // MARK: 特效切换（右上角，和左上角的模式切换一样是原生下拉菜单）
 
-/// 只依赖两个设置项，播放进度刷新时不会重建，菜单展开后能正常点按和滑选
+/// 用 UIKit 的菜单：播放时页面在不停刷新，SwiftUI 的 Menu 展开后会失灵（见 MenuButton）
 private struct FoliaEffectMenu: View {
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
@@ -248,37 +248,26 @@ private struct FoliaEffectMenu: View {
     private var background: FoliaBackground { FoliaBackground(rawValue: backgroundRaw) ?? .latent }
 
     var body: some View {
-        Menu {
-            Picker("歌词特效", selection: $modeRaw) {
-                ForEach(FoliaMode.allCases) { item in
-                    Label(item.name, systemImage: item.icon).tag(item.rawValue)
-                }
-            }
-            .pickerStyle(.inline)
-            Menu {
-                Picker("背景", selection: $backgroundRaw) {
-                    ForEach(FoliaBackground.allCases) { item in
-                        Text(item.name).tag(item.rawValue)
-                    }
-                }
-                .pickerStyle(.inline)
-            } label: {
-                Label("背景：\(background.name)", systemImage: "circle.lefthalf.filled")
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "wand.and.sparkles")
-                Text(mode.name)
-                Image(systemName: "chevron.down")
-                    .font(.caption2.weight(.bold))
-            }
-            .font(.subheadline.weight(.semibold))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 9)
-            .contentShape(Capsule())
+        MenuButton(
+            title: mode.name,
+            systemImage: "wand.and.sparkles",
+            menuKey: [modeRaw, backgroundRaw]
+        ) {
+            let modes = UIMenu.picker(
+                options: FoliaMode.allCases.map { MenuOption(value: $0.rawValue, title: $0.name, systemImage: $0.icon) },
+                selected: modeRaw
+            ) { modeRaw = $0 }
+            let backgrounds = UIMenu.picker(
+                title: "背景：\(background.name)",
+                image: UIImage(systemName: "circle.lefthalf.filled"),
+                inline: false,
+                options: FoliaBackground.allCases.map { MenuOption(value: $0.rawValue, title: $0.name) },
+                selected: backgroundRaw
+            ) { backgroundRaw = $0 }
+            return UIMenu(title: "歌词特效", children: [modes, backgrounds])
         }
-        .buttonStyle(.plain)
-        .glass(interactive: true, in: Capsule())
+        .fixedSize()
+        .glass(in: Capsule())
         .accessibilityLabel("切换歌词特效：当前\(mode.name)")
     }
 }

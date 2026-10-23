@@ -201,6 +201,7 @@ struct ComicHomeView: View {
     @State private var scroll = HeroScrollState()
     @State private var contentScheme: ColorScheme?
     @StateObject private var browse = ComicListModel()
+    @ObservedObject private var account = JMAccount.shared
     @State private var category = "0"
     @State private var sort = "mr"
     @Environment(\.colorScheme) private var systemScheme
@@ -219,6 +220,30 @@ struct ComicHomeView: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
+                }
+
+                if let user = account.user {
+                    NavigationLink(destination: JMFavoritesView()) {
+                        HStack(spacing: 14) {
+                            Image(systemName: "icloud.fill")
+                                .font(.title2)
+                                .foregroundStyle(.tint)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("我的云端收藏")
+                                    .font(.headline)
+                                Text("\(user.username) · \(user.favorites) 本")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding()
+                        .glass(interactive: true, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal)
                 }
 
                 ForEach(model.sections) { section in

@@ -6,6 +6,7 @@ struct BookSourcesView: View {
     @State private var query = ""
     @State private var group = ""
     @State private var showImport = false
+    @State private var showFilePicker = false
     @State private var message: String?
     @State private var health: [String: SourceHealth] = [:]
     @State private var checking = false
@@ -71,6 +72,7 @@ struct BookSourcesView: View {
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Button("导入书源", icon: "square.and.arrow.down") { showImport = true }
+                    Button("从文件导入", icon: "doc") { showFilePicker = true }
                     Button("从剪贴板导入", icon: "doc.on.clipboard") { importClipboard() }
                     Divider()
                     if !store.groups.isEmpty {
@@ -98,6 +100,10 @@ struct BookSourcesView: View {
                 showImport = false
                 Task { await runImport(text) }
             }
+        }
+        .filePicker(isPresented: $showFilePicker) { data, _ in
+            let text = TextDecoding.string(from: data)
+            Task { await runImport(text) }
         }
         .alert("书源", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好") { message = nil }

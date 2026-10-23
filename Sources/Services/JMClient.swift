@@ -44,6 +44,34 @@ struct JMSection: Hashable, Identifiable, Codable, Sendable {
     var id: String { title }
 }
 
+/// 登录后的账号信息
+struct JMUser: Codable, Equatable, Sendable {
+    var uid: String
+    var username: String
+    var photo: String
+    var level: Int
+    var levelName: String
+    var coin: String
+    var favorites: Int
+    var favoritesMax: Int
+
+    var avatarURL: String? {
+        photo.isEmpty || photo.hasPrefix("nopic") ? nil : "\(JMClient.imageHost)/media/users/\(photo)"
+    }
+}
+
+/// 云端收藏夹（folder_id 为 "0" 是「全部」）
+struct JMFolder: Codable, Hashable, Identifiable, Sendable {
+    var id: String
+    var name: String
+}
+
+struct JMFavoritesPage: Sendable {
+    var comics: [JMComic]
+    var folders: [JMFolder]
+    var total: Int
+}
+
 struct JMPage: Sendable {
     var comics: [JMComic]
     var total: Int
@@ -106,6 +134,7 @@ enum JMClient {
         static let imageHost = "jmImageHost"
         static let refreshedAt = "jmDomainsRefreshedAt"
         static let username = "jmUsername"
+        static let user = "jmUser"
     }
 
     static var domains: [String] {
@@ -131,6 +160,11 @@ enum JMClient {
 
     static var username: String? {
         UserDefaults.standard.string(forKey: Key.username)
+    }
+
+    /// 上次登录时拿到的账号信息
+    static var savedUser: JMUser? {
+        UserDefaults.standard.data(forKey: Key.user).flatMap { try? JSONDecoder().decode(JMUser.self, from: $0) }
     }
 
     static var baseURL: String { "https://" + domains[domainIndex] }
@@ -262,19 +296,44 @@ enum JMClient {
         return names.map { pageURL(chapterID: chapterID, name: $0) }
     }
 
+    /// 登录：账号密码存钥匙串；返回的 s 是会话 cookie（AVS），之后的请求都要带上
     @discardableResult
-    static func login(username: String, password: String) async throws -> String {
-        let json = try await post("/login", form: ["username": username, "password": password])
+    static func login(username: String, password: String) async throws -> JMUser {
+        let json = try await post("/login", form: ["username": username, "password": password], allowRelogin: false)
         guard let dict = json as? [String: Any] else { throw JMError.invalidData }
-        let name = JSONValue.string(dict["username"]).isEmpty ? username : JSONValue.string(dict["username"])
+        let session = JSONValue.string(dict["s"])
+        if !session.isEmpty { setSessionCookie(session) }
+        let user = JMUser(
+            uid: JSONValue.string(dict["uid"]),
+            username: JSONValue.string(dict["username"]).isEmpty ? username : JSONValue.string(dict["username"]),
+            photo: JSONValue.string(dict["photo"]),
+            level: JSONValue.int(dict["level"]) ?? 0,
+            levelName: JSONValue.string(dict["level_name"]),
+            coin: JSONValue.string(dict["coin"]),
+            favorites: JSONValue.int(dict["album_favorites"]) ?? 0,
+            favoritesMax: JSONValue.int(dict["album_favorites_max"]) ?? 0
+        )
         UserDefaults.standard.set(username, forKey: Key.username)
+        UserDefaults.standard.set(try? JSONEncoder().encode(user), forKey: Key.user)
         Keychain.set(password, for: "jm:" + username)
-        return name
+        return user
+    }
+
+    /// 所有线路都带上会话 cookie（换线路后不用重新登录）
+    private static func setSessionCookie(_ value: String) {
+        for domain in domains {
+            let properties: [HTTPCookiePropertyKey: Any] = [
+                .domain: domain, .path: "/", .name: "AVS", .value: value, .secure: "TRUE",
+                .expires: Date().addingTimeInterval(30 * 24 * 3600),
+            ]
+            if let cookie = HTTPCookie(properties: properties) { HTTPCookieStorage.shared.setCookie(cookie) }
+        }
     }
 
     static func logout() {
         if let username { Keychain.delete("jm:" + username) }
         UserDefaults.standard.removeObject(forKey: Key.username)
+        UserDefaults.standard.removeObject(forKey: Key.user)
         for domain in domains {
             for cookie in HTTPCookieStorage.shared.cookies(for: URL(string: "https://" + domain)!) ?? [] {
                 HTTPCookieStorage.shared.deleteCookie(cookie)
@@ -282,10 +341,44 @@ enum JMClient {
         }
     }
 
+    // MARK: 云端收藏
+
+    /// 收藏夹里的本子。sort：mr 收藏时间、mp 更新时间
+    static func favorites(page: Int, folderID: String = "0", sort: String = "mr") async throws -> JMFavoritesPage {
+        let json = try await get("/favorite", query: ["page": "\(page)", "folder_id": folderID, "o": sort])
+        let dict = json as? [String: Any] ?? [:]
+        let comics = (dict["list"] as? [[String: Any]] ?? []).compactMap(parseComic)
+        let folders = (dict["folder_list"] as? [[String: Any]] ?? []).compactMap { item -> JMFolder? in
+            let id = JSONValue.string(item["FID"])
+            guard !id.isEmpty else { return nil }
+            return JMFolder(id: id, name: JSONValue.string(item["name"]))
+        }
+        return JMFavoritesPage(comics: comics, folders: folders, total: JSONValue.int(dict["total"]) ?? comics.count)
+    }
+
+    /// 收藏 / 取消收藏。接口本身是切换，返回 type 说明这次是加入还是移除，和想要的不一致就再切一次
+    static func setFavorite(_ id: String, _ favorite: Bool) async throws {
+        func toggle() async throws -> Bool? {
+            let json = try await post("/favorite", form: ["aid": id], allowRelogin: true)
+            let dict = json as? [String: Any] ?? [:]
+            let type = JSONValue.string(dict["type"]).lowercased()
+            if type == "add" { return true }
+            if type == "remove" { return false }
+            let message = JSONValue.string(dict["msg"])
+            if message.contains("移除") || message.contains("取消") { return false }
+            if message.contains("加入") || message.contains("成功") { return true }
+            return nil
+        }
+        let result = try await toggle()
+        if let result, result != favorite { _ = try await toggle() }
+    }
+
     /// 接口提示要登录时，用保存的账号重新登录一次
     private static func relogin() async -> Bool {
         guard let username, let password = Keychain.get("jm:" + username) else { return false }
-        return (try? await login(username: username, password: password)) != nil
+        guard let user = try? await login(username: username, password: password) else { return false }
+        await MainActor.run { JMAccount.shared.user = user }
+        return true
     }
 
     // MARK: 请求
@@ -318,8 +411,8 @@ enum JMClient {
         try await send(path: path, query: query, form: nil, allowRelogin: true)
     }
 
-    private static func post(_ path: String, form: [String: String]) async throws -> Any {
-        try await send(path: path, query: [:], form: form, allowRelogin: false)
+    private static func post(_ path: String, form: [String: String], allowRelogin: Bool) async throws -> Any {
+        try await send(path: path, query: [:], form: form, allowRelogin: allowRelogin)
     }
 
     private static func encode(_ pairs: [String: String]) -> String {

@@ -46,6 +46,17 @@ targets:
         # Documents 在「文件」App 里可见（备份文件放在 Documents/备份）
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true
+        # 其他 App 里「用其他应用打开 / 分享」可以选 Astra：音源脚本、书源 / 片源 JSON、备份文件
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: 音源、书源、片源或备份
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.json
+              - com.netscape.javascript-source
+              - public.plain-text
+              - public.text
+              - public.data
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft

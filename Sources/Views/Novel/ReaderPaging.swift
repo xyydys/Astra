@@ -6,6 +6,8 @@ import UIKit
 
 enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
     case white, paper, green, gray, night, black
+    /// 自定义背景图（ReaderBackground），文字颜色按图片明暗自动选
+    case image
 
     var id: String { rawValue }
 
@@ -17,6 +19,7 @@ enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
         case .gray: return "烟灰"
         case .night: return "夜读"
         case .black: return "墨黑"
+        case .image: return "图片"
         }
     }
 
@@ -28,6 +31,7 @@ enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
         case .gray: return UIColor(red: 0.886, green: 0.886, blue: 0.894, alpha: 1)
         case .night: return UIColor(red: 0.110, green: 0.114, blue: 0.125, alpha: 1)
         case .black: return .black
+        case .image: return ReaderBackground.shared.baseColor
         }
     }
 
@@ -39,12 +43,22 @@ enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
         case .gray: return UIColor(red: 0.17, green: 0.17, blue: 0.18, alpha: 1)
         case .night: return UIColor(red: 0.62, green: 0.62, blue: 0.60, alpha: 1)
         case .black: return UIColor(red: 0.45, green: 0.45, blue: 0.44, alpha: 1)
+        case .image: return isDark ? UIColor(white: 0.93, alpha: 1) : UIColor(white: 0.1, alpha: 1)
         }
     }
 
-    var secondary: UIColor { text.withAlphaComponent(isDark ? 0.55 : 0.45) }
+    var secondary: UIColor { text.withAlphaComponent(isDark ? 0.62 : 0.5) }
 
-    var isDark: Bool { self == .night || self == .black }
+    var isDark: Bool {
+        switch self {
+        case .night, .black: return true
+        case .image: return ReaderBackground.shared.isDark
+        default: return false
+        }
+    }
+
+    /// 内置的纯色主题（设置里的色块）
+    static var solid: [ReaderTheme] { allCases.filter { $0 != .image } }
 
     var colorScheme: ColorScheme { isDark ? .dark : .light }
 }
@@ -135,6 +149,132 @@ struct ReaderSettings: Codable, Equatable {
 
     /// 跟着系统深色模式切到夜读
     var followSystemDark = true
+    /// 背景图上蒙一层（0 不蒙 ~ 0.8），让文字更清楚
+    var imageDim: Double = 0.25
+    /// 换了背景图时加 1，用来触发重排（文字颜色可能变）
+    var imageVersion = 0
+
+    init() {}
+
+    /// 逐项读取：以后加了新设置项，旧版本存的设置也能读出来，不会整个重置
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = ReaderSettings()
+        fontSize = (try? c.decodeIfPresent(Double.self, forKey: .fontSize)) ?? d.fontSize
+        lineSpacing = (try? c.decodeIfPresent(Double.self, forKey: .lineSpacing)) ?? d.lineSpacing
+        paragraphSpacing = (try? c.decodeIfPresent(Double.self, forKey: .paragraphSpacing)) ?? d.paragraphSpacing
+        margin = (try? c.decodeIfPresent(Double.self, forKey: .margin)) ?? d.margin
+        theme = (try? c.decodeIfPresent(ReaderTheme.self, forKey: .theme)) ?? d.theme
+        font = (try? c.decodeIfPresent(ReaderFont.self, forKey: .font)) ?? d.font
+        pageMode = (try? c.decodeIfPresent(ReaderPageMode.self, forKey: .pageMode)) ?? d.pageMode
+        indent = (try? c.decodeIfPresent(Bool.self, forKey: .indent)) ?? d.indent
+        justify = (try? c.decodeIfPresent(Bool.self, forKey: .justify)) ?? d.justify
+        followSystemDark = (try? c.decodeIfPresent(Bool.self, forKey: .followSystemDark)) ?? d.followSystemDark
+        imageDim = (try? c.decodeIfPresent(Double.self, forKey: .imageDim)) ?? d.imageDim
+        imageVersion = (try? c.decodeIfPresent(Int.self, forKey: .imageVersion)) ?? d.imageVersion
+    }
+}
+
+/// 阅读器自定义背景图：存在 Application Support/Novel/reader-background.jpg（会进备份）。
+/// 按图片平均亮度和蒙层决定文字用深色还是浅色
+final class ReaderBackground {
+    static let shared = ReaderBackground()
+
+    private(set) var image: UIImage?
+    /// 图片的平均色（翻页控件的底色、图片没铺到的地方）
+    private(set) var averageColor = UIColor(white: 0.5, alpha: 1)
+    private var averageIsDark = false
+    /// 蒙层浓度（来自阅读设置）
+    var dim: Double = 0.25
+
+    static var fileURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("Novel", isDirectory: true)
+            .appendingPathComponent("reader-background.jpg")
+    }
+
+    private init() {
+        reload()
+    }
+
+    var hasImage: Bool { image != nil }
+
+    /// 蒙层颜色：暗图蒙黑、亮图蒙白，越蒙文字越清楚
+    var dimColor: UIColor {
+        (averageIsDark ? UIColor.black : UIColor.white).withAlphaComponent(CGFloat(min(max(dim, 0), 0.85)))
+    }
+
+    var isDark: Bool { image == nil ? false : averageIsDark }
+
+    /// 平均色叠上蒙层后的颜色
+    var baseColor: UIColor {
+        guard image != nil else { return ReaderTheme.paper.background }
+        return averageColor.mixed(with: averageIsDark ? .black : .white, CGFloat(min(max(dim, 0), 0.85)))
+    }
+
+    func reload() {
+        guard let data = try? Data(contentsOf: Self.fileURL), let loaded = UIImage(data: data) else {
+            image = nil
+            return
+        }
+        image = loaded
+        averageColor = Self.average(of: loaded)
+        var white: CGFloat = 0
+        averageColor.getWhite(&white, alpha: nil)
+        averageIsDark = white < 0.5
+    }
+
+    /// 保存：长边缩到 2400 像素以内，存成 JPEG
+    func save(_ source: UIImage) throws {
+        let maxSide: CGFloat = 2400
+        let size = source.size
+        let scale = min(1, maxSide / max(size.width * source.scale, size.height * source.scale))
+        let target = CGSize(width: (size.width * source.scale * scale).rounded(), height: (size.height * source.scale * scale).rounded())
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        format.opaque = true
+        let resized = UIGraphicsImageRenderer(size: target, format: format).image { _ in
+            source.draw(in: CGRect(origin: .zero, size: target))
+        }
+        guard let data = resized.jpegData(compressionQuality: 0.86) else { throw CocoaError(.fileWriteUnknown) }
+        try FileManager.default.createDirectory(at: Self.fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: Self.fileURL, options: .atomic)
+        reload()
+    }
+
+    func remove() {
+        try? FileManager.default.removeItem(at: Self.fileURL)
+        reload()
+    }
+
+    /// 铺满（按比例裁切）画到矩形里，再蒙一层
+    func draw(in rect: CGRect) {
+        guard let image else { return }
+        let size = image.size
+        let scale = max(rect.width / max(size.width, 1), rect.height / max(size.height, 1))
+        let drawSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let origin = CGPoint(x: rect.midX - drawSize.width / 2, y: rect.midY - drawSize.height / 2)
+        UIGraphicsGetCurrentContext()?.saveGState()
+        UIRectClip(rect)
+        image.draw(in: CGRect(origin: origin, size: drawSize))
+        dimColor.setFill()
+        UIRectFillUsingBlendMode(rect, .normal)
+        UIGraphicsGetCurrentContext()?.restoreGState()
+    }
+
+    private static func average(of image: UIImage) -> UIColor {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let pixel = UIGraphicsImageRenderer(size: CGSize(width: 1, height: 1), format: format).image { _ in
+            image.draw(in: CGRect(x: 0, y: 0, width: 1, height: 1))
+        }
+        guard let cg = pixel.cgImage, let data = cg.dataProvider?.data, let bytes = CFDataGetBytePtr(data) else {
+            return UIColor(white: 0.5, alpha: 1)
+        }
+        let isBGRA = cg.bitmapInfo.contains(.byteOrder32Little)
+        let r = CGFloat(bytes[isBGRA ? 2 : 0]) / 255, g = CGFloat(bytes[1]) / 255, b = CGFloat(bytes[isBGRA ? 0 : 2]) / 255
+        return UIColor(red: r, green: g, blue: b, alpha: 1)
+    }
 }
 
 @MainActor
@@ -144,6 +284,7 @@ final class ReaderSettingsStore: ObservableObject {
 
     @Published var settings: ReaderSettings {
         didSet {
+            ReaderBackground.shared.dim = settings.imageDim
             if let data = try? JSONEncoder().encode(settings) {
                 UserDefaults.standard.set(data, forKey: Self.key)
             }
@@ -157,6 +298,7 @@ final class ReaderSettingsStore: ObservableObject {
         } else {
             settings = ReaderSettings()
         }
+        ReaderBackground.shared.dim = settings.imageDim
     }
 
     /// 从备份恢复后重新读设置
@@ -285,10 +427,17 @@ final class ReaderPageView: UIView {
     }
 
     var content: Content? { didSet { setNeedsDisplay(); updateSpinner() } }
-    var theme: ReaderTheme = .paper { didSet { backgroundColor = theme.background; setNeedsDisplay() } }
+    var theme: ReaderTheme = .paper { didSet { updateBackground(); setNeedsDisplay() } }
     var insets: UIEdgeInsets = .zero { didSet { setNeedsDisplay() } }
     /// 滚动模式下不画页眉页脚
     var showsChrome = true
+    /// 滚动模式下页面透明，背景（颜色或图片）由外层统一铺，不然图片会一页一页重复
+    var drawsBackground = true { didSet { updateBackground(); setNeedsDisplay() } }
+
+    private func updateBackground() {
+        isOpaque = drawsBackground
+        backgroundColor = drawsBackground ? theme.background : .clear
+    }
 
     private let spinner = UIActivityIndicatorView(style: .medium)
 
@@ -313,8 +462,11 @@ final class ReaderPageView: UIView {
     }
 
     override func draw(_ rect: CGRect) {
-        theme.background.setFill()
-        UIRectFill(bounds)
+        if drawsBackground {
+            theme.background.setFill()
+            UIRectFill(bounds)
+            if theme == .image { ReaderBackground.shared.draw(in: bounds) }
+        }
         guard let content else { return }
         let small: [NSAttributedString.Key: Any] = [
             .font: UIFont.systemFont(ofSize: 11.5, weight: .regular),
@@ -519,6 +671,7 @@ struct ReaderScrollPage: UIViewRepresentable {
     func makeUIView(context: Context) -> ReaderPageView {
         let view = ReaderPageView()
         view.showsChrome = false
+        view.drawsBackground = false
         return view
     }
 

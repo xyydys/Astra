@@ -71,7 +71,7 @@ final class LXSourceStore: ObservableObject {
     /// 导入脚本：先跑一遍，能初始化才算成功
     @discardableResult
     func importScript(_ script: String, origin: String = "") async throws -> LXSourceEntry {
-        let text = script.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = script.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}")))
         guard text.contains("lx") else { throw MusicError.message("这不是洛雪音乐的自定义音源脚本") }
         let runtime = LXSourceRuntime(script: text)
         let sources = try await runtime.start()

@@ -296,6 +296,7 @@ struct ComicDetailView: View {
 
     private func toggleFavorite() {
         library.toggleFavorite(subject)
+        JMAccount.shared.mirrorFavorite(subject, favorite: library.isFavorite(subject.id))
     }
 }
 

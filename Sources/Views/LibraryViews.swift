@@ -298,7 +298,6 @@ private struct HistoryRow: View {
                     .lineLimit(1)
                 if record.duration > 0 {
                     ProgressView(value: record.progress)
-                        .tint(.pink)
                     Text(record.isNovel
                         ? "第 \(record.episodeIndex + 1) / \(max(record.roadIndex, record.episodeIndex + 1)) 章"
                         : record.isComic

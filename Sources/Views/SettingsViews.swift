@@ -5,6 +5,7 @@ struct SettingsView: View {
     @AppStorage(AppSettings.hlsAdFilterKey) private var hlsAdFilter = true
     @AppStorage(AppSettings.filterAdultKey) private var filterAdult = true
     @State private var appIcon = AppIconOption.current
+    @AppStorage(AppAccent.key) private var accentHex = ""
 
     private var version: String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -69,6 +70,15 @@ struct SettingsView: View {
                         Label("应用图标", systemImage: "app.badge")
                     }
                 }
+                NavigationLink {
+                    AccentColorPicker()
+                } label: {
+                    LabeledRow {
+                        Circle().fill(AppAccent.color(accentHex)).frame(width: 22, height: 22)
+                    } label: {
+                        Label("强调色", systemImage: "paintpalette")
+                    }
+                }
             } header: {
                 Text("外观")
             }
@@ -114,8 +124,9 @@ struct JMSettingsView: View {
     @State private var domainIndex = JMClient.domainIndex
     @State private var imageStream = JMClient.imageStream
     @State private var imageHost = JMClient.imageHost
-    @State private var username = JMClient.username
-    @State private var inputName = ""
+    @ObservedObject private var account = JMAccount.shared
+    @AppStorage(JMAccount.syncFavoritesKey) private var syncFavorites = true
+    @State private var inputName = JMClient.username ?? ""
     @State private var inputPassword = ""
     @State private var working = false
     @State private var message: String?
@@ -160,14 +171,54 @@ struct JMSettingsView: View {
                 Text("连不上或加载慢时换条线路 / 分流。线路列表来自禁漫官方分发地址，每半天自动刷新。")
             }
 
-            Section {
-                if let username {
-                    LabeledRow("已登录", value: username)
-                    Button("退出登录", role: .destructive) {
-                        JMClient.logout()
-                        self.username = nil
+            if let user = account.user {
+                Section {
+                    JMUserCard(user: user)
+                    NavigationLink {
+                        JMFavoritesView()
+                    } label: {
+                        LabeledRow {
+                            Text(user.favoritesMax > 0 ? "\(user.favorites) / \(user.favoritesMax)" : "\(user.favorites)")
+                        } label: {
+                            Label("云端收藏夹", systemImage: "icloud")
+                        }
                     }
-                } else {
+                    Button("刷新账号信息", icon: "arrow.clockwise") {
+                        run {
+                            try await account.refresh()
+                            return "已刷新"
+                        }
+                    }
+                    Button("退出登录", role: .destructive) {
+                        account.logout()
+                    }
+                } header: {
+                    Text("账号")
+                }
+
+                Section {
+                    Button("云端收藏 → 本地收藏", icon: "icloud.and.arrow.down") {
+                        run {
+                            let result = try await account.pullFavorites()
+                            return "云端共 \(result.total) 本，新加到本地收藏 \(result.added) 本"
+                        }
+                    }
+                    Button("本地漫画收藏 → 云端", icon: "icloud.and.arrow.up") {
+                        run {
+                            let count = try await account.pushFavorites()
+                            return count == 0 ? "本地的漫画收藏云端都有了" : "已上传 \(count) 本到云端收藏"
+                        }
+                    }
+                    Toggle(isOn: $syncFavorites) {
+                        Label("收藏时同步到账号", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                } header: {
+                    Text("收藏同步")
+                } footer: {
+                    Text("同步只会补上对方没有的本子，不会删除。打开「收藏时同步到账号」后，在详情页收藏或取消收藏，账号里也会跟着变。")
+                }
+            } else {
+                Section {
                     TextField("用户名", text: $inputName)
                         .textContentType(.username)
                         .textInputAutocapitalization(.never)
@@ -175,20 +226,20 @@ struct JMSettingsView: View {
                     SecureField("密码", text: $inputPassword)
                         .textContentType(.password)
                     Button("登录") {
-                        let name = inputName, password = inputPassword
+                        let name = inputName.trimmingCharacters(in: .whitespaces), password = inputPassword
                         run {
-                            try await JMClient.login(username: name, password: password)
-                            username = JMClient.username
+                            try await account.login(username: name, password: password)
                             inputPassword = ""
-                            return "登录成功"
+                            let result = try? await account.pullFavorites()
+                            return result.map { "登录成功，已从云端同步 \($0.added) 本收藏" } ?? "登录成功"
                         }
                     }
-                    .disabled(inputName.isEmpty || inputPassword.isEmpty)
+                    .disabled(inputName.isEmpty || inputPassword.isEmpty || working)
+                } header: {
+                    Text("账号")
+                } footer: {
+                    Text("用禁漫天堂的账号登录。登录后会把云端收藏同步到本地，密码保存在系统钥匙串里，登录过期时自动重新登录。")
                 }
-            } header: {
-                Text("账号")
-            } footer: {
-                Text("密码保存在系统钥匙串里，登录过期时会自动重新登录。")
             }
 
             if working || message != nil {
@@ -215,6 +266,104 @@ struct JMSettingsView: View {
                 message = error.localizedDescription
             }
             working = false
+        }
+    }
+}
+
+/// 禁漫账号信息卡片：头像、用户名、等级、金币
+struct JMUserCard: View {
+    let user: JMUser
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Group {
+                if let avatar = user.avatarURL {
+                    PosterImage(url: avatar)
+                } else {
+                    Image(systemName: "person.crop.circle.fill")
+                        .resizable()
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 54, height: 54)
+            .clipShape(Circle())
+            VStack(alignment: .leading, spacing: 4) {
+                Text(user.username)
+                    .font(.headline)
+                HStack(spacing: 10) {
+                    if !user.levelName.isEmpty || user.level > 0 {
+                        Label(user.levelName.isEmpty ? "Lv.\(user.level)" : "Lv.\(user.level) \(user.levelName)", systemImage: "star.circle")
+                    }
+                    if !user.coin.isEmpty {
+                        Label(user.coin, systemImage: "bitcoinsign.circle")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+/// 云端收藏夹：按收藏夹分组浏览
+struct JMFavoritesView: View {
+    @State private var folders: [JMFolder] = []
+    @State private var folderID = "0"
+    @State private var sort = "mr"
+    @StateObject private var model = ComicListModel()
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                if !folders.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
+                            TagChip(title: "全部", selected: folderID == "0") { folderID = "0" }
+                            ForEach(folders) { folder in
+                                TagChip(title: folder.name, selected: folderID == folder.id) { folderID = folder.id }
+                            }
+                        }
+                        .padding(.horizontal)
+                    }
+                    .hideScrollIndicators()
+                }
+                if model.total > 0 {
+                    Text("共 \(model.total) 本")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal)
+                }
+                ComicGrid(model: model)
+            }
+            .padding(.vertical)
+        }
+        .overlay {
+            if model.items.isEmpty, !model.isLoading, model.error == nil {
+                EmptyStateView("收藏夹是空的", systemImage: "heart")
+            }
+        }
+        .navigationTitle("云端收藏")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Picker("排序", selection: $sort) {
+                    Text("按收藏时间").tag("mr")
+                    Text("按更新时间").tag("mp")
+                }
+                .pickerStyle(.menu)
+            }
+        }
+        .task(id: folderID + sort) {
+            let folder = folderID, order = sort
+            model.loader = { page in
+                let result = try await JMClient.favorites(page: page, folderID: folder, sort: order)
+                if !result.folders.isEmpty {
+                    await MainActor.run { folders = result.folders }
+                }
+                return JMPage(comics: result.comics, total: result.total, redirectID: nil)
+            }
+            await model.reload()
         }
     }
 }
@@ -525,6 +674,7 @@ struct ImportRulesView: View {
     @State private var text = ""
     @State private var message: String?
     @State private var importing = false
+    @State private var showFilePicker = false
 
     var body: some View {
         Form {
@@ -537,6 +687,7 @@ struct ImportRulesView: View {
                 Button("从剪贴板粘贴", icon: "doc.on.clipboard") {
                     text = UIPasteboard.general.string ?? ""
                 }
+                Button("从文件读取", icon: "doc") { showFilePicker = true }
             } footer: {
                 Text("""
                 支持：
@@ -556,6 +707,9 @@ struct ImportRulesView: View {
             } else if let message {
                 Section { Text(message).font(.footnote) }
             }
+        }
+        .filePicker(isPresented: $showFilePicker) { data, _ in
+            text = TextDecoding.string(from: data)
         }
         .navigationTitle("导入片源")
         .navigationBarTitleDisplayMode(.inline)

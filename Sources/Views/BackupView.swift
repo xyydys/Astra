@@ -91,8 +91,9 @@ struct BackupView: View {
                     .glass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
         }
-        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json, .data]) { result in
-            if case .success(let url) = result { load(url) }
+        .sheet(isPresented: $showImporter) {
+            DocumentPicker { url in load(url) }
+                .ignoresSafeArea()
         }
         .alert("恢复备份", isPresented: Binding(get: { pending != nil }, set: { if !$0 { pending = nil } }), presenting: pending) { item in
             Button("取消", role: .cancel) {}

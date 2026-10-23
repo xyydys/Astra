@@ -277,16 +277,9 @@ struct MusicSourcesView: View {
         } message: {
             Text(message ?? "")
         }
-        .fileImporter(isPresented: $showFileImporter, allowedContentTypes: [.javaScript, .plainText, .text, .data]) { result in
-            guard case .success(let url) = result else { return }
-            let access = url.startAccessingSecurityScopedResource()
-            defer { if access { url.stopAccessingSecurityScopedResource() } }
-            guard let data = try? Data(contentsOf: url) else {
-                message = "读取文件失败"
-                return
-            }
-            let script = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
-            run { try await store.importScript(script, origin: url.lastPathComponent) }
+        .filePicker(isPresented: $showFileImporter) { data, name in
+            let script = TextDecoding.string(from: data)
+            run { try await store.importScript(script, origin: name) }
         }
         .task {
             logs = store.logs()

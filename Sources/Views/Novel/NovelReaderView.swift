@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UniformTypeIdentifiers
 
 /// 打开阅读器需要的信息
 struct NovelReadRequest: Identifiable {
@@ -61,7 +62,7 @@ final class NovelReaderModel: ObservableObject {
     }
 
     var theme: ReaderTheme {
-        if settings.followSystemDark, systemDark, !settings.theme.isDark { return .night }
+        if settings.followSystemDark, systemDark, settings.theme != .image, !settings.theme.isDark { return .night }
         return settings.theme
     }
 
@@ -83,6 +84,14 @@ final class NovelReaderModel: ObservableObject {
 
     func apply(_ new: ReaderSettings) {
         guard new != settings else { return }
+        // 只调了背景图蒙层：不用重新排版，重画一下页面就行（拖动滑块时不卡）
+        var other = new
+        other.imageDim = settings.imageDim
+        if other == settings {
+            settings = new
+            revision += 1
+            return
+        }
         if new.pageMode != settings.pageMode { scrollChapters = [position.chapter] }
         settings = new
         if !updateMetrics() { relayout() }
@@ -340,7 +349,7 @@ struct NovelReaderView: View {
             let full = CGSize(width: proxy.size.width + insets.leading + insets.trailing,
                               height: proxy.size.height + insets.top + insets.bottom)
             ZStack {
-                Color(uiColor: model.theme.background).ignoresSafeArea()
+                ReaderBackdrop(theme: model.theme, version: model.settings.imageVersion, dim: model.settings.imageDim)
                 switch model.settings.pageMode {
                 case .curl, .slide:
                     ReaderPager(model: model, mode: model.settings.pageMode)
@@ -642,6 +651,29 @@ struct ReaderScrollView: View {
     }
 }
 
+/// 阅读器底层背景：纯色，或者铺满的背景图加蒙层（滚动模式下页面透明，看到的就是这一层）
+private struct ReaderBackdrop: View {
+    let theme: ReaderTheme
+    /// 换图后变化，用来刷新
+    let version: Int
+    let dim: Double
+
+    var body: some View {
+        ZStack {
+            Color(uiColor: theme.background)
+            if theme == .image, let image = ReaderBackground.shared.image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .clipped()
+                    .overlay(Color(uiColor: ReaderBackground.shared.dimColor))
+            }
+        }
+        .ignoresSafeArea()
+    }
+}
+
 // MARK: - 排版设置
 
 struct ReaderSettingsSheet: View {
@@ -649,6 +681,9 @@ struct ReaderSettingsSheet: View {
     @State private var downloading: ReaderFont?
     @State private var downloadProgress = 0.0
     @State private var downloadFailed = false
+    @State private var showPhotoPicker = false
+    @State private var showImageFile = false
+    @State private var imageError: String?
 
     private let spacingPresets: [(String, Double, Double)] = [("紧凑", 0.4, 0.3), ("适中", 0.65, 0.5), ("宽松", 0.95, 0.8)]
     private let marginPresets: [(String, Double)] = [("窄", 16), ("中", 24), ("宽", 34)]
@@ -712,23 +747,68 @@ struct ReaderSettingsSheet: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("背景").font(.subheadline).foregroundStyle(.secondary)
                     HStack(spacing: 0) {
-                        ForEach(ReaderTheme.allCases) { theme in
+                        ForEach(ReaderTheme.solid) { theme in
                             Button {
                                 store.settings.theme = theme
                             } label: {
-                                VStack(spacing: 6) {
+                                themeSwatch(theme.name, selected: store.settings.theme == theme) {
                                     Circle()
                                         .fill(Color(uiColor: theme.background))
                                         .overlay(Text("文").font(.callout).foregroundStyle(Color(uiColor: theme.text)))
-                                        .overlay(Circle().strokeBorder(store.settings.theme == theme ? Color.accentColor : Color.primary.opacity(0.15),
-                                                                       lineWidth: store.settings.theme == theme ? 2.5 : 1))
-                                        .frame(width: 42, height: 42)
-                                    Text(theme.name).font(.caption2).foregroundStyle(.secondary)
                                 }
-                                .frame(maxWidth: .infinity)
                             }
                             .buttonStyle(.plain)
                         }
+                        Button {
+                            if ReaderBackground.shared.hasImage {
+                                store.settings.theme = .image
+                            } else {
+                                showPhotoPicker = true
+                            }
+                        } label: {
+                            themeSwatch("图片", selected: store.settings.theme == .image) {
+                                if let image = ReaderBackground.shared.image {
+                                    Image(uiImage: image)
+                                        .resizable()
+                                        .scaledToFill()
+                                        .clipShape(Circle())
+                                } else {
+                                    Circle()
+                                        .fill(Color.secondary.opacity(0.12))
+                                        .overlay(Image(systemName: "photo.badge.plus").font(.callout).foregroundStyle(.secondary))
+                                }
+                            }
+                            .id(store.settings.imageVersion)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if store.settings.theme == .image {
+                        HStack(spacing: 10) {
+                            Button("相册选图", icon: "photo") { showPhotoPicker = true }
+                                .glassButtonStyle()
+                            Button("文件选图", icon: "folder") { showImageFile = true }
+                                .glassButtonStyle()
+                            Spacer(minLength: 0)
+                        }
+                        .controlSize(.small)
+                        row("蒙层") {
+                            Slider(value: $store.settings.imageDim, in: 0...0.8)
+                        }
+                        if let imageError {
+                            Text(imageError).font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .sheet(isPresented: $showPhotoPicker) {
+                    PhotoPicker { useImage($0) }
+                        .ignoresSafeArea()
+                }
+                .filePicker(isPresented: $showImageFile, types: [.image]) { data, _ in
+                    if let image = UIImage(data: data) {
+                        useImage(image)
+                    } else {
+                        imageError = "这个文件不是能识别的图片"
                     }
                 }
 
@@ -737,6 +817,28 @@ struct ReaderSettingsSheet: View {
                 Toggle("深色模式时自动切到夜读", isOn: $store.settings.followSystemDark)
             }
             .padding(22)
+        }
+    }
+
+    private func themeSwatch(_ name: String, selected: Bool, @ViewBuilder content: () -> some View) -> some View {
+        VStack(spacing: 6) {
+            content()
+                .frame(width: 42, height: 42)
+                .overlay(Circle().strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.15), lineWidth: selected ? 2.5 : 1))
+            Text(name).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// 换背景图：保存后切到图片主题，并触发重排（文字深浅可能变）
+    private func useImage(_ image: UIImage) {
+        do {
+            try ReaderBackground.shared.save(image)
+            imageError = nil
+            store.settings.imageVersion += 1
+            store.settings.theme = .image
+        } catch {
+            imageError = "保存图片失败：\(error.localizedDescription)"
         }
     }
 

@@ -159,7 +159,7 @@ final class BookSourceStore: ObservableObject {
 
     /// 支持：书源 JSON（数组或单个）、JSON 地址、legado:// 一键导入链接，多行地址
     func importText(_ raw: String) async throws -> String {
-        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = raw.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}")))
         guard !text.isEmpty else { throw ImportError.empty }
         var datas: [Data] = []
         if text.hasPrefix("[") || text.hasPrefix("{") {
