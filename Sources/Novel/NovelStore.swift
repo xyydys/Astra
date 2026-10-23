@@ -157,37 +157,105 @@ final class BookSourceStore: ObservableObject {
         }
     }
 
-    /// 支持：书源 JSON（数组或单个）、JSON 地址、legado:// 一键导入链接，多行地址
+    /// 支持：书源 JSON（数组或单个）、JSON 地址、legado:// 一键导入链接，多行地址。
+    /// 从地址导入的会记下来（订阅），之后可以一键更新
     func importText(_ raw: String) async throws -> String {
         let text = raw.trimmingCharacters(in: CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "\u{FEFF}")))
         guard !text.isEmpty else { throw ImportError.empty }
-        var datas: [Data] = []
+        var batches: [(url: String?, data: Data)] = []
         if text.hasPrefix("[") || text.hasPrefix("{") {
-            datas = [Data(text.utf8)]
+            batches = [(nil, Data(text.utf8))]
         } else {
             let urls = text.components(separatedBy: .newlines)
                 .map { Self.extractSource($0.trimmingCharacters(in: .whitespaces)) }
                 .filter { EngineURL.isAbsolute($0) }
             guard !urls.isEmpty else { throw ImportError.nothingFound }
             for url in urls {
-                guard let target = URL.lenient(url) else { continue }
-                var request = URLRequest(url: target, timeoutInterval: 30)
-                request.setValue(JSEngine.userAgent, forHTTPHeaderField: "User-Agent")
-                let (data, _) = try await URLSession.shared.data(for: request)
-                datas.append(data)
+                batches.append((url, try await Self.fetch(url)))
             }
         }
-        let payload = datas
-        let list = await Task.detached(priority: .userInitiated) { () -> [BookSource] in
-            payload.flatMap { BookSource.decodeList($0) }
+        let payload = batches
+        let decoded = await Task.detached(priority: .userInitiated) { () -> [(String?, [BookSource])] in
+            payload.map { ($0.url, BookSource.decodeList($0.data)) }
         }.value
+        let list = decoded.flatMap(\.1)
         let text0 = list.filter(\.isText)
         guard !text0.isEmpty else { throw ImportError.nothingFound }
+        for (url, sources) in decoded {
+            guard let url else { continue }
+            remember(subscription: url, sources: sources.filter(\.isText))
+        }
         let result = install(text0)
         let skipped = list.count - text0.count
         var message = "导入 \(text0.count) 个书源：新增 \(result.added)，更新 \(result.updated)"
         if skipped > 0 { message += "；跳过 \(skipped) 个音频 / 漫画书源" }
         return message
+    }
+
+    private static func fetch(_ url: String) async throws -> Data {
+        guard let target = URL.lenient(url) else { throw ImportError.nothingFound }
+        var request = URLRequest(url: target, timeoutInterval: 30)
+        request.setValue(JSEngine.userAgent, forHTTPHeaderField: "User-Agent")
+        return try await URLSession.shared.data(for: request).0
+    }
+
+    // MARK: 订阅（从地址导入的书源，可以重新拉取更新）
+
+    private static let subscriptionsKey = "bookSourceSubscriptions"
+    private static let originsKey = "bookSourceOrigins"
+
+    /// 导入过的书源地址
+    var subscriptions: [String] {
+        UserDefaults.standard.stringArray(forKey: Self.subscriptionsKey) ?? []
+    }
+
+    /// 书源 → 它来自哪个订阅地址
+    private var origins: [String: String] {
+        get { UserDefaults.standard.dictionary(forKey: Self.originsKey) as? [String: String] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Self.originsKey) }
+    }
+
+    func subscription(of source: BookSource) -> String? { origins[source.bookSourceUrl] }
+
+    private func remember(subscription url: String, sources: [BookSource]) {
+        var list = subscriptions
+        if !list.contains(url) { list.append(url) }
+        UserDefaults.standard.set(list, forKey: Self.subscriptionsKey)
+        var map = origins
+        for source in sources { map[source.bookSourceUrl] = url }
+        origins = map
+    }
+
+    /// 重新拉取所有订阅地址
+    func refreshSubscriptions() async throws -> String {
+        let list = subscriptions
+        guard !list.isEmpty else { return "还没有从地址导入过书源，没有可以更新的订阅" }
+        var updated = 0, added = 0, failed = 0
+        for url in list {
+            do {
+                let sources = BookSource.decodeList(try await Self.fetch(url)).filter(\.isText)
+                remember(subscription: url, sources: sources)
+                let result = install(sources)
+                updated += result.updated
+                added += result.added
+            } catch {
+                failed += 1
+            }
+        }
+        var message = "已更新 \(list.count - failed) 个订阅：新增 \(added)，更新 \(updated)"
+        if failed > 0 { message += "；\(failed) 个订阅拉取失败" }
+        return message
+    }
+
+    /// 只更新一个书源（从它的订阅地址里找到同一个书源）
+    func refresh(_ source: BookSource) async throws -> String {
+        guard let url = subscription(of: source) else { return "「\(source.bookSourceName)」不是从地址导入的，没法更新" }
+        let sources = BookSource.decodeList(try await Self.fetch(url)).filter(\.isText)
+        guard let fresh = sources.first(where: { $0.bookSourceUrl == source.bookSourceUrl }) else {
+            return "订阅里已经没有「\(source.bookSourceName)」了"
+        }
+        install([fresh])
+        return "已更新「\(source.bookSourceName)」"
     }
 
     /// legado://import/bookSource?src=…、yuedu://booksource/importonline?src=…

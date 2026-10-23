@@ -197,6 +197,33 @@ enum JMClient {
         return servers.map { JSONValue.string($0) }.filter { !$0.isEmpty }.prefix(4).map { $0 }
     }
 
+    // MARK: 测速
+
+    /// API 线路延迟（毫秒）：请求一次 /setting，连不上返回 nil
+    static func latency(domain: String) async -> Int? {
+        let start = Date()
+        guard (try? await request(domain: domain, path: "/setting", query: [:], form: nil)) != nil else { return nil }
+        return Int(Date().timeIntervalSince(start) * 1000)
+    }
+
+    /// 某个图片分流对应的图片服务器
+    static func imageHost(stream: Int) async -> String? {
+        guard let json = try? await get("/setting", query: ["app_img_shunt": "\(stream)", "express": ""]) as? [String: Any] else { return nil }
+        let host = JSONValue.string(json["img_host"])
+        return host.hasPrefix("http") ? host : nil
+    }
+
+    /// 图片服务器延迟（毫秒）：对服务器发一个 HEAD 请求，有响应就算通
+    static func latency(imageHost host: String) async -> Int? {
+        guard let url = URL(string: host + "/media/albums/blank.jpg") else { return nil }
+        var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 6)
+        request.httpMethod = "HEAD"
+        for (key, value) in imageHeaders { request.setValue(value, forHTTPHeaderField: key) }
+        let start = Date()
+        guard (try? await URLSession.shared.data(for: request)) != nil else { return nil }
+        return Int(Date().timeIntervalSince(start) * 1000)
+    }
+
     static func refreshImageHost() async {
         guard let json = try? await get("/setting", query: ["app_img_shunt": "\(imageStream)", "express": ""]) as? [String: Any] else { return }
         let host = JSONValue.string(json["img_host"])

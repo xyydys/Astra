@@ -20,6 +20,9 @@ struct LXSourceEntry: Codable, Identifiable, Hashable {
     var platformNames: String {
         MusicPlatform.allCases.filter { sources[$0.rawValue] != nil }.map(\.short).joined(separator: " · ")
     }
+
+    /// 从网址导入的（可以重新下载更新）
+    var isRemote: Bool { origin.lowercased().hasPrefix("http") }
 }
 
 @MainActor

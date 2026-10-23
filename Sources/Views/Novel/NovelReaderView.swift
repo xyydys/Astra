@@ -399,7 +399,8 @@ struct NovelReaderView: View {
         .homeIndicatorHiddenCompat()
         .sheet(isPresented: $showSettings) {
             ReaderSettingsSheet(store: store)
-                .sheetDetents([.height(430), .large], interactiveUpThrough: .height(430))
+                // 不开背景交互：点面板外面就关掉面板
+                .sheetDetents([.height(430), .large])
                 // 面板跟着阅读主题的深浅走（夜读时面板也是深色），不跟系统
                 .readerColorScheme(model.theme.colorScheme)
         }
@@ -893,8 +894,11 @@ struct ReaderSettingsSheet: View {
                     .pickerStyle(.segmented)
                 }
                 Toggle("音量键翻页（加上一页，减下一页）", isOn: $store.settings.volumeKeys)
+                    .selectionFeedback(trigger: store.settings.volumeKeys)
                 Toggle("首行缩进", isOn: $store.settings.indent)
+                    .selectionFeedback(trigger: store.settings.indent)
                 Toggle("两端对齐", isOn: $store.settings.justify)
+                    .selectionFeedback(trigger: store.settings.justify)
                 Toggle("深色模式时自动切到夜读", isOn: $store.settings.followSystemDark)
             }
             .padding(22)

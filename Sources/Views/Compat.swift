@@ -656,3 +656,62 @@ private struct TextFieldAlert: ViewModifier {
         }
     }
 }
+
+// MARK: - 触感和提示
+
+enum Haptics {
+    static func tap() { UIImpactFeedbackGenerator(style: .light).impactOccurred() }
+    static func success() { UINotificationFeedbackGenerator().notificationOccurred(.success) }
+    static func failure() { UINotificationFeedbackGenerator().notificationOccurred(.error) }
+}
+
+extension View {
+    /// 顶部弹出的小提示条：working 时显示转圈，有消息时显示 2.5 秒后自动收起
+    func toast(_ message: Binding<String?>, working: Bool = false) -> some View {
+        modifier(ToastModifier(message: message, working: working))
+    }
+}
+
+private struct ToastModifier: ViewModifier {
+    @Binding var message: String?
+    let working: Bool
+    @State private var hideTask: Task<Void, Never>?
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                Group {
+                    if working {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                            Text("处理中…")
+                        }
+                    } else if let message {
+                        Text(message)
+                            .multilineTextAlignment(.center)
+                    }
+                }
+                .font(.subheadline.weight(.medium))
+                .padding(.horizontal, 18)
+                .padding(.vertical, 11)
+                .glass(in: Capsule())
+                .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .opacity(working || message != nil ? 1 : 0)
+                .offset(y: working || message != nil ? 0 : -20)
+                .animation(.snappyCompat, value: working)
+                .animation(.snappyCompat, value: message)
+                .allowsHitTesting(false)
+            }
+            .onChangeCompat(of: message) { _, value in
+                hideTask?.cancel()
+                guard value != nil else { return }
+                hideTask = Task { @MainActor in
+                    try? await Task.sleep(nanoseconds: 2_500_000_000)
+                    guard !Task.isCancelled else { return }
+                    message = nil
+                }
+            }
+    }
+}

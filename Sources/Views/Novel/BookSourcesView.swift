@@ -66,6 +66,17 @@ struct BookSourcesView: View {
         .overlay {
             if !store.isLoaded { ProgressView() }
         }
+        .refreshable {
+            guard !store.subscriptions.isEmpty else { return }
+            Haptics.tap()
+            do {
+                message = try await store.refreshSubscriptions()
+                Haptics.success()
+            } catch {
+                message = "更新失败：\(error.localizedDescription)"
+                Haptics.failure()
+            }
+        }
         .searchable(text: $query, prompt: "书源名称或地址")
         .navigationTitle("书源")
         .toolbar {
@@ -73,6 +84,8 @@ struct BookSourcesView: View {
                 Menu {
                     Button("导入书源", icon: "square.and.arrow.down") { showImport = true }
                     Button("从文件导入", icon: "doc") { showFilePicker = true }
+                    Button("更新订阅（\(store.subscriptions.count)）", icon: "arrow.clockwise") { refreshAll() }
+                        .disabled(store.subscriptions.isEmpty)
                     Button("从剪贴板导入", icon: "doc.on.clipboard") { importClipboard() }
                     Divider()
                     if !store.groups.isEmpty {
@@ -145,8 +158,19 @@ struct BookSourcesView: View {
             Toggle("", isOn: Binding(get: { source.enabled }, set: { _ in store.toggle(source.id) }))
                 .labelsHidden()
         }
+        .swipeActions(edge: .leading) {
+            if store.subscription(of: source) != nil {
+                Button("更新", icon: "arrow.clockwise") { refresh(source) }
+                    .tint(.blue)
+            }
+            Button("检测", icon: "checkmark.seal") { Task { await check([source]) } }
+                .tint(.green)
+        }
         .contextMenu {
             Button("置顶", icon: "arrow.up.to.line") { store.moveToTop(source.id) }
+            if store.subscription(of: source) != nil {
+                Button("从订阅更新", icon: "arrow.clockwise") { refresh(source) }
+            }
             Button("检测", icon: "checkmark.seal") { Task { await check([source]) } }
             Button("删除", icon: "trash", role: .destructive) { store.delete([source.id]) }
         }
@@ -157,6 +181,32 @@ struct BookSourcesView: View {
             message = try await store.importText(text)
         } catch {
             message = "导入失败：\(error.localizedDescription)"
+        }
+    }
+
+    private func refreshAll() {
+        Haptics.tap()
+        Task {
+            do {
+                message = try await store.refreshSubscriptions()
+                Haptics.success()
+            } catch {
+                message = "更新失败：\(error.localizedDescription)"
+                Haptics.failure()
+            }
+        }
+    }
+
+    private func refresh(_ source: BookSource) {
+        Haptics.tap()
+        Task {
+            do {
+                message = try await store.refresh(source)
+                Haptics.success()
+            } catch {
+                message = "更新失败：\(error.localizedDescription)"
+                Haptics.failure()
+            }
         }
     }
 

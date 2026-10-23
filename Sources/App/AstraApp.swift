@@ -15,6 +15,8 @@ struct AstraApp: App {
         AppBackup.prepareFolder()
         URLCache.shared = URLCache(memoryCapacity: 64 * 1024 * 1024, diskCapacity: 512 * 1024 * 1024)
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        Diag.log("启动", "App 启动")
+        DiagnosticLog.shared.startWatchdog()
         #if DEBUG
         UITestScenario.prepare()
         UITestScenario.startBarDump()
@@ -58,6 +60,8 @@ struct RootView: View {
     @State private var tabBeforeSearch: AppTab = .home
     @AppStorage(AppSettings.contentModeKey) private var mode: ContentMode = .anime
     @EnvironmentObject private var ruleStore: RuleStore
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.colorScheme) private var colorScheme
     /// 从其他 App 打开的文件的导入结果
     @State private var incomingMessage: String?
     @State private var incomingBackup: IncomingBackup?
@@ -79,9 +83,21 @@ struct RootView: View {
         }
         .onChangeCompat(of: tab) { old, new in
             if new == .search, old != .search { tabBeforeSearch = old }
+            Diag.log("界面", "标签 \(old) → \(new)")
             updateTabBarStyle()
         }
-        .onChangeCompat(of: mode) { updateTabBarStyle() }
+        .onChangeCompat(of: mode) { old, new in
+            Diag.log("界面", "模式 \(old.rawValue) → \(new.rawValue)")
+            updateTabBarStyle()
+        }
+        .onChangeCompat(of: colorScheme) { _, scheme in
+            Diag.log("界面", "系统深浅色 → \(scheme)")
+            updateTabBarStyle()
+        }
+        .onChangeCompat(of: scenePhase) { _, phase in
+            Diag.log("界面", "scenePhase=\(phase)")
+            if phase == .active { updateTabBarStyle() }
+        }
         .onAppear {
             updateTabBarStyle()
             // 冷启动时 TabView 底下的 UITabBarController 可能还没建好，稍后再设一次
@@ -121,14 +137,42 @@ struct RootView: View {
     /// 直接改 UIKit 底栏的深浅：用 SwiftUI 的 toolbarColorScheme 切换标签时生效很慢，
     /// 经常停在别的页面了底栏还是上一页的颜色
     private func updateTabBarStyle() {
-        let style: UIUserInterfaceStyle = tab == .home && mode == .music ? .dark : .unspecified
+        // 音乐首页固定深色；其他标签页明确设成系统当前的深浅（交给系统按内容判断时切换很慢）；
+        // 其他模式的首页背景跟着海报变，仍然交给系统
+        let system = UIScreen.main.traitCollection.userInterfaceStyle
+        let style: UIUserInterfaceStyle
+        if tab == .home {
+            style = mode == .music ? .dark : .unspecified
+        } else {
+            style = system
+        }
+        DiagnosticLog.context = "tab=\(tab) mode=\(mode.rawValue)"
+        var found = false
         for scene in UIApplication.shared.connectedScenes {
             for window in (scene as? UIWindowScene)?.windows ?? [] {
                 guard let controller = Self.tabBarController(in: window.rootViewController) else { continue }
-                if controller.tabBar.overrideUserInterfaceStyle != style {
+                found = true
+                let before = controller.tabBar.overrideUserInterfaceStyle
+                if before != style {
                     controller.tabBar.overrideUserInterfaceStyle = style
                 }
+                let bar = controller.tabBar
+                Diag.log("底栏", "tab=\(tab) mode=\(mode.rawValue) 设为 \(Self.name(style))（之前 \(Self.name(before))，系统 \(Self.name(system))）bar=\(type(of: bar)) hidden=\(bar.isHidden)")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    Diag.log("底栏", "0.3 秒后：override=\(Self.name(bar.overrideUserInterfaceStyle)) 实际=\(Self.name(bar.traitCollection.userInterfaceStyle))")
+                }
             }
+        }
+        if !found {
+            Diag.log("底栏", "没找到 UITabBarController（tab=\(tab) mode=\(mode.rawValue)）")
+        }
+    }
+
+    private static func name(_ style: UIUserInterfaceStyle) -> String {
+        switch style {
+        case .dark: return "深色"
+        case .light: return "浅色"
+        default: return "跟随"
         }
     }
 
@@ -208,13 +252,21 @@ struct RootView: View {
 
     private var favoritesTab: some View {
         NavigationStackCompat {
-            if mode == .music { MusicTrackListView(kind: .favorites) } else { FavoritesView() }
+            switch mode {
+            case .music: MusicTrackListView(kind: .favorites)
+            case .comic: ComicFavoritesView()
+            default: FavoritesView()
+            }
         }
     }
 
     private var historyTab: some View {
         NavigationStackCompat {
-            if mode == .music { MusicTrackListView(kind: .history) } else { HistoryView() }
+            switch mode {
+            case .music: MusicTrackListView(kind: .history)
+            case .comic: HistoryView(scope: .comicsOnly)
+            default: HistoryView()
+            }
         }
     }
 

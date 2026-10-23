@@ -177,43 +177,26 @@ struct FoliaLyricsView: UIViewRepresentable {
     let clockRevision: Int
     var active = true
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(player: player)
+    /// 歌词动画的网页整个 App 只建一次：每次进音乐页都新建 WebView、重新加载十几 MB 的脚本和 WebGL，
+    /// 打开音乐页会明显卡一下。离开页面时只是把它从界面上拿下来（不在窗口里时动画自动暂停）
+    func makeCoordinator() -> Coordinator { Coordinator.shared }
+
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .clear
+        context.coordinator.attach(to: container)
+        return container
     }
 
-    func makeUIView(context: Context) -> WKWebView {
-        let config = WKWebViewConfiguration()
-        config.setURLSchemeHandler(FoliaSchemeHandler(), forURLScheme: "folia")
-        config.userContentController.add(WeakMessageHandler(context.coordinator), name: "folia")
-        config.allowsInlineMediaPlayback = true
-        config.mediaTypesRequiringUserActionForPlayback = []
-        let webView = WKWebView(frame: .zero, configuration: config)
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
-        webView.scrollView.isScrollEnabled = false
-        webView.scrollView.contentInsetAdjustmentBehavior = .never
-        webView.scrollView.bounces = false
-        #if DEBUG
-        if #available(iOS 16.4, *) { webView.isInspectable = true }
-        #endif
-        context.coordinator.webView = webView
-        if let url = URL(string: "folia://app/folia-embed.html") {
-            webView.load(URLRequest(url: url))
-        }
-        return webView
-    }
-
-    func updateUIView(_ webView: WKWebView, context: Context) {
+    func updateUIView(_ container: UIView, context: Context) {
         context.coordinator.update(
             mode: mode, background: background, theme: theme,
             songRevision: songRevision, clockRevision: clockRevision, active: active
         )
     }
 
-    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
-        coordinator.stop()
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: "folia")
+    static func dismantleUIView(_ container: UIView, coordinator: Coordinator) {
+        coordinator.detach(from: container)
     }
 
     /// WKUserContentController 会强引用消息处理者，中间隔一层避免循环引用
@@ -231,8 +214,11 @@ struct FoliaLyricsView: UIViewRepresentable {
 
     @MainActor
     final class Coordinator {
+        static let shared = Coordinator(player: .shared)
+
         let player: MusicPlayer
-        weak var webView: WKWebView?
+        private(set) var webView: WKWebView?
+        private var createdAt = Date()
         private var ready = false
         private var mode: FoliaMode?
         private var background: FoliaBackground?
@@ -247,13 +233,61 @@ struct FoliaLyricsView: UIViewRepresentable {
             self.player = player
         }
 
+        func attach(to container: UIView) {
+            let started = Date()
+            let webView = self.webView ?? makeWebView()
+            webView.removeFromSuperview()
+            webView.frame = container.bounds
+            webView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            container.addSubview(webView)
+            if ready {
+                // 离开期间歌曲、进度可能都变了，重新推一遍
+                pushAll()
+                startTimer()
+            }
+            Diag.log("音乐", "歌词动画挂上界面（\(ready ? "复用已加载的网页" : "等待网页加载")）用时 \(Int(Date().timeIntervalSince(started) * 1000))ms")
+        }
+
+        func detach(from container: UIView) {
+            guard let webView, webView.superview === container || webView.superview == nil else { return }
+            webView.removeFromSuperview()
+            stop()
+            Diag.log("音乐", "歌词动画离开界面")
+        }
+
+        private func makeWebView() -> WKWebView {
+            createdAt = Date()
+            let config = WKWebViewConfiguration()
+            config.setURLSchemeHandler(FoliaSchemeHandler(), forURLScheme: "folia")
+            config.userContentController.add(WeakMessageHandler(self), name: "folia")
+            config.allowsInlineMediaPlayback = true
+            config.mediaTypesRequiringUserActionForPlayback = []
+            let webView = WKWebView(frame: .zero, configuration: config)
+            webView.isOpaque = false
+            webView.backgroundColor = .clear
+            webView.scrollView.backgroundColor = .clear
+            webView.scrollView.isScrollEnabled = false
+            webView.scrollView.contentInsetAdjustmentBehavior = .never
+            webView.scrollView.bounces = false
+            #if DEBUG
+            if #available(iOS 16.4, *) { webView.isInspectable = true }
+            #endif
+            self.webView = webView
+            if let url = URL(string: "folia://app/folia-embed.html") {
+                webView.load(URLRequest(url: url))
+            }
+            Diag.log("音乐", "新建歌词动画 WebView，开始加载 Folia")
+            return webView
+        }
+
         func receive(_ body: Any) {
             guard let message = body as? [String: Any], let type = message["type"] as? String else { return }
             switch type {
             case "ready":
                 ready = true
+                Diag.log("音乐", "Folia 网页就绪，加载用时 \(Int(Date().timeIntervalSince(createdAt) * 1000))ms")
                 pushAll()
-                startTimer()
+                if webView?.window != nil { startTimer() }
             case "seek":
                 if let time = message["time"] as? Double { player.seek(to: time) }
             case "log":

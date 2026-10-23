@@ -223,6 +223,12 @@ struct MusicSourcesView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .swipeActions(edge: .leading) {
+                        if entry.isRemote {
+                            Button("更新", icon: "arrow.clockwise") { update([entry]) }
+                                .tint(.blue)
+                        }
+                    }
                 }
                 .onDelete { offsets in
                     for index in offsets { store.delete(store.entries[index].id) }
@@ -265,6 +271,9 @@ struct MusicSourcesView: View {
                     Button("从网址导入", icon: "link") { showURLPrompt = true }
                     Button("从文件导入", icon: "doc") { showFileImporter = true }
                     Button("从剪贴板导入", icon: "doc.on.clipboard") { importClipboard() }
+                    Divider()
+                    Button("更新全部网址音源", icon: "arrow.clockwise") { update(store.entries.filter(\.isRemote)) }
+                        .disabled(!store.entries.contains(where: \.isRemote))
                 } label: {
                     if importing { ProgressView() } else { Image(systemName: "plus") }
                 }
@@ -286,7 +295,34 @@ struct MusicSourcesView: View {
             let script = TextDecoding.string(from: data)
             run { try await store.importScript(script, origin: name) }
         }
+        .refreshable {
+            let remote = store.entries.filter(\.isRemote)
+            guard !remote.isEmpty else { return }
+            update(remote)
+        }
         .task {
+            logs = store.logs()
+        }
+    }
+
+    /// 从导入时的网址重新下载音源脚本
+    private func update(_ entries: [LXSourceEntry]) {
+        guard !entries.isEmpty else { return }
+        Haptics.tap()
+        importing = true
+        Task {
+            var done: [String] = [], failed: [String] = []
+            for entry in entries {
+                do {
+                    _ = try await store.importURL(entry.origin)
+                    done.append(entry.info.name)
+                } catch {
+                    failed.append(entry.info.name)
+                }
+            }
+            importing = false
+            message = (done.isEmpty ? "" : "已更新：\(done.joined(separator: "、"))") + (failed.isEmpty ? "" : "\n更新失败：\(failed.joined(separator: "、"))")
+            failed.isEmpty ? Haptics.success() : Haptics.failure()
             logs = store.logs()
         }
     }

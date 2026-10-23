@@ -197,9 +197,20 @@ private struct VideoSearchView: View {
 
 // MARK: - 收藏
 
+/// 收藏 / 历史按模式分开：漫画模式只看漫画，其他模式不显示漫画（音乐另有自己的列表）
+enum LibraryScope {
+    case comicsOnly
+    case excludingComics
+
+    func includes(_ subject: BangumiSubject) -> Bool {
+        self == .comicsOnly ? subject.isComic : !subject.isComic
+    }
+}
+
 struct FavoritesView: View {
+    var scope: LibraryScope = .excludingComics
     @ObservedObject private var library = WatchLibrary.shared
-    private var favorites: [FavoriteItem] { library.favorites }
+    private var favorites: [FavoriteItem] { library.favorites.filter { scope.includes($0.subject) } }
 
     private let grid = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 14)]
 
@@ -222,7 +233,8 @@ struct FavoritesView: View {
         }
         .overlay {
             if favorites.isEmpty {
-                EmptyStateView("还没有收藏", systemImage: "heart", description: Text("在番剧详情页点 ♡ 收藏"))
+                EmptyStateView("还没有收藏", systemImage: "heart",
+                               description: Text(scope == .comicsOnly ? "在漫画详情页点 ♡ 收藏，登录禁漫后也可以同步云端收藏" : "在番剧详情页点 ♡ 收藏"))
             }
         }
         .navigationTitle("收藏")
@@ -232,11 +244,41 @@ struct FavoritesView: View {
     }
 }
 
+/// 漫画模式的收藏标签：本地收藏，登录禁漫后可以切到云端收藏夹
+struct ComicFavoritesView: View {
+    @ObservedObject private var account = JMAccount.shared
+    @State private var cloud = false
+
+    var body: some View {
+        Group {
+            if cloud, account.isLoggedIn {
+                JMFavoritesView()
+            } else {
+                FavoritesView(scope: .comicsOnly)
+            }
+        }
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                if account.isLoggedIn {
+                    Picker("收藏", selection: $cloud) {
+                        Text("本地").tag(false)
+                        Text("云端").tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .fixedSize()
+                }
+            }
+        }
+        .selectionFeedback(trigger: cloud)
+    }
+}
+
 // MARK: - 历史
 
 struct HistoryView: View {
+    var scope: LibraryScope = .excludingComics
     @ObservedObject private var library = WatchLibrary.shared
-    private var records: [WatchRecord] { library.records }
+    private var records: [WatchRecord] { library.records.filter { scope.includes($0.subject) } }
     @State private var confirmClear = false
 
     var body: some View {
@@ -260,7 +302,8 @@ struct HistoryView: View {
         .listStyle(.plain)
         .overlay {
             if records.isEmpty {
-                EmptyStateView("还没有观看记录", systemImage: "clock", description: Text("看过的番剧、影视和漫画会出现在这里，点一下接着看"))
+                EmptyStateView(scope == .comicsOnly ? "还没有阅读记录" : "还没有观看记录", systemImage: "clock",
+                               description: Text(scope == .comicsOnly ? "看过的漫画会出现在这里，点一下接着看" : "看过的番剧、影视和小说会出现在这里，点一下接着看"))
             }
         }
         .navigationTitle("历史")
@@ -271,9 +314,9 @@ struct HistoryView: View {
                 }
             }
         }
-        .confirmationDialog("清空全部观看记录？", isPresented: $confirmClear, titleVisibility: .visible) {
+        .confirmationDialog(scope == .comicsOnly ? "清空全部漫画阅读记录？" : "清空全部观看记录？", isPresented: $confirmClear, titleVisibility: .visible) {
             Button("清空", role: .destructive) {
-                library.clearRecords()
+                library.removeRecords(Set(records.map(\.subjectID)))
             }
         }
     }

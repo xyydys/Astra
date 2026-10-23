@@ -29,6 +29,7 @@ struct SettingsView: View {
                 Toggle(isOn: $filterAdult) {
                     Label("过滤成人内容", systemImage: "eye.slash")
                 }
+                .selectionFeedback(trigger: filterAdult)
             } header: {
                 Text("片源")
             } footer: {
@@ -55,6 +56,7 @@ struct SettingsView: View {
                 Toggle(isOn: $hlsAdFilter) {
                     Label("跳过视频内广告", systemImage: "forward.frame")
                 }
+                .selectionFeedback(trigger: hlsAdFilter)
             } header: {
                 Text("播放")
             } footer: {
@@ -81,12 +83,13 @@ struct SettingsView: View {
                     }
                 }
                 Toggle(isOn: $nativeModeMenu) {
-                    Label("首页模式菜单用系统原生样式", systemImage: "filemenu.and.selection")
+                    Label("首页模式菜单显示详情", systemImage: "filemenu.and.selection")
                 }
+                .selectionFeedback(trigger: nativeModeMenu)
             } header: {
                 Text("外观")
             } footer: {
-                Text("首页左上角的模式切换菜单。原生样式在播放音乐时点按、滑选更稳定，但外观和原来的不同。")
+                Text("首页左上角的模式切换菜单，打开后每一项下面显示说明，播放音乐时点按、滑选也更稳定。")
             }
 
             Section {
@@ -100,6 +103,8 @@ struct SettingsView: View {
             } footer: {
                 Text("片源、书源、音源、书架、收藏、历史和设置一起导出成一个文件，换包名或换设备时在新 App 里导入即可。")
             }
+
+            DiagnosticSettingsSection()
 
             Section {
                 LabeledRow("版本", value: version)
@@ -136,6 +141,10 @@ struct JMSettingsView: View {
     @State private var inputPassword = ""
     @State private var working = false
     @State private var message: String?
+    /// 测速结果：线路下标 / 分流号 → 文字（「测速中」「120ms」「超时」）
+    @State private var domainLatency: [Int: String] = [:]
+    @State private var streamLatency: [Int: String] = [:]
+    @State private var testing = false
 
     var body: some View {
         Form {
@@ -145,7 +154,7 @@ struct JMSettingsView: View {
                     JMClient.domainIndex = index
                 })) {
                     ForEach(domains.indices, id: \.self) { index in
-                        Text("线路 \(index + 1) · \(domains[index])").tag(index)
+                        Text("线路 \(index + 1) · \(domains[index])" + (domainLatency[index].map { " · " + $0 } ?? "")).tag(index)
                     }
                 }
                 Button("刷新线路列表", icon: "arrow.clockwise") {
@@ -167,10 +176,21 @@ struct JMSettingsView: View {
                     }
                 })) {
                     ForEach(1...4, id: \.self) { stream in
-                        Text("分流 \(stream)").tag(stream)
+                        Text("分流 \(stream)" + (streamLatency[stream].map { " · " + $0 } ?? "")).tag(stream)
                     }
                 }
                 LabeledRow("图片服务器", value: URL(string: imageHost)?.host ?? imageHost)
+                Button {
+                    Haptics.tap()
+                    Task { await testLatency() }
+                } label: {
+                    HStack {
+                        Label("测速", systemImage: "speedometer")
+                        Spacer()
+                        if testing { ProgressView() }
+                    }
+                }
+                .disabled(testing)
             } header: {
                 Text("网络")
             } footer: {
@@ -196,7 +216,9 @@ struct JMSettingsView: View {
                         }
                     }
                     Button("退出登录", role: .destructive) {
+                        Haptics.tap()
                         account.logout()
+                        message = "已退出登录"
                     }
                 } header: {
                     Text("账号")
@@ -218,6 +240,7 @@ struct JMSettingsView: View {
                     Toggle(isOn: $syncFavorites) {
                         Label("收藏时同步到账号", systemImage: "arrow.triangle.2.circlepath")
                     }
+                    .selectionFeedback(trigger: syncFavorites)
                 } header: {
                     Text("收藏同步")
                 } footer: {
@@ -248,28 +271,49 @@ struct JMSettingsView: View {
                 }
             }
 
-            if working || message != nil {
-                Section {
-                    if working {
-                        ProgressView()
-                    } else if let message {
-                        Text(message).font(.footnote)
-                    }
-                }
-            }
         }
+        .toast($message, working: working)
+        .task { await testLatency() }
         .navigationTitle("禁漫天堂")
         .navigationBarTitleDisplayMode(.inline)
     }
 
+    /// 所有线路和分流一起测速（进入页面时自动测一次），结果显示在选项后面
+    private func testLatency() async {
+        guard !testing else { return }
+        testing = true
+        let list = domains
+        for index in list.indices { domainLatency[index] = "测速中" }
+        for stream in 1...4 { streamLatency[stream] = "测速中" }
+        await withTaskGroup(of: (Bool, Int, Int?).self) { group in
+            for (index, domain) in list.enumerated() {
+                group.addTask { (true, index, await JMClient.latency(domain: domain)) }
+            }
+            for stream in 1...4 {
+                group.addTask {
+                    guard let host = await JMClient.imageHost(stream: stream) else { return (false, stream, nil) }
+                    return (false, stream, await JMClient.latency(imageHost: host))
+                }
+            }
+            for await (isDomain, key, ms) in group {
+                let text = ms.map { "\($0)ms" } ?? "超时"
+                if isDomain { domainLatency[key] = text } else { streamLatency[key] = text }
+            }
+        }
+        testing = false
+    }
+
     private func run(_ action: @escaping () async throws -> String) {
+        Haptics.tap()
         working = true
         message = nil
         Task {
             do {
                 message = try await action()
+                Haptics.success()
             } catch {
                 message = error.localizedDescription
+                Haptics.failure()
             }
             working = false
         }
@@ -352,7 +396,7 @@ struct JMFavoritesView: View {
         .navigationTitle("云端收藏")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // 图标按钮：iOS 26 上 Picker 当工具栏按钮时会撑成一条长胶囊，文字还左右跳
+            // 不直接用 Picker：iOS 26 上它当工具栏按钮时会撑成一条长胶囊，文字还左右跳
             ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
                     Picker("排序", selection: $sort) {
@@ -360,9 +404,10 @@ struct JMFavoritesView: View {
                         Text("按更新时间").tag("mp")
                     }
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
+                    // 两个选项一样长，宽度不会变；fixedSize 防止被撑成一整条
+                    Text(sort == "mr" ? "按收藏时间" : "按更新时间")
+                        .fixedSize()
                 }
-                .accessibilityLabel("排序")
             }
         }
         .task(id: folderID + sort) {
