@@ -195,7 +195,7 @@ struct FoliaLyricsView: UIViewRepresentable {
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.scrollView.bounces = false
         #if DEBUG
-        webView.isInspectable = true
+        if #available(iOS 16.4, *) { webView.isInspectable = true }
         #endif
         context.coordinator.webView = webView
         if let url = URL(string: "folia://app/folia-embed.html") {

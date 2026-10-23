@@ -1,14 +1,12 @@
-import SwiftData
 import SwiftUI
 
 /// 影视详情：打开后自动在所有启用的采集站里按片名搜索，按优先级选中第一个找到的片源，直接选集播放
 struct VideoDetailView: View {
     @State private var subject: BangumiSubject
-    @Environment(\.modelContext) private var modelContext
-    @Environment(RuleStore.self) private var ruleStore
+    @ObservedObject private var library = WatchLibrary.shared
+    @ObservedObject private var tints = PosterTints.shared
+    @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.colorScheme) private var systemScheme
-    @Query private var favorites: [FavoriteItem]
-    @Query private var records: [WatchRecord]
 
     enum SourceResult: Equatable {
         case loading
@@ -36,14 +34,11 @@ struct VideoDetailView: View {
     init(subject: BangumiSubject) {
         _subject = State(initialValue: subject)
         _keyword = State(initialValue: subject.title)
-        let sid = subject.id
-        _favorites = Query(filter: #Predicate<FavoriteItem> { $0.subjectID == sid })
-        _records = Query(filter: #Predicate<WatchRecord> { $0.subjectID == sid })
     }
 
-    private var tint: PosterTint? { PosterTints.shared.tint(for: subject.id) }
-    private var isFavorite: Bool { !favorites.isEmpty }
-    private var record: WatchRecord? { records.first }
+    private var tint: PosterTint? { tints.tint(for: subject.id) }
+    private var isFavorite: Bool { library.isFavorite(subject.id) }
+    private var record: WatchRecord? { library.record(subject.id) }
     private var sources: [CMSSource] { ruleStore.enabledCMS }
 
     private var selectedItem: CMSItem? {
@@ -76,11 +71,11 @@ struct VideoDetailView: View {
         .environment(\.colorScheme, tint?.colorScheme ?? systemScheme)
         .navigationTitle(subject.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(removing: .title)
+        .navigationTitleHidden()
         .task { await PosterTints.shared.ensure(subject) }
         .task { await loadAbstract() }
         .task(id: keyword + "|" + sources.map(\.id).joined(separator: ",")) { await searchSources() }
-        .navigationDestination(item: $playRequest) { request in
+        .navigationDestinationCompat(item: $playRequest) { request in
             PlayerScreen(request: request)
         }
         .alert("修改搜索词", isPresented: $showKeywordEditor) {
@@ -110,7 +105,7 @@ struct VideoDetailView: View {
 
     private var header: some View {
         Color.clear
-            .containerRelativeFrame(.vertical) { length, _ in min(length * 0.66, 720) }
+            .containerHeight(fraction: 0.66, max: 720)
             .frame(maxWidth: .infinity)
             .overlay {
                 PosterImage(url: subject.image, fallback: subject.thumb, showsPlaceholder: false)
@@ -145,18 +140,18 @@ struct VideoDetailView: View {
     // MARK: 按钮
 
     private var actions: some View {
-        GlassEffectContainer(spacing: 12) {
+        GlassGroup(spacing: 12) {
             HStack(spacing: 12) {
                 primaryButton
                 Button {
                     toggleFavorite()
                 } label: {
                     Image(systemName: isFavorite ? "heart.fill" : "heart")
-                        .contentTransition(.symbolEffect(.replace))
+                        .symbolReplaceTransition()
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .controlSize(.large)
-                .sensoryFeedback(.selection, trigger: isFavorite)
+                .selectionFeedback(trigger: isFavorite)
             }
         }
         .padding(.horizontal)
@@ -172,7 +167,7 @@ struct VideoDetailView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glassProminent)
+            .glassProminentButtonStyle()
             .controlSize(.large)
         } else if let item = selectedItem {
             Button {
@@ -181,7 +176,7 @@ struct VideoDetailView: View {
                 Label("播放", systemImage: "play.fill")
                     .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glassProminent)
+            .glassProminentButtonStyle()
             .controlSize(.large)
         } else {
             Button {} label: {
@@ -191,7 +186,7 @@ struct VideoDetailView: View {
                 )
                 .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glass)
+            .glassButtonStyle()
             .controlSize(.large)
             .disabled(true)
         }
@@ -212,12 +207,12 @@ struct VideoDetailView: View {
                 Spacer()
                 if item.episodeCount > 1 {
                     Button {
-                        withAnimation(.snappy) { episodesReversed.toggle() }
+                        withAnimation(.snappyCompat) { episodesReversed.toggle() }
                     } label: {
                         Label(episodesReversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
                             .font(.subheadline)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .controlSize(.small)
                 }
             }
@@ -270,12 +265,12 @@ struct VideoDetailView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("换个搜索词", systemImage: "character.cursor.ibeam") {
+                Button("换个搜索词", icon: "character.cursor.ibeam") {
                     keywordDraft = keyword
                     showKeywordEditor = true
                 }
                 .font(.subheadline)
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .controlSize(.small)
             }
 
@@ -304,7 +299,7 @@ struct VideoDetailView: View {
             guard case .found = result else { return }
             userSelected = true
             selectedRoad = 0
-            withAnimation(.snappy) { selectedID = id }
+            withAnimation(.snappyCompat) { selectedID = id }
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
@@ -358,7 +353,7 @@ struct VideoDetailView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(summaryExpanded ? nil : 5)
                     Button(summaryExpanded ? "收起" : "展开") {
-                        withAnimation(.snappy) { summaryExpanded.toggle() }
+                        withAnimation(.snappyCompat) { summaryExpanded.toggle() }
                     }
                     .font(.callout.weight(.medium))
                 }
@@ -419,7 +414,7 @@ struct VideoDetailView: View {
                 let id = "cms:" + source.id
                 if selectedID != id {
                     selectedRoad = 0
-                    withAnimation(.snappy) { selectedID = id }
+                    withAnimation(.snappyCompat) { selectedID = id }
                 }
                 return
             }
@@ -446,12 +441,7 @@ struct VideoDetailView: View {
     }
 
     private func toggleFavorite() {
-        if let existing = favorites.first {
-            modelContext.delete(existing)
-        } else {
-            modelContext.insert(FavoriteItem(subject: subject))
-        }
-        try? modelContext.save()
+        library.toggleFavorite(subject)
     }
 }
 

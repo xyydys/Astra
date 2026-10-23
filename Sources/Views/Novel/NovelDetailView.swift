@@ -1,4 +1,3 @@
-import SwiftData
 import SwiftUI
 
 /// 小说封面：没有封面或加载失败时画一本书
@@ -92,7 +91,7 @@ struct BookCard: View {
                 .shadow(color: .black.opacity(0.12), radius: 6, y: 3)
             Text(book.name)
                 .font(.footnote.weight(.medium))
-                .lineLimit(2, reservesSpace: true)
+                .lineLimitReservingSpace(2)
                 .foregroundStyle(.primary)
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
@@ -119,30 +118,26 @@ struct NovelDetailView: View {
     @State private var showTOC = false
     @State private var showSources = false
     @State private var loadedOrigin: String?
-    @Environment(\.modelContext) private var modelContext
+    @ObservedObject private var library = WatchLibrary.shared
+    @ObservedObject private var tints = PosterTints.shared
     @Environment(\.colorScheme) private var systemScheme
-    @Query private var favorites: [FavoriteItem]
-    @Query private var records: [WatchRecord]
 
     init(subject: BangumiSubject) {
         subjectID = subject.id
         _book = State(initialValue: NovelLibrary.shared.book(for: subject.id))
-        let sid = subject.id
-        _favorites = Query(filter: #Predicate<FavoriteItem> { $0.subjectID == sid })
-        _records = Query(filter: #Predicate<WatchRecord> { $0.subjectID == sid })
     }
 
     private var subject: BangumiSubject? { book.map { BangumiSubject.novel($0) } }
-    private var tint: PosterTint? { PosterTints.shared.tint(for: subjectID) }
-    private var isFavorite: Bool { !favorites.isEmpty }
-    private var record: WatchRecord? { records.first { $0.isNovel } }
+    private var tint: PosterTint? { tints.tint(for: subjectID) }
+    private var isFavorite: Bool { library.isFavorite(subjectID) }
+    private var record: WatchRecord? { library.record(subjectID).flatMap { $0.isNovel ? $0 : nil } }
 
     var body: some View {
         Group {
             if let book {
                 content(book)
             } else {
-                ContentUnavailableView("找不到这本书", systemImage: "book.closed",
+                EmptyStateView("找不到这本书", systemImage: "book.closed",
                                        description: Text("书源信息丢失了，可以到搜索里重新找这本书"))
             }
         }
@@ -152,7 +147,7 @@ struct NovelDetailView: View {
         .environment(\.colorScheme, tint?.colorScheme ?? systemScheme)
         .navigationTitle(book?.name ?? "")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(removing: .title)
+        .navigationTitleHidden()
         .task {
             if let subject, !subject.image.isEmpty { await PosterTints.shared.ensure(subject) }
         }
@@ -236,7 +231,7 @@ struct NovelDetailView: View {
     }
 
     private var actions: some View {
-        GlassEffectContainer(spacing: 12) {
+        GlassGroup(spacing: 12) {
             HStack(spacing: 12) {
                 Button {
                     if let record {
@@ -256,7 +251,7 @@ struct NovelDetailView: View {
                     .lineLimit(1)
                     .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.glassProminent)
+                .glassProminentButtonStyle()
                 .controlSize(.large)
                 .disabled(chapters.isEmpty)
 
@@ -264,18 +259,18 @@ struct NovelDetailView: View {
                     toggleFavorite()
                 } label: {
                     Image(systemName: isFavorite ? "books.vertical.fill" : "books.vertical")
-                        .contentTransition(.symbolEffect(.replace))
+                        .symbolReplaceTransition()
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .controlSize(.large)
-                .sensoryFeedback(.selection, trigger: isFavorite)
+                .selectionFeedback(trigger: isFavorite)
 
                 Button {
                     showSources = true
                 } label: {
                     Image(systemName: "arrow.triangle.2.circlepath")
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .controlSize(.large)
             }
         }
@@ -312,7 +307,7 @@ struct NovelDetailView: View {
                 }
             }
             .padding()
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .glass(interactive: true, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .buttonStyle(.plain)
         .disabled(chapters.isEmpty)
@@ -329,7 +324,7 @@ struct NovelDetailView: View {
                 .lineSpacing(4)
                 .lineLimit(summaryExpanded ? nil : 5)
             Button(summaryExpanded ? "收起" : "展开") {
-                withAnimation(.snappy) { summaryExpanded.toggle() }
+                withAnimation(.snappyCompat) { summaryExpanded.toggle() }
             }
             .font(.callout.weight(.medium))
         }
@@ -337,7 +332,7 @@ struct NovelDetailView: View {
     }
 
     private func tags(_ kinds: [String]) -> some View {
-        FlowLayout(spacing: 8) {
+        TagFlow(spacing: 8) {
             ForEach(kinds, id: \.self) { kind in
                 Text(kind)
                     .font(.caption)
@@ -408,13 +403,8 @@ struct NovelDetailView: View {
 
     private func toggleFavorite() {
         guard let subject else { return }
-        if let existing = favorites.first {
-            modelContext.delete(existing)
-        } else {
-            if let book { NovelLibrary.shared.update(book, for: subjectID) }
-            modelContext.insert(FavoriteItem(subject: subject))
-        }
-        try? modelContext.save()
+        if !isFavorite, let book { NovelLibrary.shared.update(book, for: subjectID) }
+        library.toggleFavorite(subject)
     }
 }
 
@@ -436,7 +426,7 @@ struct NovelSourceSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        NavigationStackCompat {
             List {
                 Section {
                     ForEach(candidates, id: \.origin) { item in
@@ -473,14 +463,14 @@ struct NovelSourceSheet: View {
             .navigationTitle("换源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭", systemImage: "xmark") { dismiss() }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("关闭", icon: "xmark") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     if searching {
                         ProgressView()
                     } else {
-                        Button("搜索全部书源", systemImage: "magnifyingglass") {
+                        Button("搜索全部书源", icon: "magnifyingglass") {
                             Task { await searchAll() }
                         }
                     }

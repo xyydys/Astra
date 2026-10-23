@@ -1,5 +1,4 @@
 import Foundation
-import Observation
 import SwiftUI
 import WebKit
 
@@ -12,14 +11,13 @@ enum NovelCover {
 
 // MARK: - 书源
 
-@Observable
 @MainActor
-final class BookSourceStore {
+final class BookSourceStore: ObservableObject {
     static let shared = BookSourceStore()
 
-    private(set) var sources: [BookSource] = []
-    private(set) var isLoaded = false
-    @ObservationIgnored private var loading: Task<Void, Never>?
+    @Published private(set) var sources: [BookSource] = []
+    @Published private(set) var isLoaded = false
+    private var loading: Task<Void, Never>?
 
     private static var directory: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -202,15 +200,14 @@ final class BookSourceStore {
 
 // MARK: - 书架上的书（当前用的书源）和缓存
 
-@Observable
 @MainActor
-final class NovelLibrary {
+final class NovelLibrary: ObservableObject {
     static let shared = NovelLibrary()
 
-    private(set) var books: [Int: NovelBook] = [:]
+    @Published private(set) var books: [Int: NovelBook] = [:]
     /// 搜索结果里同一本书的其它书源，换源时用（不保存）
-    @ObservationIgnored private(set) var candidates: [Int: [NovelBook]] = [:]
-    @ObservationIgnored private var transient: [Int: NovelBook] = [:]
+    private(set) var candidates: [Int: [NovelBook]] = [:]
+    private var transient: [Int: NovelBook] = [:]
 
     private static var directory: URL {
         let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -340,9 +337,8 @@ final class NovelLibrary {
 
 // MARK: - 多书源搜索
 
-@Observable
 @MainActor
-final class NovelSearchModel {
+final class NovelSearchModel: ObservableObject {
     struct Group: Identifiable {
         let id: String
         var books: [NovelBook]
@@ -366,14 +362,14 @@ final class NovelSearchModel {
         }
     }
 
-    private(set) var groups: [Group] = []
-    private(set) var keyword = ""
-    private(set) var isSearching = false
-    private(set) var done = 0
-    private(set) var total = 0
-    private(set) var failed = 0
-    @ObservationIgnored private var task: Task<Void, Never>?
-    @ObservationIgnored private var sourceOrder: [String: Int] = [:]
+    @Published private(set) var groups: [Group] = []
+    @Published private(set) var keyword = ""
+    @Published private(set) var isSearching = false
+    @Published private(set) var done = 0
+    @Published private(set) var total = 0
+    @Published private(set) var failed = 0
+    private var task: Task<Void, Never>?
+    private var sourceOrder: [String: Int] = [:]
 
     func search(_ keyword: String, sources: [BookSource]) {
         task?.cancel()
@@ -426,7 +422,7 @@ final class NovelSearchModel {
     nonisolated static func searchOne(_ source: BookSource, _ key: String, timeout: Double = 20) async -> [NovelBook]? {
         let env = EngineEnv()
         let timer = Task {
-            try? await Task.sleep(for: .seconds(timeout))
+            try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
             env.token.cancel()
         }
         defer { timer.cancel() }
@@ -548,7 +544,7 @@ private final class WebLoadSession: NSObject, WKNavigationDelegate {
             }
         }
         Task {
-            try? await Task.sleep(for: .seconds(30))
+            try? await Task.sleep(nanoseconds: 30_000_000_000)
             finish(.failure(BookEngineError.message("网页加载超时")))
         }
     }
@@ -556,7 +552,7 @@ private final class WebLoadSession: NSObject, WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         MainActor.assumeIsolated {
             Task {
-                try? await Task.sleep(for: .seconds(max(delay, 0.6)))
+                try? await Task.sleep(nanoseconds: UInt64(max(delay, 0.6) * 1_000_000_000))
                 await evaluate()
             }
         }

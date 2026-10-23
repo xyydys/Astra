@@ -15,8 +15,8 @@ struct MusicSearchView: View {
     @State private var isLoading = false
     @State private var exhausted = false
     @State private var error: String?
-    @State private var player = MusicPlayer.shared
-    @State private var sources = LXSourceStore.shared
+    @ObservedObject private var player = MusicPlayer.shared
+    @ObservedObject private var sources = LXSourceStore.shared
 
     private static let historyLimit = 20
 
@@ -61,23 +61,23 @@ struct MusicSearchView: View {
             }
         }
         .listStyle(.plain)
-        .scrollDismissesKeyboard(.immediately)
+        .dismissKeyboardOnScroll()
         .overlay {
             if !showsHistory, results.isEmpty, !isLoading {
                 if searched.isEmpty {
-                    ContentUnavailableView("搜索音乐", systemImage: "music.magnifyingglass",
+                    EmptyStateView("搜索音乐", systemImage: "music.magnifyingglass",
                                            description: Text(sources.entries.isEmpty
                                                              ? "还没有导入洛雪音源：到「我的 → 音乐 → 音源管理」导入后才能播放"
                                                              : "当前音源：\(sources.active?.info.name ?? "")"))
                 } else if error == nil {
-                    ContentUnavailableView.search(text: searched)
+                    EmptyStateView.search(text: searched)
                 }
             }
         }
         .navigationTitle("搜索")
         .searchTab(text: $query, prompt: "歌名、歌手")
         .onSubmit(of: .search) { Task { await search() } }
-        .onChange(of: scope) {
+        .onChangeCompat(of: scope) {
             if !searched.isEmpty { Task { await search(keyword: searched) } }
         }
     }
@@ -93,7 +93,7 @@ struct MusicSearchView: View {
                         .foregroundStyle(.primary)
                 }
                 .swipeActions {
-                    Button("删除", systemImage: "trash", role: .destructive) { removeHistory(word) }
+                    Button("删除", icon: "trash", role: .destructive) { removeHistory(word) }
                 }
             }
         } header: {
@@ -182,7 +182,7 @@ struct MusicSearchView: View {
 // MARK: - 音源管理
 
 struct MusicSourcesView: View {
-    @State private var store = LXSourceStore.shared
+    @ObservedObject private var store = LXSourceStore.shared
     @AppStorage(LXSourceStore.qualityKey) private var quality = "320k"
     @State private var showURLPrompt = false
     @State private var urlText = ""
@@ -255,11 +255,11 @@ struct MusicSourcesView: View {
         }
         .navigationTitle("音源管理")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button("从网址导入", systemImage: "link") { showURLPrompt = true }
-                    Button("从文件导入", systemImage: "doc") { showFileImporter = true }
-                    Button("从剪贴板导入", systemImage: "doc.on.clipboard") { importClipboard() }
+                    Button("从网址导入", icon: "link") { showURLPrompt = true }
+                    Button("从文件导入", icon: "doc") { showFileImporter = true }
+                    Button("从剪贴板导入", icon: "doc.on.clipboard") { importClipboard() }
                 } label: {
                     if importing { ProgressView() } else { Image(systemName: "plus") }
                 }
@@ -323,14 +323,14 @@ struct MusicSourcesView: View {
 
 /// 设置页里的「音乐」分组
 struct MusicSettingsSection: View {
-    @State private var store = LXSourceStore.shared
+    @ObservedObject private var store = LXSourceStore.shared
 
     var body: some View {
         Section {
             NavigationLink {
                 MusicSourcesView()
             } label: {
-                LabeledContent {
+                LabeledRow {
                     Text(store.active?.info.name ?? "未导入")
                 } label: {
                     Label("音源管理", systemImage: "music.note.list")

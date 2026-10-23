@@ -1,4 +1,3 @@
-import SwiftData
 import SwiftUI
 import UIKit
 
@@ -31,7 +30,6 @@ struct ComicReaderView: View {
     let request: ComicReadRequest
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
     @AppStorage("comicReadingMode") private var mode: ComicReadingMode = .vertical
     @State private var chapterIndex: Int
     @State private var pendingStart: Int
@@ -76,10 +74,10 @@ struct ComicReaderView: View {
                         .multilineTextAlignment(.center)
                         .foregroundStyle(.white)
                         .padding(.horizontal, 32)
-                    Button("重试", systemImage: "arrow.clockwise") {
+                    Button("重试", icon: "arrow.clockwise") {
                         Task { await loadChapter() }
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                 }
             } else if mode == .vertical {
                 verticalReader
@@ -94,14 +92,14 @@ struct ComicReaderView: View {
             if showBars, !pages.isEmpty { bottomBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
         .statusBarHidden(!showBars)
-        .persistentSystemOverlays(showBars ? .automatic : .hidden)
+        .homeIndicatorHiddenCompat(!showBars)
         .environment(\.colorScheme, .dark)
         .task(id: chapterIndex) { await loadChapter() }
-        .onChange(of: currentPage) { _, page in
+        .onChangeCompat(of: currentPage) { _, page in
             saveProgress(page)
             prefetch(after: page)
         }
-        .onChange(of: mode) { old, new in
+        .onChangeCompat(of: mode) { old, new in
             // 切换阅读方式时停在同一页
             let page = old == .vertical ? (scrolledPage ?? 0) : min(pagedSelection, max(pages.count - 1, 0))
             if new == .vertical { scrolledPage = page } else { pagedSelection = page }
@@ -112,19 +110,17 @@ struct ComicReaderView: View {
     // MARK: 上下滚动
 
     private var verticalReader: some View {
-        ScrollView {
+        PositionedScrollView(position: $scrolledPage) {
             LazyVStack(spacing: 0) {
                 ForEach(pages.indices, id: \.self) { index in
                     ComicPageView(url: pages[index], chapterID: chapter.id, index: index)
-                        .id(index)
+                        .scrollItem(index)
                 }
                 chapterEnd
                     .padding(.vertical, 48)
             }
-            .scrollTargetLayout()
         }
-        .scrollPosition(id: $scrolledPage, anchor: .top)
-        .scrollIndicators(.hidden)
+        .hideScrollIndicators()
         .ignoresSafeArea()
         .contentShape(Rectangle())
         .onTapGesture { toggleBars() }
@@ -160,13 +156,13 @@ struct ComicReaderView: View {
                     Label("下一话：\(request.chapters[chapterIndex + 1].title)", systemImage: "chevron.forward.2")
                         .lineLimit(1)
                 }
-                .buttonStyle(.glassProminent)
+                .glassProminentButtonStyle()
             } else {
                 Text("已经是最后一话")
                     .font(.footnote)
                     .foregroundStyle(.white.opacity(0.6))
-                Button("返回详情", systemImage: "xmark") { dismiss() }
-                    .buttonStyle(.glass)
+                Button("返回详情", icon: "xmark") { dismiss() }
+                    .glassButtonStyle()
             }
         }
         .frame(maxWidth: .infinity)
@@ -184,8 +180,8 @@ struct ComicReaderView: View {
                     .font(.headline)
                     .frame(width: 36, height: 36)
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
+            .glassButtonStyle()
+            .circleButtonShape()
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(request.subject.title)
@@ -209,8 +205,8 @@ struct ComicReaderView: View {
                     .font(.headline)
                     .frame(width: 36, height: 36)
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
+            .glassButtonStyle()
+            .circleButtonShape()
         }
         .padding(.horizontal)
         .padding(.top, 6)
@@ -252,7 +248,7 @@ struct ComicReaderView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        .glass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .padding(.horizontal)
         .padding(.bottom, 8)
     }
@@ -260,7 +256,7 @@ struct ComicReaderView: View {
     // MARK: 操作
 
     private func toggleBars() {
-        withAnimation(.snappy) { showBars.toggle() }
+        withAnimation(.snappyCompat) { showBars.toggle() }
     }
 
     private func jump(to page: Int) {
@@ -318,29 +314,22 @@ struct ComicReaderView: View {
     private func saveProgress(_ page: Int) {
         guard !pages.isEmpty else { return }
         let sid = request.subject.id
-        let descriptor = FetchDescriptor<WatchRecord>(predicate: #Predicate<WatchRecord> { $0.subjectID == sid })
-        let record: WatchRecord
-        if let existing = try? modelContext.fetch(descriptor).first {
-            record = existing
-        } else {
-            record = WatchRecord(subjectID: sid)
-            modelContext.insert(record)
+        WatchLibrary.shared.updateRecord(sid) { record in
+            record.kind = "comic"
+            record.title = request.subject.title
+            record.name = request.subject.name
+            record.image = request.subject.image
+            record.ruleName = "禁漫天堂"
+            record.sourceURL = request.subject.jmID ?? ""
+            record.sourceTitle = chapter.title
+            record.vodID = chapter.id
+            record.roadIndex = 0
+            record.episodeIndex = chapterIndex
+            record.episodeName = chapter.title
+            record.position = Double(min(max(page, 0), pages.count - 1))
+            record.duration = Double(pages.count)
+            record.updatedAt = Date()
         }
-        record.kind = "comic"
-        record.title = request.subject.title
-        record.name = request.subject.name
-        record.image = request.subject.image
-        record.ruleName = "禁漫天堂"
-        record.sourceURL = request.subject.jmID ?? ""
-        record.sourceTitle = chapter.title
-        record.vodID = chapter.id
-        record.roadIndex = 0
-        record.episodeIndex = chapterIndex
-        record.episodeName = chapter.title
-        record.position = Double(min(max(page, 0), pages.count - 1))
-        record.duration = Double(pages.count)
-        record.updatedAt = Date()
-        try? modelContext.save()
     }
 }
 
@@ -441,9 +430,9 @@ private struct ComicPagePlaceholder: View {
         ZStack {
             Color.white.opacity(0.04)
             if failed {
-                Button("第 \(index + 1) 页加载失败，点此重试", systemImage: "arrow.clockwise", action: retry)
+                Button("第 \(index + 1) 页加载失败，点此重试", icon: "arrow.clockwise", action: retry)
                     .font(.footnote)
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
             } else {
                 VStack(spacing: 8) {
                     ProgressView()

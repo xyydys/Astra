@@ -28,18 +28,17 @@ enum JMCatalog {
 }
 
 /// 分页列表（分类、搜索、标签结果共用），禁漫每页 80 条
-@Observable
 @MainActor
-final class ComicListModel {
-    var items: [JMComic] = []
-    var total = 0
-    var isLoading = false
-    var error: String?
-    var redirectID: String?
-    private var page = 0
-    private var exhausted = false
-    @ObservationIgnored private var generation = 0
-    @ObservationIgnored var loader: (Int) async throws -> JMPage
+final class ComicListModel: ObservableObject {
+    @Published var items: [JMComic] = []
+    @Published var total = 0
+    @Published var isLoading = false
+    @Published var error: String?
+    @Published var redirectID: String?
+    @Published private var page = 0
+    @Published private var exhausted = false
+    private var generation = 0
+    var loader: (Int) async throws -> JMPage
 
     init(loader: @escaping (Int) async throws -> JMPage = { _ in JMPage(comics: [], total: 0) }) {
         self.loader = loader
@@ -82,14 +81,14 @@ final class ComicListModel {
 
 /// 漫画网格 + 自动加载下一页
 struct ComicGrid: View {
-    let model: ComicListModel
+    @ObservedObject var model: ComicListModel
     private let grid = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 14)]
 
     var body: some View {
         VStack(spacing: 14) {
             LazyVGrid(columns: grid, spacing: 18) {
                 ForEach(model.items) { comic in
-                    NavigationLink(value: comic.subject) {
+                    NavigationLink(destination: AppDestination(comic.subject)) {
                         PosterCard(subject: comic.subject, subtitle: comic.author.isEmpty ? nil : comic.author)
                     }
                     .buttonStyle(.plain)
@@ -108,10 +107,10 @@ struct ComicGrid: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                    Button("重试", systemImage: "arrow.clockwise") {
+                    Button("重试", icon: "arrow.clockwise") {
                         Task { await model.loadMore() }
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                 }
             }
         }
@@ -120,14 +119,13 @@ struct ComicGrid: View {
 }
 
 /// 漫画首页数据：推荐分区 + 轮播
-@Observable
 @MainActor
-final class ComicHomeModel {
-    var sections: [JMSection] = []
-    var hero: [BangumiSubject] = []
-    var isLoading = false
-    var error: String?
-    private var loaded = false
+final class ComicHomeModel: ObservableObject {
+    @Published var sections: [JMSection] = []
+    @Published var hero: [BangumiSubject] = []
+    @Published var isLoading = false
+    @Published var error: String?
+    @Published private var loaded = false
 
     private struct Snapshot: Codable {
         var sections: [JMSection]
@@ -197,10 +195,12 @@ final class ComicHomeModel {
 
 /// 漫画首页（禁漫天堂）：推荐分区 + 分类浏览，背景和其它首页一样跟着海报取色
 struct ComicHomeView: View {
-    @State private var model = ComicHomeModel()
+    @ObservedObject private var tints = PosterTints.shared
+    @StateObject private var model = ComicHomeModel()
+    /// 用 @State 持有、不订阅：滑动时只有背景层（HomeBackground）重绘，整页不跟着每帧刷新
     @State private var scroll = HeroScrollState()
     @State private var contentScheme: ColorScheme?
-    @State private var browse = ComicListModel()
+    @StateObject private var browse = ComicListModel()
     @State private var category = "0"
     @State private var sort = "mr"
     @Environment(\.colorScheme) private var systemScheme
@@ -227,7 +227,7 @@ struct ComicHomeView: View {
                         ScrollView(.horizontal) {
                             LazyHStack(alignment: .top, spacing: 14) {
                                 ForEach(section.comics) { comic in
-                                    NavigationLink(value: comic.subject) {
+                                    NavigationLink(destination: AppDestination(comic.subject)) {
                                         PosterCard(subject: comic.subject, width: 116)
                                     }
                                     .buttonStyle(.plain)
@@ -235,7 +235,7 @@ struct ComicHomeView: View {
                             }
                             .padding(.horizontal)
                         }
-                        .scrollIndicators(.hidden)
+                        .hideScrollIndicators()
                     }
                 }
 
@@ -248,7 +248,7 @@ struct ComicHomeView: View {
         }
         .environment(\.colorScheme, contentScheme ?? firstHeroScheme ?? systemScheme)
         .ignoresSafeArea(edges: .top)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarHiddenCompat()
         .refreshable {
             await model.load(force: true)
             await browse.reload()
@@ -278,7 +278,7 @@ struct ComicHomeView: View {
                     Label(JMCatalog.sortName(sort), systemImage: "arrow.up.arrow.down")
                         .font(.subheadline)
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .controlSize(.small)
             }
             .padding(.horizontal)
@@ -296,7 +296,7 @@ struct ComicHomeView: View {
                 }
                 .padding(.horizontal)
             }
-            .scrollIndicators(.hidden)
+            .hideScrollIndicators()
 
             ComicGrid(model: browse)
         }
@@ -314,7 +314,7 @@ struct ComicSearchView: View {
     @State private var query = ""
     @State private var searched = ""
     @State private var sort = "mr"
-    @State private var model = ComicListModel()
+    @StateObject private var model = ComicListModel()
 
     /// 输入的是车号时，直接给出打开入口
     private var directID: String? {
@@ -327,13 +327,13 @@ struct ComicSearchView: View {
         ScrollView {
             VStack(spacing: 16) {
                 if let id = directID ?? model.redirectID {
-                    NavigationLink(value: BangumiSubject.comic(jmID: Int(id) ?? 0, title: "JM\(id)", author: "", tags: [], description: "")) {
+                    NavigationLink(destination: AppDestination(BangumiSubject.comic(jmID: Int(id) ?? 0, title: "JM\(id)", author: "", tags: [], description: ""))) {
                         Label("打开 JM\(id)", systemImage: "book.pages")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .padding(.horizontal)
                 }
                 if !searched.isEmpty, model.total > 0 {
@@ -347,13 +347,13 @@ struct ComicSearchView: View {
             }
             .padding(.vertical)
         }
-        .scrollDismissesKeyboard(.immediately)
+        .dismissKeyboardOnScroll()
         .overlay {
             if model.items.isEmpty, !model.isLoading, model.error == nil {
                 if searched.isEmpty {
-                    ContentUnavailableView("搜索漫画", systemImage: "book", description: Text("禁漫天堂：本子名、作者、标签，或者直接输入车号"))
+                    EmptyStateView("搜索漫画", systemImage: "book", description: Text("禁漫天堂：本子名、作者、标签，或者直接输入车号"))
                 } else if directID == nil, model.redirectID == nil {
-                    ContentUnavailableView.search(text: searched)
+                    EmptyStateView.search(text: searched)
                 }
             }
         }
@@ -395,7 +395,7 @@ struct ComicTagRoute: Hashable {
 
 struct ComicTagResultsView: View {
     let keyword: String
-    @State private var model = ComicListModel()
+    @StateObject private var model = ComicListModel()
     @State private var sort = "mr"
 
     var body: some View {

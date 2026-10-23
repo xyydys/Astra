@@ -1,20 +1,19 @@
-import SwiftData
 import SwiftUI
 
 /// 小说首页：继续阅读、书架、最近读过、发现（书源自带的分类）
 struct NovelHomeView: View {
-    @Query(sort: \WatchRecord.updatedAt, order: .reverse) private var records: [WatchRecord]
-    @Query(sort: \FavoriteItem.addedAt, order: .reverse) private var favorites: [FavoriteItem]
-    @State private var store = BookSourceStore.shared
-    @State private var library = NovelLibrary.shared
+    @ObservedObject private var watchLibrary = WatchLibrary.shared
+    @ObservedObject private var tints = PosterTints.shared
+    @ObservedObject private var store = BookSourceStore.shared
+    @ObservedObject private var library = NovelLibrary.shared
     @Environment(\.colorScheme) private var systemScheme
 
     private let grid = [GridItem(.adaptive(minimum: 96, maximum: 140), spacing: 14)]
 
-    private var novelRecords: [WatchRecord] { records.filter(\.isNovel) }
-    private var shelf: [FavoriteItem] { favorites.filter { $0.subject.isNovel } }
+    private var novelRecords: [WatchRecord] { watchLibrary.records.filter(\.isNovel) }
+    private var shelf: [FavoriteItem] { watchLibrary.favorites.filter { $0.subject.isNovel } }
     private var hero: WatchRecord? { novelRecords.first }
-    private var heroTint: PosterTint? { hero.flatMap { PosterTints.shared.tint(for: $0.subjectID) } }
+    private var heroTint: PosterTint? { hero.flatMap { tints.tint(for: $0.subjectID) } }
 
     var body: some View {
         ScrollView {
@@ -40,7 +39,7 @@ struct NovelHomeView: View {
                         ScrollView(.horizontal) {
                             LazyHStack(alignment: .top, spacing: 14) {
                                 ForEach(Array(recent.prefix(12))) { record in
-                                    NavigationLink(value: record.subject) {
+                                    NavigationLink(destination: AppDestination(record.subject)) {
                                         BookCard(book: book(for: record), subtitle: record.episodeName, progress: progress(record))
                                             .frame(width: 96)
                                     }
@@ -49,7 +48,7 @@ struct NovelHomeView: View {
                             }
                             .padding(.horizontal)
                         }
-                        .scrollIndicators(.hidden)
+                        .hideScrollIndicators()
                     }
                 }
 
@@ -62,7 +61,7 @@ struct NovelHomeView: View {
                 .animation(.easeInOut(duration: 0.4), value: heroTint)
         }
         .environment(\.colorScheme, heroTint?.colorScheme ?? systemScheme)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarHiddenCompat()
         .task { await store.load() }
         .task(id: hero?.subjectID) {
             if let hero, !hero.image.isEmpty { await PosterTints.shared.ensure(hero.subject) }
@@ -72,7 +71,7 @@ struct NovelHomeView: View {
     // MARK: 继续阅读
 
     private func continueCard(_ record: WatchRecord) -> some View {
-        NavigationLink(value: record.subject) {
+        NavigationLink(destination: AppDestination(record.subject)) {
             HStack(spacing: 16) {
                 BookCover(url: record.image, title: record.title, author: record.name)
                     .frame(width: 86)
@@ -98,7 +97,7 @@ struct NovelHomeView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(16)
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .glass(interactive: true, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -118,7 +117,7 @@ struct NovelHomeView: View {
                 LazyVGrid(columns: grid, spacing: 18) {
                     ForEach(shelf) { item in
                         let record = novelRecords.first { $0.subjectID == item.subjectID }
-                        NavigationLink(value: item.subject) {
+                        NavigationLink(destination: AppDestination(item.subject)) {
                             BookCard(
                                 book: book(for: item),
                                 subtitle: record.map { "读到 " + $0.episodeName } ?? "未读",
@@ -127,7 +126,7 @@ struct NovelHomeView: View {
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
-                            Button("移出书架", systemImage: "books.vertical", role: .destructive) {
+                            Button("移出书架", icon: "books.vertical", role: .destructive) {
                                 removeFromShelf(item)
                             }
                         }
@@ -138,11 +137,8 @@ struct NovelHomeView: View {
         }
     }
 
-    @Environment(\.modelContext) private var modelContext
-
     private func removeFromShelf(_ item: FavoriteItem) {
-        modelContext.delete(item)
-        try? modelContext.save()
+        watchLibrary.removeFavorite(item.subjectID)
     }
 
     private func book(for item: FavoriteItem) -> NovelBook {
@@ -188,7 +184,7 @@ struct NoBookSourcesBanner: View {
                     .foregroundStyle(.tertiary)
             }
             .padding()
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .glass(interactive: true, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -196,18 +192,17 @@ struct NoBookSourcesBanner: View {
 
 // MARK: - 发现
 
-@Observable
 @MainActor
-final class NovelExploreModel {
-    var kinds: [ExploreKind] = []
-    var books: [NovelBook] = []
-    var isLoading = false
-    var error: String?
-    private var page = 0
-    private var exhausted = false
-    private var generation = 0
-    private(set) var source: BookSource?
-    private(set) var kind: ExploreKind?
+final class NovelExploreModel: ObservableObject {
+    @Published var kinds: [ExploreKind] = []
+    @Published var books: [NovelBook] = []
+    @Published var isLoading = false
+    @Published var error: String?
+    @Published private var page = 0
+    @Published private var exhausted = false
+    @Published private var generation = 0
+    @Published private(set) var source: BookSource?
+    @Published private(set) var kind: ExploreKind?
 
     func select(source: BookSource) async {
         guard self.source?.id != source.id || kinds.isEmpty else { return }
@@ -265,8 +260,8 @@ final class NovelExploreModel {
 }
 
 struct NovelExploreSection: View {
-    @State private var store = BookSourceStore.shared
-    @State private var model = NovelExploreModel()
+    @ObservedObject private var store = BookSourceStore.shared
+    @StateObject private var model = NovelExploreModel()
     @AppStorage("novelExploreSource") private var sourceID = ""
 
     private let grid = [GridItem(.adaptive(minimum: 96, maximum: 140), spacing: 14)]
@@ -292,7 +287,7 @@ struct NovelExploreSection: View {
                             .font(.subheadline)
                             .lineLimit(1)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .controlSize(.small)
                 }
                 .padding(.horizontal)
@@ -308,13 +303,13 @@ struct NovelExploreSection: View {
                         }
                         .padding(.horizontal)
                     }
-                    .scrollIndicators(.hidden)
+                    .hideScrollIndicators()
                 }
 
                 LazyVGrid(columns: grid, spacing: 18) {
                     ForEach(model.books) { book in
                         let subject = NovelLibrary.shared.prepare(book, candidates: [])
-                        NavigationLink(value: subject) {
+                        NavigationLink(destination: AppDestination(subject)) {
                             BookCard(book: book, subtitle: book.author)
                         }
                         .buttonStyle(.plain)

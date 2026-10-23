@@ -1,25 +1,24 @@
 import SwiftUI
 
 /// 影视首页数据：豆瓣热门电影 / 剧集、轮播海报、分类浏览
-@Observable
 @MainActor
-final class VideoHomeModel {
-    var hero: [BangumiSubject] = []
-    var hotMovies: [BangumiSubject] = []
-    var hotTV: [BangumiSubject] = []
-    var isLoading = false
-    var error: String?
+final class VideoHomeModel: ObservableObject {
+    @Published var hero: [BangumiSubject] = []
+    @Published var hotMovies: [BangumiSubject] = []
+    @Published var hotTV: [BangumiSubject] = []
+    @Published var isLoading = false
+    @Published var error: String?
 
-    var browseKind: DoubanAPI.Kind = .movie
-    var browseTag = "热门"
-    var browse: [BangumiSubject] = []
-    var browseLoading = false
-    var browseError: String?
-    private var browseExhausted = false
-    @ObservationIgnored private var browseGeneration = 0
+    @Published var browseKind: DoubanAPI.Kind = .movie
+    @Published var browseTag = "热门"
+    @Published var browse: [BangumiSubject] = []
+    @Published var browseLoading = false
+    @Published var browseError: String?
+    @Published private var browseExhausted = false
+    private var browseGeneration = 0
 
-    private var loaded = false
-    @ObservationIgnored private var upcomingHero: [BangumiSubject] = []
+    @Published private var loaded = false
+    private var upcomingHero: [BangumiSubject] = []
 
     private struct Snapshot: Codable {
         var hero: [BangumiSubject]
@@ -160,10 +159,12 @@ final class VideoHomeModel {
 
 /// 影视首页：和番剧首页同样的海报取色背景，内容换成豆瓣推荐
 struct VideoHomeView: View {
-    @State private var model = VideoHomeModel()
+    @ObservedObject private var tints = PosterTints.shared
+    @StateObject private var model = VideoHomeModel()
+    /// 用 @State 持有、不订阅：滑动时只有背景层（HomeBackground）重绘，整页不跟着每帧刷新
     @State private var scroll = HeroScrollState()
     @State private var contentScheme: ColorScheme?
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.colorScheme) private var systemScheme
 
     private let grid = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 14)]
@@ -203,7 +204,7 @@ struct VideoHomeView: View {
         }
         .environment(\.colorScheme, contentScheme ?? firstHeroScheme ?? systemScheme)
         .ignoresSafeArea(edges: .top)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarHiddenCompat()
         .refreshable { await model.load(force: true) }
         .task { await model.load() }
     }
@@ -216,7 +217,7 @@ struct VideoHomeView: View {
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: 14) {
                         ForEach(items) { subject in
-                            NavigationLink(value: subject) {
+                            NavigationLink(destination: AppDestination(subject)) {
                                 PosterCard(subject: subject, width: 116)
                             }
                             .buttonStyle(.plain)
@@ -224,7 +225,7 @@ struct VideoHomeView: View {
                     }
                     .padding(.horizontal)
                 }
-                .scrollIndicators(.hidden)
+                .hideScrollIndicators()
             }
         }
     }
@@ -258,11 +259,11 @@ struct VideoHomeView: View {
                 }
                 .padding(.horizontal)
             }
-            .scrollIndicators(.hidden)
+            .hideScrollIndicators()
 
             LazyVGrid(columns: grid, spacing: 18) {
                 ForEach(model.browse) { subject in
-                    NavigationLink(value: subject) {
+                    NavigationLink(destination: AppDestination(subject)) {
                         PosterCard(subject: subject)
                     }
                     .buttonStyle(.plain)
@@ -279,7 +280,7 @@ struct VideoHomeView: View {
                 if model.browseLoading {
                     ProgressView()
                 } else if let error = model.browseError {
-                    Button("加载失败，点击重试", systemImage: "arrow.clockwise") {
+                    Button("加载失败，点击重试", icon: "arrow.clockwise") {
                         Task { await model.loadMoreBrowse() }
                     }
                     .font(.subheadline)

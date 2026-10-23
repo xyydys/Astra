@@ -137,13 +137,12 @@ struct ReaderSettings: Codable, Equatable {
     var followSystemDark = true
 }
 
-@Observable
 @MainActor
-final class ReaderSettingsStore {
+final class ReaderSettingsStore: ObservableObject {
     static let shared = ReaderSettingsStore()
     private static let key = "novelReaderSettings"
 
-    var settings: ReaderSettings {
+    @Published var settings: ReaderSettings {
         didSet {
             if let data = try? JSONEncoder().encode(settings) {
                 UserDefaults.standard.set(data, forKey: Self.key)
@@ -370,7 +369,7 @@ struct ReaderPosition: Equatable, Hashable {
 // MARK: - 翻页（仿真 / 平移）
 
 struct ReaderPager: UIViewControllerRepresentable {
-    let model: NovelReaderModel
+    @ObservedObject var model: NovelReaderModel
     let mode: ReaderPageMode
 
     func makeCoordinator() -> Coordinator {

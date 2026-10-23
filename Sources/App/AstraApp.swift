@@ -1,11 +1,10 @@
 import SwiftUI
 import UIKit
-import SwiftData
 import AVFoundation
 
 @main
 struct AstraApp: App {
-    @State private var ruleStore = RuleStore()
+    @StateObject private var ruleStore = RuleStore()
 
     init() {
         #if DEBUG
@@ -27,7 +26,11 @@ struct AstraApp: App {
                 #if DEBUG
                 // UI 测试用的场景（只在 Debug 编译、带启动参数时出现）
                 if let scenario = UITestScenario.current {
-                    UITestHarness(scenario: scenario)
+                    if #available(iOS 26, *) {
+                        UITestHarness(scenario: scenario)
+                    } else {
+                        RootView()
+                    }
                 } else {
                     RootView()
                 }
@@ -35,10 +38,9 @@ struct AstraApp: App {
                 RootView()
                 #endif
             }
-            .environment(ruleStore)
+            .environmentObject(ruleStore)
             .tint(.pink)
         }
-        .modelContainer(for: [FavoriteItem.self, WatchRecord.self])
     }
 }
 
@@ -53,58 +55,14 @@ struct RootView: View {
     @AppStorage(AppSettings.contentModeKey) private var mode: ContentMode = .anime
 
     var body: some View {
-        TabView(selection: $tab) {
-            Tab("首页", systemImage: "house", value: AppTab.home) {
-                NavigationStack {
-                    Group {
-                        switch mode {
-                        case .anime: HomeView()
-                        case .video: VideoHomeView()
-                        case .comic: ComicHomeView()
-                        case .novel: NovelHomeView()
-                        case .music: MusicHomeView()
-                        }
-                    }
-                    .overlay(alignment: .topLeading) {
-                        ContentModeMenu()
-                            .padding(.leading, 16)
-                            .padding(.top, 4)
-                    }
-                    .appDestinations()
-                }
-            }
-            Tab("收藏", systemImage: "heart", value: AppTab.favorites) {
-                NavigationStack {
-                    Group {
-                        if mode == .music { MusicTrackListView(kind: .favorites) } else { FavoritesView() }
-                    }
-                    .appDestinations()
-                }
-            }
-            Tab("历史", systemImage: "clock.arrow.circlepath", value: AppTab.history) {
-                NavigationStack {
-                    Group {
-                        if mode == .music { MusicTrackListView(kind: .history) } else { HistoryView() }
-                    }
-                    .appDestinations()
-                }
-            }
-            Tab("我的", systemImage: "person.crop.circle", value: AppTab.settings) {
-                NavigationStack {
-                    SettingsView().appDestinations()
-                }
-            }
-            Tab("搜索", systemImage: "magnifyingglass", value: AppTab.search, role: .search) {
-                NavigationStack {
-                    SearchView().appDestinations()
-                }
-                .environment(\.exitSearchTab) {
-                    if tab == .search { tab = tabBeforeSearch }
-                }
+        Group {
+            if #available(iOS 18, *) {
+                modernTabs
+            } else {
+                legacyTabs
             }
         }
-        .tabBarMinimizeBehavior(.onScrollDown)
-        .onChange(of: tab) { old, new in
+        .onChangeCompat(of: tab) { old, new in
             if new == .search, old != .search { tabBeforeSearch = old }
         }
         .background {
@@ -113,6 +71,98 @@ struct RootView: View {
                 .opacity(0.02)
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
+        }
+    }
+
+    /// iOS 18 起的 Tab 写法：iOS 26 上搜索是底栏右侧单独的圆形按钮
+    @available(iOS 18, *)
+    private var modernTabs: some View {
+        TabView(selection: $tab) {
+            Tab("首页", systemImage: "house", value: AppTab.home) { homeTab }
+            Tab("收藏", systemImage: "heart", value: AppTab.favorites) { favoritesTab }
+            Tab("历史", systemImage: "clock.arrow.circlepath", value: AppTab.history) { historyTab }
+            Tab("我的", systemImage: "person.crop.circle", value: AppTab.settings) { settingsTab }
+            Tab("搜索", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { searchTab }
+        }
+        .tabBarMinimizeOnScroll()
+    }
+
+    /// iOS 15 – 17：普通的五个标签
+    private var legacyTabs: some View {
+        TabView(selection: $tab) {
+            homeTab
+                .tabItem { Label("首页", systemImage: "house") }
+                .tag(AppTab.home)
+            favoritesTab
+                .tabItem { Label("收藏", systemImage: "heart") }
+                .tag(AppTab.favorites)
+            historyTab
+                .tabItem { Label("历史", systemImage: "clock.arrow.circlepath") }
+                .tag(AppTab.history)
+            settingsTab
+                .tabItem { Label("我的", systemImage: "person.crop.circle") }
+                .tag(AppTab.settings)
+            searchTab
+                .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+                .tag(AppTab.search)
+        }
+    }
+
+    private var homeTab: some View {
+        NavigationStackCompat {
+            Group {
+                switch mode {
+                case .anime: HomeView()
+                case .video: VideoHomeView()
+                case .comic: ComicHomeView()
+                case .novel: NovelHomeView()
+                case .music: MusicHomeView()
+                }
+            }
+            .overlay(alignment: .topLeading) {
+                ContentModeMenu()
+                    .padding(.leading, 16)
+                    .padding(.top, 4)
+            }
+        }
+    }
+
+    private var favoritesTab: some View {
+        NavigationStackCompat {
+            if mode == .music { MusicTrackListView(kind: .favorites) } else { FavoritesView() }
+        }
+    }
+
+    private var historyTab: some View {
+        NavigationStackCompat {
+            if mode == .music { MusicTrackListView(kind: .history) } else { HistoryView() }
+        }
+    }
+
+    private var settingsTab: some View {
+        NavigationStackCompat {
+            SettingsView()
+        }
+    }
+
+    private var searchTab: some View {
+        NavigationStackCompat {
+            SearchView()
+        }
+        .environment(\.exitSearchTab) {
+            if tab == .search { tab = tabBeforeSearch }
+        }
+    }
+}
+
+extension View {
+    /// 往下滚动时底栏缩小（iOS 26）
+    @ViewBuilder
+    func tabBarMinimizeOnScroll() -> some View {
+        if #available(iOS 26, *) {
+            tabBarMinimizeBehavior(.onScrollDown)
+        } else {
+            self
         }
     }
 }
@@ -132,7 +182,7 @@ struct ContentModeMenu: View {
                     if newMode == .comic, !ageConfirmed {
                         askAge = true
                     } else {
-                        withAnimation(.smooth) { mode = newMode }
+                        withAnimation(.smoothCompat) { mode = newMode }
                     }
                 }
             )) {
@@ -160,13 +210,13 @@ struct ContentModeMenu: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: Capsule())
+        .glass(interactive: true, in: Capsule())
         .accessibilityLabel("切换内容：当前\(mode.title)")
         .alert("成人内容提示", isPresented: $askAge) {
             Button("取消", role: .cancel) {}
             Button("我已满 18 岁") {
                 ageConfirmed = true
-                withAnimation(.smooth) { mode = .comic }
+                withAnimation(.smoothCompat) { mode = .comic }
             }
         } message: {
             Text("漫画模式的资源来自禁漫天堂，含有成人内容，仅限已满 18 岁的用户使用。请先了解当地法律。")

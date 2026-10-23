@@ -4,28 +4,38 @@ import AVKit
 
 // MARK: - 导航
 
-extension View {
-    /// 各个 Tab 的 NavigationStack 共用的跳转目标
-    func appDestinations() -> some View {
-        self
-            .navigationDestination(for: BangumiSubject.self) { subject in
-                // 漫画、影视条目（负数 id）各走各的详情页
-                if subject.isNovel {
-                    NovelDetailView(subject: subject)
-                } else if subject.isComic {
-                    ComicDetailView(subject: subject)
-                } else if subject.isVideo {
-                    VideoDetailView(subject: subject)
-                } else {
-                    SubjectDetailView(subject: subject)
-                }
+/// 各个页面通用的跳转目标（iOS 15 没有 navigationDestination(for:)，链接直接带上目标页）
+struct AppDestination: View {
+    private enum Route {
+        case subject(BangumiSubject)
+        case play(PlayRequest)
+        case comicTag(String)
+    }
+
+    private let route: Route
+
+    init(_ subject: BangumiSubject) { route = .subject(subject) }
+    init(_ request: PlayRequest) { route = .play(request) }
+    init(_ tag: ComicTagRoute) { route = .comicTag(tag.keyword) }
+
+    var body: some View {
+        switch route {
+        case .subject(let subject):
+            // 漫画、影视条目（负数 id）各走各的详情页
+            if subject.isNovel {
+                NovelDetailView(subject: subject)
+            } else if subject.isComic {
+                ComicDetailView(subject: subject)
+            } else if subject.isVideo {
+                VideoDetailView(subject: subject)
+            } else {
+                SubjectDetailView(subject: subject)
             }
-            .navigationDestination(for: PlayRequest.self) { request in
-                PlayerScreen(request: request)
-            }
-            .navigationDestination(for: ComicTagRoute.self) { route in
-                ComicTagResultsView(keyword: route.keyword)
-            }
+        case .play(let request):
+            PlayerScreen(request: request)
+        case .comicTag(let keyword):
+            ComicTagResultsView(keyword: keyword)
+        }
     }
 }
 
@@ -105,13 +115,13 @@ struct PosterCard: View {
                             .font(.caption2.weight(.bold))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
-                            .glassEffect(.regular, in: Capsule())
+                            .glass(in: Capsule())
                             .padding(6)
                     }
                 }
             Text(subject.title)
                 .font(.footnote.weight(.medium))
-                .lineLimit(2, reservesSpace: true)
+                .lineLimitReservingSpace(2)
                 .foregroundStyle(.primary)
             if let subtitle, !subtitle.isEmpty {
                 Text(subtitle)
@@ -166,7 +176,7 @@ struct TagChip: View {
                 .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .animation(.snappy, value: selected)
+        .animation(.snappyCompat, value: selected)
     }
 }
 

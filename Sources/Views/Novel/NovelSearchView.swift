@@ -3,8 +3,8 @@ import SwiftUI
 /// 小说搜索：并发搜所有启用的书源，同名同作者的结果合并成一本
 struct NovelSearchView: View {
     @State private var query = ""
-    @State private var model = NovelSearchModel()
-    @State private var store = BookSourceStore.shared
+    @StateObject private var model = NovelSearchModel()
+    @ObservedObject private var store = BookSourceStore.shared
     @AppStorage("novelSearchGroup") private var group = ""
 
     private let grid = [GridItem(.adaptive(minimum: 96, maximum: 140), spacing: 14)]
@@ -35,7 +35,7 @@ struct NovelSearchView: View {
                     ForEach(model.groups) { item in
                         let book = item.display
                         let subject = NovelLibrary.shared.prepare(book, candidates: item.books)
-                        NavigationLink(value: subject) {
+                        NavigationLink(destination: AppDestination(subject)) {
                             BookCard(book: book, subtitle: subtitle(item))
                         }
                         .buttonStyle(.plain)
@@ -45,21 +45,21 @@ struct NovelSearchView: View {
             }
             .padding(.vertical)
         }
-        .scrollDismissesKeyboard(.immediately)
+        .dismissKeyboardOnScroll()
         .overlay {
             if model.groups.isEmpty, !model.isSearching {
                 if store.isLoaded, store.searchable.isEmpty {
                     VStack(spacing: 16) {
-                        ContentUnavailableView("没有可用的书源", systemImage: "text.book.closed",
+                        EmptyStateView("没有可用的书源", systemImage: "text.book.closed",
                                                description: Text("导入「阅读」（Legado）格式的书源后才能搜书"))
                         NavigationLink("管理书源") { BookSourcesView() }
-                            .buttonStyle(.glassProminent)
+                            .glassProminentButtonStyle()
                     }
                 } else if model.keyword.isEmpty {
-                    ContentUnavailableView("搜索小说", systemImage: "text.magnifyingglass",
+                    EmptyStateView("搜索小说", systemImage: "text.magnifyingglass",
                                            description: Text("同时在 \(sources.count) 个书源里搜索书名或作者"))
                 } else {
-                    ContentUnavailableView.search(text: model.keyword)
+                    EmptyStateView.search(text: model.keyword)
                 }
             }
         }
@@ -69,9 +69,9 @@ struct NovelSearchView: View {
             model.search(query, sources: sources)
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 if model.isSearching {
-                    Button("停止", systemImage: "stop.fill") { model.cancel() }
+                    Button("停止", icon: "stop.fill") { model.cancel() }
                 } else if store.groups.count > 1 {
                     Menu {
                         Picker("搜索范围", selection: $group) {

@@ -2,7 +2,7 @@ name: Astra
 options:
   bundleIdPrefix: xyy
   deploymentTarget:
-    iOS: "26.0"
+    iOS: "15.0"
   createIntermediateGroups: true
 packages:
   SwiftSoup:
@@ -13,7 +13,7 @@ settings:
     SWIFT_VERSION: "5.0"
     MARKETING_VERSION: "0.1.0"
     CURRENT_PROJECT_VERSION: "1"
-    IPHONEOS_DEPLOYMENT_TARGET: "26.0"
+    IPHONEOS_DEPLOYMENT_TARGET: "15.0"
     TARGETED_DEVICE_FAMILY: "1,2"
     ENABLE_USER_SCRIPT_SANDBOXING: "NO"
     DEAD_CODE_STRIPPING: "YES"

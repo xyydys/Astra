@@ -124,6 +124,8 @@ struct UITestCounters: View {
     }
 }
 
+/// UI 测试只在 iOS 26 模拟器上跑
+@available(iOS 26, *)
 struct UITestHarness: View {
     let scenario: String
 
@@ -146,6 +148,8 @@ struct UITestHarness: View {
 }
 
 /// 和正式版一样的五个标签，首页放测试内容
+/// UI 测试只在 iOS 26 模拟器上跑
+@available(iOS 26, *)
 private struct TestTabs<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
@@ -163,6 +167,8 @@ private struct TestTabs<Content: View>: View {
 
 // MARK: - 阅读器 + 设置 sheet（和正式代码完全一样的 NovelReaderView）
 
+/// UI 测试只在 iOS 26 模拟器上跑
+@available(iOS 26, *)
 private struct ReaderScenario: View {
     @State private var request: NovelReadRequest?
 
@@ -213,6 +219,8 @@ private struct ReaderScenario: View {
 }
 
 /// 阅读器直接当根视图（不经过 fullScreenCover）
+/// UI 测试只在 iOS 26 模拟器上跑
+@available(iOS 26, *)
 private struct ReaderInlineScenario: View {
     @State private var request: NovelReadRequest?
 
@@ -234,10 +242,12 @@ private struct ReaderInlineScenario: View {
 }
 
 /// 设置 sheet 单独从普通页面弹出（不在阅读器里），用来区分问题出在 sheet 本身还是阅读器
+/// UI 测试只在 iOS 26 模拟器上跑
+@available(iOS 26, *)
 private struct SettingsSheetScenario: View {
     let backgroundInteraction: Bool
     @State private var show = false
-    @State private var store = ReaderSettingsStore.shared
+    @ObservedObject private var store = ReaderSettingsStore.shared
 
     var body: some View {
         VStack(spacing: 12) {
@@ -262,6 +272,8 @@ private struct SettingsSheetScenario: View {
 
 // MARK: - 小说详情（真实页面，假书 + 指定封面色）
 
+/// UI 测试只在 iOS 26 模拟器上跑
+@available(iOS 26, *)
 private struct NovelDetailScenario: View {
     @State private var path = [NovelDetailScenario.subject]
 
@@ -296,7 +308,7 @@ private struct NovelDetailScenario: View {
                     Text("根页面")
                     NavigationLink("打开详情", value: Self.subject)
                 }
-                .appDestinations()
+                
             }
         }
     }

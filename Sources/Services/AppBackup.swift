@@ -1,9 +1,8 @@
 import Foundation
-import SwiftData
 
 /// 全量备份：片源、书源、洛雪音源、书架、收藏、观看 / 阅读历史、音乐收藏和设置，导出成一个 JSON 文件。
-/// - Application Support 里的数据文件原样打包（SwiftData 数据库和书源引擎的运行缓存除外）
-/// - SwiftData 的收藏 / 观看历史逐条导出，导入时按条目合并
+/// - Application Support 里的数据文件原样打包（收藏 / 历史库、旧版 SwiftData 数据库和书源引擎的运行缓存除外）
+/// - 收藏 / 观看历史逐条导出，导入时按条目合并
 /// - 设置取 UserDefaults 里本 App 自己的键
 /// 备份文件放在 Documents/备份，开了文件共享，能在「文件」App 里看到。
 enum AppBackup {
@@ -125,13 +124,13 @@ enum AppBackup {
 
     // MARK: 范围
 
-    /// 不进备份的文件：SwiftData 数据库（收藏 / 历史逐条导出）、书源引擎的运行缓存、隐藏文件
+    /// 不进备份的文件：收藏 / 历史库和旧版 SwiftData 数据库（收藏 / 历史逐条导出）、书源引擎的运行缓存、隐藏文件
     static func shouldSkip(_ relative: String) -> Bool {
         let parts = relative.split(separator: "/").map(String.init)
         guard let first = parts.first else { return true }
         if parts.contains(where: { $0.hasPrefix(".") || $0 == ".." }) { return true }
         if first == "NovelEngine" || first.hasPrefix("com.apple") { return true }
-        if relative.contains(".store") { return true }
+        if relative.contains(".store") || relative == WatchLibrary.fileName { return true }
         return false
     }
 
@@ -170,9 +169,9 @@ enum AppBackup {
 
     /// 导出当前数据，返回 Documents/备份 里的文件
     @MainActor
-    static func export(context: ModelContext, prefix: String? = nil) async throws -> URL {
-        let favorites = try context.fetch(FetchDescriptor<FavoriteItem>()).map { Favorite($0) }
-        let records = try context.fetch(FetchDescriptor<WatchRecord>()).map { Record($0) }
+    static func export(prefix: String? = nil) async throws -> URL {
+        let favorites = WatchLibrary.shared.favorites.map { Favorite($0) }
+        let records = WatchLibrary.shared.records.map { Record($0) }
         let defaults = try? PropertyListSerialization.data(fromPropertyList: appDefaults(), format: .binary, options: 0)
         let appVersion = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
         let bundleID = Bundle.main.bundleIdentifier ?? ""
@@ -240,7 +239,7 @@ enum AppBackup {
 
     /// 恢复：数据文件和设置以备份为准，收藏 / 历史按条目合并（同一条保留较新的）
     @MainActor
-    static func restore(_ archive: Archive, context: ModelContext, rules: RuleStore) async throws {
+    static func restore(_ archive: Archive, rules: RuleStore) async throws {
         let files = archive.files
         try await Task.detached(priority: .userInitiated) {
             let root = supportDirectory.standardizedFileURL
@@ -260,24 +259,10 @@ enum AppBackup {
             }
         }
 
-        let favorites = (try? context.fetch(FetchDescriptor<FavoriteItem>())) ?? []
-        let favoriteIDs = Set(favorites.map(\.subjectID))
-        for item in archive.favorites where !favoriteIDs.contains(item.subjectID) {
-            context.insert(item.model)
-        }
-        let records = (try? context.fetch(FetchDescriptor<WatchRecord>())) ?? []
-        var existing = Dictionary(records.map { ($0.subjectID, $0) }, uniquingKeysWith: { first, _ in first })
-        for item in archive.records {
-            if let current = existing[item.subjectID] {
-                if item.updatedAt > current.updatedAt { item.apply(to: current) }
-            } else {
-                let model = WatchRecord(subjectID: item.subjectID)
-                item.apply(to: model)
-                context.insert(model)
-                existing[item.subjectID] = model
-            }
-        }
-        try context.save()
+        WatchLibrary.shared.merge(
+            favorites: archive.favorites.map(\.model),
+            records: archive.records.map(\.model)
+        )
 
         rules.reload()
         await BookSourceStore.shared.reload()
@@ -297,7 +282,7 @@ extension AppBackup.Favorite {
     }
 
     var model: FavoriteItem {
-        let model = FavoriteItem(subject: BangumiSubject(
+        var model = FavoriteItem(subject: BangumiSubject(
             id: subjectID, name: name, nameCN: nameCN, image: image, thumb: image,
             score: score, rank: 0, airDate: "", summary: "", tags: [], episodes: 0
         ))
@@ -317,7 +302,8 @@ extension AppBackup.Record {
         )
     }
 
-    func apply(to record: WatchRecord) {
+    var model: WatchRecord {
+        var record = WatchRecord(subjectID: subjectID)
         record.title = title
         record.name = name
         record.image = image
@@ -333,5 +319,6 @@ extension AppBackup.Record {
         record.cmsAPI = cmsAPI
         record.vodID = vodID
         record.kind = kind
+        return record
     }
 }

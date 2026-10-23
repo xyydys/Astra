@@ -1,4 +1,3 @@
-import SwiftData
 import SwiftUI
 
 /// 打开阅读器需要的信息
@@ -18,24 +17,20 @@ struct ComicDetailView: View {
     @State private var error: String?
     @State private var readRequest: ComicReadRequest?
     @State private var summaryExpanded = false
-    @Environment(\.modelContext) private var modelContext
+    @ObservedObject private var library = WatchLibrary.shared
+    @ObservedObject private var tints = PosterTints.shared
     @Environment(\.colorScheme) private var systemScheme
-    @Query private var favorites: [FavoriteItem]
-    @Query private var records: [WatchRecord]
     @AppStorage("episodeListReversed") private var chaptersReversed = false
 
     private let columns = [GridItem(.adaptive(minimum: 76), spacing: 10)]
 
     init(subject: BangumiSubject) {
         _subject = State(initialValue: subject)
-        let sid = subject.id
-        _favorites = Query(filter: #Predicate<FavoriteItem> { $0.subjectID == sid })
-        _records = Query(filter: #Predicate<WatchRecord> { $0.subjectID == sid })
     }
 
-    private var tint: PosterTint? { PosterTints.shared.tint(for: subject.id) }
-    private var isFavorite: Bool { !favorites.isEmpty }
-    private var record: WatchRecord? { records.first { $0.isComic } }
+    private var tint: PosterTint? { tints.tint(for: subject.id) }
+    private var isFavorite: Bool { library.isFavorite(subject.id) }
+    private var record: WatchRecord? { library.record(subject.id).flatMap { $0.isComic ? $0 : nil } }
     private var chapters: [JMChapter] { album?.chapters ?? [] }
 
     var body: some View {
@@ -70,7 +65,7 @@ struct ComicDetailView: View {
         .environment(\.colorScheme, tint?.colorScheme ?? systemScheme)
         .navigationTitle(subject.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(removing: .title)
+        .navigationTitleHidden()
         .task { await PosterTints.shared.ensure(subject) }
         .task { await load() }
         .fullScreenCover(item: $readRequest) { request in
@@ -93,7 +88,7 @@ struct ComicDetailView: View {
 
     private var header: some View {
         Color.clear
-            .containerRelativeFrame(.vertical) { length, _ in min(length * 0.62, 680) }
+            .containerHeight(fraction: 0.62, max: 680)
             .frame(maxWidth: .infinity)
             .overlay {
                 PosterImage(url: subject.image, fallback: subject.thumb, showsPlaceholder: false)
@@ -127,7 +122,7 @@ struct ComicDetailView: View {
     // MARK: 按钮
 
     private var actions: some View {
-        GlassEffectContainer(spacing: 12) {
+        GlassGroup(spacing: 12) {
             HStack(spacing: 12) {
                 if let record, !chapters.isEmpty {
                     Button {
@@ -138,7 +133,7 @@ struct ComicDetailView: View {
                             .lineLimit(1)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glassProminent)
+                    .glassProminentButtonStyle()
                     .controlSize(.large)
                 } else {
                     Button {
@@ -147,7 +142,7 @@ struct ComicDetailView: View {
                         Label(album == nil ? "正在加载…" : "开始阅读", systemImage: "book.fill")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glassProminent)
+                    .glassProminentButtonStyle()
                     .controlSize(.large)
                     .disabled(chapters.isEmpty)
                 }
@@ -156,11 +151,11 @@ struct ComicDetailView: View {
                     toggleFavorite()
                 } label: {
                     Image(systemName: isFavorite ? "heart.fill" : "heart")
-                        .contentTransition(.symbolEffect(.replace))
+                        .symbolReplaceTransition()
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .controlSize(.large)
-                .sensoryFeedback(.selection, trigger: isFavorite)
+                .selectionFeedback(trigger: isFavorite)
             }
         }
         .padding(.horizontal)
@@ -175,12 +170,12 @@ struct ComicDetailView: View {
                     .font(.headline)
                 Spacer()
                 Button {
-                    withAnimation(.snappy) { chaptersReversed.toggle() }
+                    withAnimation(.snappyCompat) { chaptersReversed.toggle() }
                 } label: {
                     Label(chaptersReversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
                         .font(.subheadline)
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .controlSize(.small)
             }
             LazyVGrid(columns: columns, spacing: 10) {
@@ -216,7 +211,7 @@ struct ComicDetailView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(summaryExpanded ? nil : 4)
             Button(summaryExpanded ? "收起" : "展开") {
-                withAnimation(.snappy) { summaryExpanded.toggle() }
+                withAnimation(.snappyCompat) { summaryExpanded.toggle() }
             }
             .font(.callout.weight(.medium))
         }
@@ -239,9 +234,9 @@ struct ComicDetailView: View {
                         Text(group.0)
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
-                        FlowLayout(spacing: 8) {
+                        TagFlow(spacing: 8) {
                             ForEach(group.1, id: \.self) { tag in
-                                NavigationLink(value: ComicTagRoute(keyword: tag)) {
+                                NavigationLink(destination: AppDestination(ComicTagRoute(keyword: tag))) {
                                     Text(tag)
                                         .font(.caption)
                                         .padding(.horizontal, 10)
@@ -264,7 +259,7 @@ struct ComicDetailView: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: 14) {
                     ForEach(comics) { comic in
-                        NavigationLink(value: comic.subject) {
+                        NavigationLink(destination: AppDestination(comic.subject)) {
                             PosterCard(subject: comic.subject, width: 104)
                         }
                         .buttonStyle(.plain)
@@ -272,7 +267,7 @@ struct ComicDetailView: View {
                 }
                 .padding(.horizontal)
             }
-            .scrollIndicators(.hidden)
+            .hideScrollIndicators()
         }
     }
 
@@ -300,16 +295,12 @@ struct ComicDetailView: View {
     }
 
     private func toggleFavorite() {
-        if let existing = favorites.first {
-            modelContext.delete(existing)
-        } else {
-            modelContext.insert(FavoriteItem(subject: subject))
-        }
-        try? modelContext.save()
+        library.toggleFavorite(subject)
     }
 }
 
 /// 简单的流式布局（标签自动换行）
+@available(iOS 16, *)
 struct FlowLayout: Layout {
     var spacing: CGFloat = 8
 

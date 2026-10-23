@@ -1,11 +1,9 @@
 import SwiftUI
-import SwiftData
 
 struct SubjectDetailView: View {
     @State private var subject: BangumiSubject
-    @Environment(\.modelContext) private var modelContext
-    @Query private var favorites: [FavoriteItem]
-    @Query private var records: [WatchRecord]
+    @ObservedObject private var library = WatchLibrary.shared
+    @ObservedObject private var tints = PosterTints.shared
 
     @State private var showSources = false
     @State private var pendingRequest: PlayRequest?
@@ -15,16 +13,13 @@ struct SubjectDetailView: View {
 
     init(subject: BangumiSubject) {
         _subject = State(initialValue: subject)
-        let sid = subject.id
-        _favorites = Query(filter: #Predicate<FavoriteItem> { $0.subjectID == sid })
-        _records = Query(filter: #Predicate<WatchRecord> { $0.subjectID == sid })
     }
 
     /// 海报主色：首页列表会提前取色，大多数情况下打开时第一帧就是对的
-    private var tint: PosterTint? { PosterTints.shared.tint(for: subject.id) }
+    private var tint: PosterTint? { tints.tint(for: subject.id) }
 
-    private var isFavorite: Bool { !favorites.isEmpty }
-    private var record: WatchRecord? { records.first }
+    private var isFavorite: Bool { library.isFavorite(subject.id) }
+    private var record: WatchRecord? { library.record(subject.id) }
 
     var body: some View {
         ScrollView {
@@ -45,7 +40,7 @@ struct SubjectDetailView: View {
         .environment(\.colorScheme, tint?.colorScheme ?? systemScheme)
         .navigationTitle(subject.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(removing: .title)
+        .navigationTitleHidden()
         .task { await loadDetail() }
         .task { await PosterTints.shared.ensure(subject) }
         .sheet(isPresented: $showSources, onDismiss: {
@@ -59,7 +54,7 @@ struct SubjectDetailView: View {
                 showSources = false
             }
         }
-        .navigationDestination(item: $playRequest) { request in
+        .navigationDestinationCompat(item: $playRequest) { request in
             PlayerScreen(request: request)
         }
     }
@@ -76,7 +71,7 @@ struct SubjectDetailView: View {
     /// 整幅海报，底部渐变到海报主色，标题和信息居中叠在渐变上
     private var header: some View {
         Color.clear
-            .containerRelativeFrame(.vertical) { length, _ in min(length * 0.66, 720) }
+            .containerHeight(fraction: 0.66, max: 720)
             .frame(maxWidth: .infinity)
             .overlay {
                 // 先显示列表里已经加载过的缩略图，大图到了再淡入；底部渐隐露出同色背景
@@ -125,7 +120,7 @@ struct SubjectDetailView: View {
     // MARK: 按钮
 
     private var actions: some View {
-        GlassEffectContainer(spacing: 12) {
+        GlassGroup(spacing: 12) {
             HStack(spacing: 12) {
                 if let record {
                     Button {
@@ -135,7 +130,7 @@ struct SubjectDetailView: View {
                             .lineLimit(1)
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glassProminent)
+                    .glassProminentButtonStyle()
                     .controlSize(.large)
 
                     Button {
@@ -143,7 +138,7 @@ struct SubjectDetailView: View {
                     } label: {
                         Label("换源", systemImage: "arrow.triangle.2.circlepath")
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .controlSize(.large)
                 } else {
                     Button {
@@ -152,7 +147,7 @@ struct SubjectDetailView: View {
                         Label("开始观看", systemImage: "play.fill")
                             .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.glassProminent)
+                    .glassProminentButtonStyle()
                     .controlSize(.large)
                 }
 
@@ -160,11 +155,11 @@ struct SubjectDetailView: View {
                     toggleFavorite()
                 } label: {
                     Image(systemName: isFavorite ? "heart.fill" : "heart")
-                        .contentTransition(.symbolEffect(.replace))
+                        .symbolReplaceTransition()
                 }
-                .buttonStyle(.glass)
+                .glassButtonStyle()
                 .controlSize(.large)
-                .sensoryFeedback(.selection, trigger: isFavorite)
+                .selectionFeedback(trigger: isFavorite)
             }
         }
         .padding(.horizontal)
@@ -183,7 +178,7 @@ struct SubjectDetailView: View {
             }
             .padding(.horizontal)
         }
-        .scrollIndicators(.hidden)
+        .hideScrollIndicators()
     }
 
     private var summary: some View {
@@ -193,7 +188,7 @@ struct SubjectDetailView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(summaryExpanded ? nil : 5)
             Button(summaryExpanded ? "收起" : "展开") {
-                withAnimation(.snappy) { summaryExpanded.toggle() }
+                withAnimation(.snappyCompat) { summaryExpanded.toggle() }
             }
             .font(.callout.weight(.medium))
         }
@@ -216,11 +211,6 @@ struct SubjectDetailView: View {
     }
 
     private func toggleFavorite() {
-        if let existing = favorites.first {
-            modelContext.delete(existing)
-        } else {
-            modelContext.insert(FavoriteItem(subject: subject))
-        }
-        try? modelContext.save()
+        library.toggleFavorite(subject)
     }
 }

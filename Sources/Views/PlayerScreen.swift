@@ -1,11 +1,9 @@
 import SwiftUI
-import SwiftData
 
 struct PlayerScreen: View {
     let request: PlayRequest
 
-    @Environment(RuleStore.self) private var ruleStore
-    @Environment(\.modelContext) private var modelContext
+    @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.scenePhase) private var scenePhase
     @State private var model: PlayerModel?
 
@@ -19,11 +17,10 @@ struct PlayerScreen: View {
         }
         .navigationTitle(request.title)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar(.hidden, for: .tabBar)
+        .tabBarHiddenCompat()
         .task {
             if model == nil {
                 let created = PlayerModel(request: request, rule: request.isCMS ? nil : ruleStore.rule(named: request.ruleName))
-                created.modelContext = modelContext
                 model = created
                 created.start()
             }
@@ -33,14 +30,14 @@ struct PlayerScreen: View {
             guard let model, !model.isFullscreen, !model.isPictureInPicture else { return }
             model.teardown()
         }
-        .onChange(of: scenePhase) { _, phase in
+        .onChangeCompat(of: scenePhase) { _, phase in
             if phase != .active { model?.saveProgress() }
         }
     }
 }
 
 private struct PlayerContent: View {
-    @Bindable var model: PlayerModel
+    @ObservedObject var model: PlayerModel
     @State private var copiedLog = false
     /// 选集列表倒序（记住上次的选择）
     @AppStorage("episodeListReversed") private var episodesReversed = false
@@ -115,15 +112,15 @@ private struct PlayerContent: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.white)
                 .padding(.horizontal, 24)
-            GlassEffectContainer(spacing: 10) {
+            GlassGroup(spacing: 10) {
                 HStack(spacing: 10) {
-                    Button("重试", systemImage: "arrow.clockwise") { model.retry() }
-                        .buttonStyle(.glassProminent)
-                    Button(copiedLog ? "已复制" : "复制日志", systemImage: "doc.on.doc") {
+                    Button("重试", icon: "arrow.clockwise") { model.retry() }
+                        .glassProminentButtonStyle()
+                    Button(copiedLog ? "已复制" : "复制日志", icon: "doc.on.doc") {
                         UIPasteboard.general.string = model.debugLog
                         copiedLog = true
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                 }
             }
         }
@@ -146,8 +143,8 @@ private struct PlayerContent: View {
                     .foregroundStyle(.secondary)
             }
             if model.hasNextEpisode, model.phase == .ready {
-                Button("下一集", systemImage: "forward.end.fill") { model.playNext() }
-                    .buttonStyle(.glass)
+                Button("下一集", icon: "forward.end.fill") { model.playNext() }
+                    .glassButtonStyle()
                     .controlSize(.small)
                     .padding(.top, 6)
             }
@@ -175,12 +172,12 @@ private struct PlayerContent: View {
                         .foregroundStyle(.secondary)
                     Spacer()
                     Button {
-                        withAnimation(.snappy) { episodesReversed.toggle() }
+                        withAnimation(.snappyCompat) { episodesReversed.toggle() }
                     } label: {
                         Label(episodesReversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
                             .font(.subheadline)
                     }
-                    .buttonStyle(.glass)
+                    .glassButtonStyle()
                     .controlSize(.small)
                     .accessibilityHint("切换选集列表的排列顺序")
                 }

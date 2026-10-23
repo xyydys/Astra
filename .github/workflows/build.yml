@@ -65,10 +65,10 @@ jobs:
             echo "## 编译结果"
             if [ $STATUS -eq 0 ]; then echo "✅ 成功"; else echo "❌ 失败"; fi
             echo '```'
-            grep -E "error:" build.log | sort -u | head -80
+            grep -E "error:" build.log | sort -u | head -300
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
-          grep -E "error:" build.log | sort -u | head -80
+          grep -E "error:" build.log | sort -u | head -300
           echo "---- warnings in project sources ----"
           grep -E "/(Sources)/.*warning:" build.log | sort -u | head -80 || true
           if [ $STATUS -ne 0 ]; then tail -60 build.log; exit 1; fi

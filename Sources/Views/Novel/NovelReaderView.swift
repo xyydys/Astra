@@ -1,4 +1,3 @@
-import SwiftData
 import SwiftUI
 import UIKit
 
@@ -15,38 +14,37 @@ struct NovelReadRequest: Identifiable {
 
 // MARK: - 阅读器数据
 
-@Observable
 @MainActor
-final class NovelReaderModel {
+final class NovelReaderModel: ObservableObject {
     let subjectID: Int
     let book: NovelBook
     let chapters: [NovelChapter]
     private let source: BookSource?
 
-    private(set) var settings: ReaderSettings
-    var systemDark = false {
+    @Published private(set) var settings: ReaderSettings
+    @Published var systemDark = false {
         didSet { if oldValue != systemDark, settings.followSystemDark { relayout() } }
     }
-    var showsMenu = false
+    @Published var showsMenu = false
 
-    private(set) var metrics = ReaderPaginator.Metrics(size: .zero, insets: .zero)
-    private(set) var position: ReaderPosition
+    @Published private(set) var metrics = ReaderPaginator.Metrics(size: .zero, insets: .zero)
+    @Published private(set) var position: ReaderPosition
     /// 设置变化后重排版、跳章时加 1：翻页控件整页重建
-    private(set) var revision = 0
+    @Published private(set) var revision = 0
     /// 有章节加载完时加 1：当前是占位页的话换成正文
-    private(set) var contentRevision = 0
-    private(set) var loading: Set<Int> = []
-    private(set) var errors: [Int: String] = [:]
+    @Published private(set) var contentRevision = 0
+    @Published private(set) var loading: Set<Int> = []
+    @Published private(set) var errors: [Int: String] = [:]
     /// 滚动模式下已经接上的章节
-    private(set) var scrollChapters: [Int] = []
+    @Published private(set) var scrollChapters: [Int] = []
 
-    @ObservationIgnored private var texts: [Int: String] = [:]
-    @ObservationIgnored private var layouts: [Int: ChapterLayout] = [:]
+    private var texts: [Int: String] = [:]
+    private var layouts: [Int: ChapterLayout] = [:]
     /// 排版完成后要恢复到的章内位置
-    @ObservationIgnored private var pendingOffset: Int?
-    @ObservationIgnored var onProgress: ((NovelReaderModel) -> Void)?
+    private var pendingOffset: Int?
+    var onProgress: ((NovelReaderModel) -> Void)?
     /// 滚动模式：跳章 / 重排后还没滚到目标位置
-    @ObservationIgnored var needsScrollRestore = true
+    var needsScrollRestore = true
 
     init(request: NovelReadRequest, settings: ReaderSettings) {
         subjectID = request.subjectID
@@ -73,8 +71,8 @@ final class NovelReaderModel {
 
     // MARK: 排版
 
-    @ObservationIgnored private var viewportSize: CGSize = .zero
-    @ObservationIgnored private var safe = EdgeInsets()
+    private var viewportSize: CGSize = .zero
+    private var safe = EdgeInsets()
 
     func setViewport(size: CGSize, safe: EdgeInsets) {
         guard size.width > 0 else { return }
@@ -314,22 +312,21 @@ final class NovelReaderModel {
 // MARK: - 阅读器
 
 struct NovelReaderView: View {
-    @State private var model: NovelReaderModel
-    @State private var store = ReaderSettingsStore.shared
+    @StateObject private var model: NovelReaderModel
+    @ObservedObject private var store = ReaderSettingsStore.shared
     @State private var showSettings = false
     @State private var showTOC = false
     @State private var saveTask: Task<Void, Never>?
     @State private var sliderValue: Double = 0
     @State private var sliding = false
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
     @Environment(\.colorScheme) private var systemScheme
     @Environment(\.openURL) private var openURL
     /// 顶栏中间胶囊的高度，左右两个按钮跟它一样高
     @State private var titleHeight: CGFloat = 52
 
     init(request: NovelReadRequest) {
-        _model = State(initialValue: NovelReaderModel(request: request, settings: ReaderSettingsStore.shared.settings))
+        _model = StateObject(wrappedValue: NovelReaderModel(request: request, settings: ReaderSettingsStore.shared.settings))
     }
 
     private struct Viewport: Equatable {
@@ -353,7 +350,7 @@ struct NovelReaderView: View {
                     ReaderScrollView(model: model)
                 }
             }
-            .onChange(of: Viewport(size: full, insets: insets), initial: true) { _, viewport in
+            .onChangeCompat(of: Viewport(size: full, insets: insets), initial: true) { _, viewport in
                 model.setViewport(size: viewport.size, safe: viewport.insets)
             }
         }
@@ -364,11 +361,10 @@ struct NovelReaderView: View {
         }
         .animation(.easeInOut(duration: 0.2), value: model.showsMenu)
         .statusBarHidden(!model.showsMenu)
-        .persistentSystemOverlays(.hidden)
+        .homeIndicatorHiddenCompat()
         .sheet(isPresented: $showSettings) {
             ReaderSettingsSheet(store: store)
-                .presentationDetents([.height(430), .large])
-                .presentationBackgroundInteraction(.enabled(upThrough: .height(430)))
+                .sheetDetents([.height(430), .large], interactiveUpThrough: .height(430))
         }
         .sheet(isPresented: $showTOC) {
             NovelTOCSheet(chapters: model.chapters, current: model.position.chapter) { index in
@@ -388,9 +384,9 @@ struct NovelReaderView: View {
             saveTask?.cancel()
             saveRecord(model)
         }
-        .onChange(of: store.settings) { _, new in model.apply(new) }
-        .onChange(of: systemScheme, initial: true) { _, scheme in model.systemDark = scheme == .dark }
-        .onChange(of: model.position.chapter) { _, chapter in
+        .onChangeCompat(of: store.settings) { _, new in model.apply(new) }
+        .onChangeCompat(of: systemScheme, initial: true) { _, scheme in model.systemDark = scheme == .dark }
+        .onChangeCompat(of: model.position.chapter) { _, chapter in
             if !sliding { sliderValue = Double(chapter) }
         }
     }
@@ -419,7 +415,7 @@ struct NovelReaderView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: Circle())
+            .glass(interactive: true, in: Circle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.book.name)
@@ -433,16 +429,16 @@ struct NovelReaderView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .glassEffect(.regular, in: Capsule())
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { titleHeight = $0 }
+            .glass(in: Capsule())
+            .readHeight { titleHeight = $0 }
 
             Menu {
-                Button("刷新本章", systemImage: "arrow.clockwise") {
+                Button("刷新本章", icon: "arrow.clockwise") {
                     model.reloadCurrent()
                     model.showsMenu = false
                 }
                 if let chapter = model.currentChapter, let url = URL.lenient(EngineURL.splitOption(chapter.absoluteURL).url) {
-                    Button("打开原网页", systemImage: "safari") { openURL(url) }
+                    Button("打开原网页", icon: "safari") { openURL(url) }
                 }
                 Text("书源：\(model.book.originName)")
             } label: {
@@ -452,7 +448,7 @@ struct NovelReaderView: View {
                     .contentShape(Circle())
             }
             .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: Circle())
+            .glass(interactive: true, in: Circle())
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -466,7 +462,7 @@ struct NovelReaderView: View {
                     .lineLimit(1)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 8)
-                    .glassEffect(.regular, in: Capsule())
+                    .glass(in: Capsule())
             }
             VStack(spacing: 14) {
                 HStack(spacing: 12) {
@@ -506,7 +502,7 @@ struct NovelReaderView: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 30, style: .continuous))
+            .glass(in: RoundedRectangle(cornerRadius: 30, style: .continuous))
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
@@ -543,7 +539,7 @@ struct NovelReaderView: View {
     private func scheduleSave(_ model: NovelReaderModel) {
         saveTask?.cancel()
         saveTask = Task {
-            try? await Task.sleep(for: .milliseconds(800))
+            try? await Task.sleep(nanoseconds: 800_000_000)
             guard !Task.isCancelled else { return }
             saveRecord(model)
         }
@@ -552,67 +548,62 @@ struct NovelReaderView: View {
     private func saveRecord(_ model: NovelReaderModel) {
         guard let chapter = model.currentChapter else { return }
         let id = model.subjectID
-        let descriptor = FetchDescriptor<WatchRecord>(predicate: #Predicate { $0.subjectID == id })
-        let record: WatchRecord
-        if let existing = try? modelContext.fetch(descriptor).first {
-            record = existing
-        } else {
-            record = WatchRecord(subjectID: id)
-            modelContext.insert(record)
-        }
         let book = model.book
-        record.kind = "novel"
-        record.title = book.name
-        record.name = book.author
-        record.image = NovelCover.url(book.coverUrl)
-        record.ruleName = book.origin
-        record.sourceTitle = book.originName
-        record.sourceURL = book.bookUrl
-        record.episodeIndex = model.position.chapter
-        record.episodeName = chapter.title
-        record.position = Double(model.currentOffset)
-        record.duration = Double(max(model.currentLength, 1))
-        record.roadIndex = model.chapters.count
-        record.updatedAt = Date()
-        try? modelContext.save()
+        WatchLibrary.shared.updateRecord(id) { record in
+            record.kind = "novel"
+            record.title = book.name
+            record.name = book.author
+            record.image = NovelCover.url(book.coverUrl)
+            record.ruleName = book.origin
+            record.sourceTitle = book.originName
+            record.sourceURL = book.bookUrl
+            record.episodeIndex = model.position.chapter
+            record.episodeName = chapter.title
+            record.position = Double(model.currentOffset)
+            record.duration = Double(max(model.currentLength, 1))
+            record.roadIndex = model.chapters.count
+            record.updatedAt = Date()
+        }
     }
 }
 
 // MARK: - 滚动模式
 
 struct ReaderScrollView: View {
-    let model: NovelReaderModel
+    @ObservedObject var model: NovelReaderModel
     @State private var scrolled: ReaderPosition?
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                if let first = model.scrollChapters.first, first > 0 {
-                    Button("上一章") { model.prependScrollChapter() }
-                        .font(.footnote)
-                        .foregroundStyle(Color(uiColor: model.theme.secondary))
-                        .padding(.vertical, 20)
-                }
-                ForEach(model.scrollChapters, id: \.self) { chapter in
-                    chapterView(chapter)
-                }
-                if let last = model.scrollChapters.last, last + 1 < model.chapters.count {
-                    ProgressView()
-                        .tint(Color(uiColor: model.theme.secondary))
-                        .padding(.vertical, 40)
-                        .onAppear { model.appendScrollChapter() }
-                }
-            }
-            .scrollTargetLayout()
+        PositionedScrollView(position: $scrolled) {
+            pages
         }
-        .scrollPosition(id: $scrolled, anchor: .top)
-        .scrollIndicators(.hidden)
+        .hideScrollIndicators()
         .onTapGesture { model.showsMenu.toggle() }
-        .onChange(of: scrolled) { _, position in
+        .onChangeCompat(of: scrolled) { _, position in
             if let position { model.didShow(position) }
         }
-        .onChange(of: model.revision, initial: true) { restore() }
-        .onChange(of: model.contentRevision) { restore() }
+        .onChangeCompat(of: model.revision, initial: true) { restore() }
+        .onChangeCompat(of: model.contentRevision) { restore() }
+    }
+
+    private var pages: some View {
+        LazyVStack(spacing: 0) {
+            if let first = model.scrollChapters.first, first > 0 {
+                Button("上一章") { model.prependScrollChapter() }
+                    .font(.footnote)
+                    .foregroundStyle(Color(uiColor: model.theme.secondary))
+                    .padding(.vertical, 20)
+            }
+            ForEach(model.scrollChapters, id: \.self) { chapter in
+                chapterView(chapter)
+            }
+            if let last = model.scrollChapters.last, last + 1 < model.chapters.count {
+                ProgressView()
+                    .tint(Color(uiColor: model.theme.secondary))
+                    .padding(.vertical, 40)
+                    .onAppear { model.appendScrollChapter() }
+            }
+        }
     }
 
     /// 跳章、重排版后滚到保存的位置（只做一次，之后加载别的章节不再跳动）
@@ -628,7 +619,7 @@ struct ReaderScrollView: View {
             ForEach(layout.pages.indices, id: \.self) { index in
                 ReaderScrollPage(layout: layout, page: index, theme: model.theme, margin: CGFloat(model.settings.margin))
                     .frame(height: layout.pages[index].usedHeight)
-                    .id(ReaderPosition(chapter: chapter, page: index))
+                    .scrollItem(ReaderPosition(chapter: chapter, page: index))
             }
             Color.clear.frame(height: 48)
         } else {
@@ -645,7 +636,7 @@ struct ReaderScrollView: View {
             }
             .foregroundStyle(Color(uiColor: model.theme.secondary))
             .frame(maxWidth: .infinity, minHeight: 320)
-            .id(ReaderPosition(chapter: chapter, page: 0))
+            .scrollItem(ReaderPosition(chapter: chapter, page: 0))
             .onAppear { model.ensureLoaded(chapter) }
         }
     }
@@ -654,7 +645,7 @@ struct ReaderScrollView: View {
 // MARK: - 排版设置
 
 struct ReaderSettingsSheet: View {
-    @Bindable var store: ReaderSettingsStore
+    @ObservedObject var store: ReaderSettingsStore
     @State private var downloading: ReaderFont?
     @State private var downloadProgress = 0.0
     @State private var downloadFailed = false
@@ -760,7 +751,7 @@ struct ReaderSettingsSheet: View {
         Button(action: action) {
             Image(systemName: icon).font(.title3).frame(width: 44, height: 36)
         }
-        .buttonStyle(.glass)
+        .glassButtonStyle()
     }
 
     private func select(_ font: ReaderFont) {
@@ -798,7 +789,7 @@ struct NovelTOCSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStackCompat {
             ScrollViewReader { proxy in
                 List(filtered) { chapter in
                     Button {
@@ -824,11 +815,11 @@ struct NovelTOCSheet: View {
             .navigationTitle("目录 · \(chapters.count) 章")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭", systemImage: "xmark") { dismiss() }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("关闭", icon: "xmark") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(reversed ? "正序" : "倒序", systemImage: "arrow.up.arrow.down") { reversed.toggle() }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(reversed ? "正序" : "倒序", icon: "arrow.up.arrow.down") { reversed.toggle() }
                 }
             }
         }

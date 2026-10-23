@@ -5,7 +5,7 @@ import SwiftUI
 /// 播放时进度每 0.25 秒刷新一次。读进度的部分（歌词动画、控制区）各自是独立的视图，
 /// 这一层只依赖封面取色，特效菜单展开时不会被反复重建（否则点按、按住滑选都会失灵）
 struct MusicHomeView: View {
-    @State private var player = MusicPlayer.shared
+    @ObservedObject private var player = MusicPlayer.shared
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
     @State private var tint: PosterTint?
@@ -44,8 +44,8 @@ struct MusicHomeView: View {
         }
         .environment(\.colorScheme, .dark)
         // 这一页始终是深色，底栏也明确用深色：交给系统按背景判断时，切换页面后底栏常常保持上一页的浅色
-        .toolbarColorScheme(.dark, for: .tabBar)
-        .toolbar(.hidden, for: .navigationBar)
+        .darkTabBarCompat()
+        .navigationBarHiddenCompat()
         .task(id: player.current?.cover) {
             guard let cover = player.current?.cover, !cover.isEmpty else {
                 withAnimation { tint = nil }
@@ -66,8 +66,8 @@ private struct MusicLyricsArea: View {
     let mode: FoliaMode
     let background: FoliaBackground
     let theme: FoliaTheme
-    @State private var player = MusicPlayer.shared
-    @State private var sources = LXSourceStore.shared
+    @ObservedObject private var player = MusicPlayer.shared
+    @ObservedObject private var sources = LXSourceStore.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -113,9 +113,11 @@ private struct MusicLyricsArea: View {
 private struct MusicControls: View {
     let accent: UIColor
     let onQueue: () -> Void
-    @State private var player = MusicPlayer.shared
-    @State private var library = MusicLibrary.shared
-    @State private var sources = LXSourceStore.shared
+    @ObservedObject private var player = MusicPlayer.shared
+    /// 进度每 0.25 秒更新，只有这一块跟着刷新
+    @ObservedObject private var clock = MusicPlayer.shared.clock
+    @ObservedObject private var library = MusicLibrary.shared
+    @ObservedObject private var sources = LXSourceStore.shared
     @State private var scrubbing = false
     @State private var scrubValue = 0.0
 
@@ -139,11 +141,11 @@ private struct MusicControls: View {
                         Image(systemName: library.isFavorite(track) ? "heart.fill" : "heart")
                             .font(.title3)
                             .foregroundStyle(library.isFavorite(track) ? Color.pink : Color.primary)
-                            .contentTransition(.symbolEffect(.replace))
+                            .symbolReplaceTransition()
                             .frame(width: 40, height: 40)
                     }
                     .buttonStyle(.plain)
-                    .sensoryFeedback(.selection, trigger: library.isFavorite(track))
+                    .selectionFeedback(trigger: library.isFavorite(track))
                 }
             }
 
@@ -204,11 +206,11 @@ private struct MusicControls: View {
                         } else {
                             Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
                                 .font(.system(size: 30))
-                                .contentTransition(.symbolEffect(.replace))
+                                .symbolReplaceTransition()
                         }
                     }
                     .frame(width: 72, height: 72)
-                    .glassEffect(.regular.interactive(), in: Circle())
+                    .glass(interactive: true, in: Circle())
                 }
                 Spacer()
                 Button { player.next() } label: {
@@ -276,7 +278,7 @@ private struct FoliaEffectMenu: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: Capsule())
+        .glass(interactive: true, in: Capsule())
         .accessibilityLabel("切换歌词特效：当前\(mode.name)")
     }
 }
@@ -334,8 +336,8 @@ struct MusicTrackRow: View {
 struct MusicTrackListView: View {
     enum Kind { case favorites, history }
     let kind: Kind
-    @State private var player = MusicPlayer.shared
-    @State private var library = MusicLibrary.shared
+    @ObservedObject private var player = MusicPlayer.shared
+    @ObservedObject private var library = MusicLibrary.shared
     @State private var confirmClear = false
 
     private var tracks: [MusicTrack] { kind == .favorites ? library.favorites : library.history }
@@ -359,25 +361,25 @@ struct MusicTrackListView: View {
         .overlay {
             if tracks.isEmpty {
                 if kind == .favorites {
-                    ContentUnavailableView("还没有收藏", systemImage: "heart", description: Text("在音乐页点 ♡ 收藏正在播放的歌"))
+                    EmptyStateView("还没有收藏", systemImage: "heart", description: Text("在音乐页点 ♡ 收藏正在播放的歌"))
                 } else {
-                    ContentUnavailableView("还没有播放记录", systemImage: "clock", description: Text("听过的歌会出现在这里"))
+                    EmptyStateView("还没有播放记录", systemImage: "clock", description: Text("听过的歌会出现在这里"))
                 }
             }
         }
         .navigationTitle(kind == .favorites ? "音乐收藏" : "播放历史")
         .toolbar {
             if kind == .history, !tracks.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("清空", systemImage: "trash") { confirmClear = true }
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("清空", icon: "trash") { confirmClear = true }
                         .confirmationDialog("清空播放历史？", isPresented: $confirmClear) {
                             Button("清空", role: .destructive) { library.clearHistory() }
                         }
                 }
             }
             if !tracks.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("全部播放", systemImage: "play.fill") {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("全部播放", icon: "play.fill") {
                         if let first = tracks.first { player.play(first, in: tracks) }
                     }
                 }
@@ -387,11 +389,11 @@ struct MusicTrackListView: View {
 }
 
 struct MusicQueueSheet: View {
-    @State private var player = MusicPlayer.shared
+    @ObservedObject private var player = MusicPlayer.shared
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        NavigationStackCompat {
             List {
                 ForEach(Array(player.queue.enumerated()), id: \.element.id) { offset, track in
                     Button {
@@ -407,16 +409,16 @@ struct MusicQueueSheet: View {
             .listStyle(.plain)
             .overlay {
                 if player.queue.isEmpty {
-                    ContentUnavailableView("播放列表是空的", systemImage: "music.note.list")
+                    EmptyStateView("播放列表是空的", systemImage: "music.note.list")
                 }
             }
             .navigationTitle("播放列表 · \(player.queue.count) 首")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("关闭", systemImage: "xmark") { dismiss() }
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("关闭", icon: "xmark") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
                         Picker("播放顺序", selection: $player.repeatMode) {
                             ForEach(MusicPlayer.RepeatMode.allCases, id: \.self) { mode in
@@ -429,19 +431,19 @@ struct MusicQueueSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        .sheetDetents([.medium, .large])
     }
 }
 
 /// 长按菜单：下一首播放、收藏
 struct MusicTrackMenu: View {
     let track: MusicTrack
-    @State private var player = MusicPlayer.shared
-    @State private var library = MusicLibrary.shared
+    @ObservedObject private var player = MusicPlayer.shared
+    @ObservedObject private var library = MusicLibrary.shared
 
     var body: some View {
-        Button("下一首播放", systemImage: "text.line.first.and.arrowtriangle.forward") { player.playNext(track) }
-        Button(library.isFavorite(track) ? "取消收藏" : "收藏", systemImage: library.isFavorite(track) ? "heart.slash" : "heart") {
+        Button("下一首播放", icon: "text.line.first.and.arrowtriangle.forward") { player.playNext(track) }
+        Button(library.isFavorite(track) ? "取消收藏" : "收藏", icon: library.isFavorite(track) ? "heart.slash" : "heart") {
             library.toggleFavorite(track)
         }
     }

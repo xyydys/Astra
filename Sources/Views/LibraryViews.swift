@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 
 // MARK: - 搜索
 
@@ -32,7 +31,7 @@ private struct AnimeSearchView: View {
         ScrollView {
             LazyVGrid(columns: grid, spacing: 18) {
                 ForEach(results) { subject in
-                    NavigationLink(value: subject) {
+                    NavigationLink(destination: AppDestination(subject)) {
                         PosterCard(subject: subject, subtitle: subject.briefInfo)
                     }
                     .buttonStyle(.plain)
@@ -40,16 +39,16 @@ private struct AnimeSearchView: View {
             }
             .padding()
         }
-        .scrollDismissesKeyboard(.immediately)
+        .dismissKeyboardOnScroll()
         .overlay {
             if isLoading {
                 ProgressView()
             } else if let error {
-                ContentUnavailableView("搜索失败", systemImage: "wifi.exclamationmark", description: Text(error))
+                EmptyStateView("搜索失败", systemImage: "wifi.exclamationmark", description: Text(error))
             } else if results.isEmpty && !searchedQuery.isEmpty {
-                ContentUnavailableView.search(text: searchedQuery)
+                EmptyStateView.search(text: searchedQuery)
             } else if results.isEmpty {
-                ContentUnavailableView("搜索番剧", systemImage: "sparkle.magnifyingglass", description: Text("番剧信息来自 Bangumi 番组计划"))
+                EmptyStateView("搜索番剧", systemImage: "sparkle.magnifyingglass", description: Text("番剧信息来自 Bangumi 番组计划"))
             }
         }
         .navigationTitle("搜索")
@@ -103,7 +102,7 @@ private struct VideoSearchView: View {
         }
     }
 
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
     @State private var query = ""
     @State private var groups: [ResultGroup] = []
     @State private var pending = 0
@@ -123,7 +122,7 @@ private struct VideoSearchView: View {
             }
             LazyVGrid(columns: grid, spacing: 18) {
                 ForEach(groups) { group in
-                    NavigationLink(value: group.subject) {
+                    NavigationLink(destination: AppDestination(group.subject)) {
                         PosterCard(subject: group.subject, subtitle: group.subtitle)
                     }
                     .buttonStyle(.plain)
@@ -131,20 +130,17 @@ private struct VideoSearchView: View {
             }
             .padding()
         }
-        .scrollDismissesKeyboard(.immediately)
+        .dismissKeyboardOnScroll()
         .overlay {
             if ruleStore.enabledCMS.isEmpty {
-                ContentUnavailableView {
-                    Label("还没有添加采集站", systemImage: "server.rack")
-                } description: {
-                    Text("影视模式在采集站里搜索。到「我的 → 规则管理」添加采集站或导入订阅")
-                }
+                EmptyStateView("还没有添加采集站", systemImage: "server.rack",
+                               description: Text("影视模式在采集站里搜索。到「我的 → 规则管理」添加采集站或导入订阅"))
             } else if groups.isEmpty, pending > 0 {
                 ProgressView("正在搜索 \(pending) 个采集站…")
             } else if groups.isEmpty, !searchedQuery.isEmpty {
-                ContentUnavailableView.search(text: searchedQuery)
+                EmptyStateView.search(text: searchedQuery)
             } else if groups.isEmpty {
-                ContentUnavailableView("搜索影视", systemImage: "film", description: Text("在已启用的 \(ruleStore.enabledCMS.count) 个采集站里搜索电影、剧集、综艺和动漫"))
+                EmptyStateView("搜索影视", systemImage: "film", description: Text("在已启用的 \(ruleStore.enabledCMS.count) 个采集站里搜索电影、剧集、综艺和动漫"))
             }
         }
         .navigationTitle("搜索影视")
@@ -202,8 +198,8 @@ private struct VideoSearchView: View {
 // MARK: - 收藏
 
 struct FavoritesView: View {
-    @Query(sort: \FavoriteItem.addedAt, order: .reverse) private var favorites: [FavoriteItem]
-    @Environment(\.modelContext) private var modelContext
+    @ObservedObject private var library = WatchLibrary.shared
+    private var favorites: [FavoriteItem] { library.favorites }
 
     private let grid = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 14)]
 
@@ -211,14 +207,13 @@ struct FavoritesView: View {
         ScrollView {
             LazyVGrid(columns: grid, spacing: 18) {
                 ForEach(favorites) { item in
-                    NavigationLink(value: item.subject) {
+                    NavigationLink(destination: AppDestination(item.subject)) {
                         PosterCard(subject: item.subject)
                     }
                     .buttonStyle(.plain)
                     .contextMenu {
-                        Button("取消收藏", systemImage: "heart.slash", role: .destructive) {
-                            modelContext.delete(item)
-                            try? modelContext.save()
+                        Button("取消收藏", icon: "heart.slash", role: .destructive) {
+                            library.removeFavorite(item.subjectID)
                         }
                     }
                 }
@@ -227,7 +222,7 @@ struct FavoritesView: View {
         }
         .overlay {
             if favorites.isEmpty {
-                ContentUnavailableView("还没有收藏", systemImage: "heart", description: Text("在番剧详情页点 ♡ 收藏"))
+                EmptyStateView("还没有收藏", systemImage: "heart", description: Text("在番剧详情页点 ♡ 收藏"))
             }
         }
         .navigationTitle("收藏")
@@ -240,8 +235,8 @@ struct FavoritesView: View {
 // MARK: - 历史
 
 struct HistoryView: View {
-    @Query(sort: \WatchRecord.updatedAt, order: .reverse) private var records: [WatchRecord]
-    @Environment(\.modelContext) private var modelContext
+    @ObservedObject private var library = WatchLibrary.shared
+    private var records: [WatchRecord] { library.records }
     @State private var confirmClear = false
 
     var body: some View {
@@ -249,38 +244,36 @@ struct HistoryView: View {
             ForEach(records) { record in
                 // 漫画记录打开详情页（那里有「继续阅读」），影视 / 番剧直接续播
                 if record.isComic || record.isNovel {
-                    NavigationLink(value: record.subject) {
+                    NavigationLink(destination: AppDestination(record.subject)) {
                         HistoryRow(record: record)
                     }
                 } else {
-                    NavigationLink(value: record.playRequest) {
+                    NavigationLink(destination: AppDestination(record.playRequest)) {
                         HistoryRow(record: record)
                     }
                 }
             }
             .onDelete { offsets in
-                for index in offsets { modelContext.delete(records[index]) }
-                try? modelContext.save()
+                library.removeRecords(Set(offsets.map { records[$0].subjectID }))
             }
         }
         .listStyle(.plain)
         .overlay {
             if records.isEmpty {
-                ContentUnavailableView("还没有观看记录", systemImage: "clock", description: Text("看过的番剧、影视和漫画会出现在这里，点一下接着看"))
+                EmptyStateView("还没有观看记录", systemImage: "clock", description: Text("看过的番剧、影视和漫画会出现在这里，点一下接着看"))
             }
         }
         .navigationTitle("历史")
         .toolbar {
             if !records.isEmpty {
                 ToolbarItem(placement: .primaryAction) {
-                    Button("清空", systemImage: "trash") { confirmClear = true }
+                    Button("清空", icon: "trash") { confirmClear = true }
                 }
             }
         }
         .confirmationDialog("清空全部观看记录？", isPresented: $confirmClear, titleVisibility: .visible) {
             Button("清空", role: .destructive) {
-                for record in records { modelContext.delete(record) }
-                try? modelContext.save()
+                library.clearRecords()
             }
         }
     }

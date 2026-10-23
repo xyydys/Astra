@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 书源管理：导入、启用、排序、检测
 struct BookSourcesView: View {
-    @State private var store = BookSourceStore.shared
+    @ObservedObject private var store = BookSourceStore.shared
     @State private var query = ""
     @State private var group = ""
     @State private var showImport = false
@@ -41,8 +41,8 @@ struct BookSourcesView: View {
                         Text("小说内容全部来自你导入的书源。支持「阅读」（Legado 3.x）格式：书源 JSON、JSON 地址，或者 legado:// 一键导入链接。")
                             .font(.callout)
                             .foregroundStyle(.secondary)
-                        Button("导入书源", systemImage: "square.and.arrow.down") { showImport = true }
-                            .buttonStyle(.glassProminent)
+                        Button("导入书源", icon: "square.and.arrow.down") { showImport = true }
+                            .glassProminentButtonStyle()
                     }
                     .padding(.vertical, 6)
                 }
@@ -68,10 +68,10 @@ struct BookSourcesView: View {
         .searchable(text: $query, prompt: "书源名称或地址")
         .navigationTitle("书源")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Menu {
-                    Button("导入书源", systemImage: "square.and.arrow.down") { showImport = true }
-                    Button("从剪贴板导入", systemImage: "doc.on.clipboard") { importClipboard() }
+                    Button("导入书源", icon: "square.and.arrow.down") { showImport = true }
+                    Button("从剪贴板导入", icon: "doc.on.clipboard") { importClipboard() }
                     Divider()
                     if !store.groups.isEmpty {
                         Picker("分组", selection: $group) {
@@ -79,17 +79,17 @@ struct BookSourcesView: View {
                             ForEach(store.groups, id: \.self) { Text($0).tag($0) }
                         }
                     }
-                    Button("检测当前列表", systemImage: "checkmark.seal") { Task { await checkAll() } }
+                    Button("检测当前列表", icon: "checkmark.seal") { Task { await checkAll() } }
                         .disabled(checking || filtered.isEmpty)
-                    Button("全部启用", systemImage: "checkmark.circle") { store.setEnabled(Set(filtered.map(\.id)), true) }
-                    Button("全部停用", systemImage: "circle") { store.setEnabled(Set(filtered.map(\.id)), false) }
-                    Button("删除失效书源", systemImage: "trash", role: .destructive) { deleteFailed() }
+                    Button("全部启用", icon: "checkmark.circle") { store.setEnabled(Set(filtered.map(\.id)), true) }
+                    Button("全部停用", icon: "circle") { store.setEnabled(Set(filtered.map(\.id)), false) }
+                    Button("删除失效书源", icon: "trash", role: .destructive) { deleteFailed() }
                         .disabled(!health.values.contains { if case .failed = $0 { return true } else { return false } })
                 } label: {
                     Image(systemName: "plus")
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 EditButton()
             }
         }
@@ -140,9 +140,9 @@ struct BookSourcesView: View {
                 .labelsHidden()
         }
         .contextMenu {
-            Button("置顶", systemImage: "arrow.up.to.line") { store.moveToTop(source.id) }
-            Button("检测", systemImage: "checkmark.seal") { Task { await check([source]) } }
-            Button("删除", systemImage: "trash", role: .destructive) { store.delete([source.id]) }
+            Button("置顶", icon: "arrow.up.to.line") { store.moveToTop(source.id) }
+            Button("检测", icon: "checkmark.seal") { Task { await check([source]) } }
+            Button("删除", icon: "trash", role: .destructive) { store.delete([source.id]) }
         }
     }
 
@@ -193,7 +193,7 @@ struct BookSourcesView: View {
         let key = source.ruleSearch.checkKeyWord.isEmpty ? "我的" : source.ruleSearch.checkKeyWord
         let env = EngineEnv()
         let timer = Task {
-            try? await Task.sleep(for: .seconds(20))
+            try? await Task.sleep(nanoseconds: 20_000_000_000)
             env.token.cancel()
         }
         defer { timer.cancel() }
@@ -221,7 +221,7 @@ struct BookSourceImportView: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        NavigationStackCompat {
             Form {
                 Section {
                     TextEditor(text: $text)
@@ -237,7 +237,7 @@ struct BookSourceImportView: View {
                                     .allowsHitTesting(false)
                             }
                         }
-                    Button("粘贴剪贴板", systemImage: "doc.on.clipboard") {
+                    Button("粘贴剪贴板", icon: "doc.on.clipboard") {
                         text = UIPasteboard.general.string ?? text
                     }
                 } footer: {
@@ -247,10 +247,10 @@ struct BookSourceImportView: View {
             .navigationTitle("导入书源")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: .navigationBarLeading) {
                     Button("取消") { dismiss() }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button("导入") { onImport(text) }
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
@@ -261,8 +261,8 @@ struct BookSourceImportView: View {
 
 /// 设置页里的「小说」分组
 struct NovelSettingsSection: View {
-    @State private var store = BookSourceStore.shared
-    @State private var settings = ReaderSettingsStore.shared
+    @ObservedObject private var store = BookSourceStore.shared
+    @ObservedObject private var settings = ReaderSettingsStore.shared
     @State private var cacheSize: Int64 = 0
     @State private var showReaderSettings = false
 
@@ -271,7 +271,7 @@ struct NovelSettingsSection: View {
             NavigationLink {
                 BookSourcesView()
             } label: {
-                LabeledContent {
+                LabeledRow {
                     Text(store.isLoaded ? "\(store.searchable.count) / \(store.sources.count)" : "")
                 } label: {
                     Label("书源管理", systemImage: "text.book.closed")
@@ -287,7 +287,7 @@ struct NovelSettingsSection: View {
                 NovelLibrary.clearCache()
                 cacheSize = 0
             } label: {
-                LabeledContent {
+                LabeledRow {
                     Text(ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file))
                 } label: {
                     Label("清除已缓存的章节", systemImage: "trash")
@@ -304,7 +304,7 @@ struct NovelSettingsSection: View {
         }
         .sheet(isPresented: $showReaderSettings) {
             ReaderSettingsSheet(store: settings)
-                .presentationDetents([.medium, .large])
+                .sheetDetents([.medium, .large])
         }
     }
 }

@@ -1,11 +1,9 @@
 import Foundation
-import Observation
 import SwiftUI
 
 /// 片源的本地存储：Kazumi 规则和采集站放在同一个列表里，共用一套优先级顺序
-@Observable
 @MainActor
-final class RuleStore {
+final class RuleStore: ObservableObject {
     /// 一个片源：Kazumi 规则或采集站二选一（旧版存档只有 rule 字段，可以直接读）
     struct Entry: Codable, Hashable, Identifiable {
         var rule: Rule?
@@ -43,8 +41,8 @@ final class RuleStore {
         "https://raw.gitcode.com/gh_mirrors/ka/KazumiRules/raw/main/",
     ]
 
-    private(set) var entries: [Entry] = []
-    private(set) var health: [String: Health] = [:]
+    @Published private(set) var entries: [Entry] = []
+    @Published private(set) var health: [String: Health] = [:]
 
     /// 启用的 Kazumi 规则（按优先级）
     var enabledRules: [Rule] {

@@ -35,7 +35,7 @@ struct SourcePickerView: View {
     var includeRules = true
     let onPick: (SourcePick) -> Void
 
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.dismiss) private var dismiss
 
     enum SourceState: Equatable {
@@ -72,7 +72,7 @@ struct SourcePickerView: View {
     }
 
     var body: some View {
-        NavigationStack {
+        NavigationStackCompat {
             List {
                 Section {
                     HStack {
@@ -104,14 +104,14 @@ struct SourcePickerView: View {
                                 }
                             }
                         }
-                        .scrollIndicators(.hidden)
+                        .hideScrollIndicators()
                     }
                 } footer: {
                     Text("搜不到时可以换成原名或缩短关键词再试。片源按「规则管理」里的优先级排列。")
                 }
 
                 if entries.isEmpty {
-                    ContentUnavailableView(
+                    EmptyStateView(
                         "没有可用的片源",
                         systemImage: "puzzlepiece.extension",
                         description: Text(includeRules
@@ -139,10 +139,10 @@ struct SourcePickerView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消", systemImage: "xmark") { dismiss() }
+                    Button("取消", icon: "xmark") { dismiss() }
                 }
                 ToolbarItem(placement: .primaryAction) {
-                    Button("重新搜索", systemImage: "arrow.clockwise") { generation += 1 }
+                    Button("重新搜索", icon: "arrow.clockwise") { generation += 1 }
                 }
             }
             .task(id: generation) { await runSearch() }
@@ -157,8 +157,7 @@ struct SourcePickerView: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .sheetDetents([.medium, .large], dragIndicator: true)
     }
 
     @ViewBuilder
@@ -332,14 +331,14 @@ struct CaptchaView: View {
     @State private var finishing = false
 
     var body: some View {
-        NavigationStack {
+        NavigationStackCompat {
             WebViewContainer(webView: model.webView)
                 .ignoresSafeArea(edges: .bottom)
                 .navigationTitle("验证 · \(target.rule.name)")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
-                        Button("取消", systemImage: "xmark") { dismiss() }
+                        Button("取消", icon: "xmark") { dismiss() }
                     }
                     ToolbarItem(placement: .confirmationAction) {
                         Button {
@@ -360,7 +359,7 @@ struct CaptchaView: View {
                         .font(.footnote)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 8)
-                        .glassEffect(.regular, in: Capsule())
+                        .glass(in: Capsule())
                         .padding(.top, 6)
                 }
                 .onAppear { model.load(target.url) }

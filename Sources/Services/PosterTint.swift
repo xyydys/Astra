@@ -93,14 +93,13 @@ struct PosterFadeMask: View {
 }
 
 /// 番剧 id → 海报主色。持久化到磁盘，冷启动第一帧就有颜色；视图可以同步读取
-@Observable
 @MainActor
-final class PosterTints {
+final class PosterTints: ObservableObject {
     static let shared = PosterTints()
 
-    private var values: [Int: PosterTint] = [:]
-    @ObservationIgnored private var tasks: [Int: Task<PosterTint?, Never>] = [:]
-    @ObservationIgnored private var saveTask: Task<Void, Never>?
+    @Published private var values: [Int: PosterTint] = [:]
+    private var tasks: [Int: Task<PosterTint?, Never>] = [:]
+    private var saveTask: Task<Void, Never>?
 
     private static var fileURL: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]

@@ -1,12 +1,16 @@
 import AVFoundation
 import MediaPlayer
-import Observation
 import UIKit
 
-/// 音乐播放：队列、AVPlayer、锁屏控制、歌词
-@Observable
+/// 播放进度（见 MusicPlayer.clock）
 @MainActor
-final class MusicPlayer {
+final class MusicClock: ObservableObject {
+    @Published var time: Double = 0
+}
+
+/// 音乐播放：队列、AVPlayer、锁屏控制、歌词
+@MainActor
+final class MusicPlayer: ObservableObject {
     static let shared = MusicPlayer()
 
     enum RepeatMode: String, CaseIterable {
@@ -29,32 +33,38 @@ final class MusicPlayer {
         }
     }
 
-    private(set) var queue: [MusicTrack] = []
-    private(set) var index = -1
-    private(set) var isPlaying = false
-    private(set) var isLoading = false
-    private(set) var duration: Double = 0
-    private(set) var lyric: LyricPayload?
+    @Published private(set) var queue: [MusicTrack] = []
+    @Published private(set) var index = -1
+    @Published private(set) var isPlaying = false
+    @Published private(set) var isLoading = false
+    @Published private(set) var duration: Double = 0
+    @Published private(set) var lyric: LyricPayload?
     /// 换歌、换歌词时加 1（歌词特效页据此重新推送）
-    private(set) var songRevision = 0
+    @Published private(set) var songRevision = 0
     /// 播放 / 暂停 / 拖动进度时加 1（歌词特效页据此校准时钟）
-    private(set) var clockRevision = 0
-    var error: String?
-    var repeatMode: RepeatMode {
+    @Published private(set) var clockRevision = 0
+    @Published var error: String?
+    @Published var repeatMode: RepeatMode {
         didSet { UserDefaults.standard.set(repeatMode.rawValue, forKey: "musicRepeatMode") }
     }
 
-    /// 进度条用的时间（每 0.25 秒更新一次）
-    private(set) var displayTime: Double = 0
+    /// 进度条用的时间（每 0.25 秒更新一次）。放在单独的对象里，只有进度条跟着刷新，
+    /// 观察播放器的其他界面（列表、特效菜单等）不会每 0.25 秒重绘一次
+    let clock = MusicClock()
 
-    @ObservationIgnored private let player = AVPlayer()
-    @ObservationIgnored private var timeObserver: Any?
-    @ObservationIgnored private var endObserver: NSObjectProtocol?
-    @ObservationIgnored private var failObserver: NSObjectProtocol?
-    @ObservationIgnored private var statusObservation: NSKeyValueObservation?
-    @ObservationIgnored private var loadTask: Task<Void, Never>?
-    @ObservationIgnored private var artwork: MPMediaItemArtwork?
-    @ObservationIgnored private var remoteConfigured = false
+    private(set) var displayTime: Double {
+        get { clock.time }
+        set { clock.time = newValue }
+    }
+
+    private let player = AVPlayer()
+    private var timeObserver: Any?
+    private var endObserver: NSObjectProtocol?
+    private var failObserver: NSObjectProtocol?
+    private var statusObservation: NSKeyValueObservation?
+    private var loadTask: Task<Void, Never>?
+    private var artwork: MPMediaItemArtwork?
+    private var remoteConfigured = false
 
     var current: MusicTrack? { queue.indices.contains(index) ? queue[index] : nil }
 

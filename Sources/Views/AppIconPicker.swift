@@ -89,7 +89,7 @@ struct AppIconPicker: View {
         }
         .navigationTitle("应用图标")
         .navigationBarTitleDisplayMode(.inline)
-        .sensoryFeedback(.selection, trigger: selected)
+        .selectionFeedback(trigger: selected)
         .alert("换图标失败", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("好") { error = nil }
         } message: {
@@ -106,7 +106,7 @@ struct AppIconPicker: View {
         Task {
             do {
                 try await UIApplication.shared.setAlternateIconName(option.iconName)
-                withAnimation(.snappy) { selected = option }
+                withAnimation(.snappyCompat) { selected = option }
             } catch {
                 self.error = error.localizedDescription
             }

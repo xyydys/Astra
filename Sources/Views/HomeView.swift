@@ -1,16 +1,15 @@
 import SwiftUI
 
-@Observable
 @MainActor
-final class HomeModel {
-    var calendar: [[BangumiSubject]] = []
-    var trending: [BangumiSubject] = []
-    var hero: [BangumiSubject] = []
-    var isLoading = false
-    var error: String?
-    private var loaded = false
+final class HomeModel: ObservableObject {
+    @Published var calendar: [[BangumiSubject]] = []
+    @Published var trending: [BangumiSubject] = []
+    @Published var hero: [BangumiSubject] = []
+    @Published var isLoading = false
+    @Published var error: String?
+    @Published private var loaded = false
     /// 下次启动要展示的一组轮播（详情、取色、大图都已提前缓存好）
-    @ObservationIgnored private var upcomingHero: [BangumiSubject] = []
+    private var upcomingHero: [BangumiSubject] = []
 
     /// 上次的首页数据。冷启动先用它把页面完整画出来，再在后台刷新
     private struct Snapshot: Codable {
@@ -114,18 +113,19 @@ final class HomeModel {
 
 /// 轮播的滚动位置（以页为单位，可以是小数）。单独放一个对象里，
 /// 滑动时只有背景层重绘，整个首页不会每帧重新计算
-@Observable
 @MainActor
-final class HeroScrollState {
-    var position: Double = 0
+final class HeroScrollState: ObservableObject {
+    @Published var position: Double = 0
 }
 
 struct HomeView: View {
-    @State private var model = HomeModel()
+    @ObservedObject private var tints = PosterTints.shared
+    @StateObject private var model = HomeModel()
+    /// 用 @State 持有、不订阅：滑动时只有背景层（HomeBackground）重绘，整页不跟着每帧刷新
     @State private var scroll = HeroScrollState()
     /// 背景偏亮 / 偏暗时切换文字配色，只在跨过阈值时才变
     @State private var contentScheme: ColorScheme?
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.colorScheme) private var systemScheme
 
     private let grid = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 14)]
@@ -158,7 +158,7 @@ struct HomeView: View {
                         ScrollView(.horizontal) {
                             LazyHStack(alignment: .top, spacing: 14) {
                                 ForEach(model.today) { subject in
-                                    NavigationLink(value: subject) {
+                                    NavigationLink(destination: AppDestination(subject)) {
                                         PosterCard(subject: subject, width: 116)
                                     }
                                     .buttonStyle(.plain)
@@ -166,7 +166,7 @@ struct HomeView: View {
                             }
                             .padding(.horizontal)
                         }
-                        .scrollIndicators(.hidden)
+                        .hideScrollIndicators()
                     }
                 }
 
@@ -175,7 +175,7 @@ struct HomeView: View {
                         SectionHeader(title: "热门番剧")
                         LazyVGrid(columns: grid, spacing: 18) {
                             ForEach(model.trending) { subject in
-                                NavigationLink(value: subject) {
+                                NavigationLink(destination: AppDestination(subject)) {
                                     PosterCard(subject: subject)
                                 }
                                 .buttonStyle(.plain)
@@ -192,7 +192,7 @@ struct HomeView: View {
         }
         .environment(\.colorScheme, contentScheme ?? firstHeroScheme ?? systemScheme)
         .ignoresSafeArea(edges: .top)
-        .toolbar(.hidden, for: .navigationBar)
+        .navigationBarHiddenCompat()
         .refreshable { await model.load(force: true) }
         .task { await model.load() }
     }
@@ -202,11 +202,12 @@ struct HomeView: View {
 /// 海报底部是渐隐到透明的，露出来的就是这一层，所以不会有分界线
 struct HomeBackground: View {
     let hero: [BangumiSubject]
-    let scroll: HeroScrollState
+    @ObservedObject var scroll: HeroScrollState
+    @ObservedObject private var tints = PosterTints.shared
     let onSchemeChange: (ColorScheme?) -> Void
 
     private var tint: PosterTint? {
-        let tints = HeroCarousel.pages(of: hero).map { PosterTints.shared.tint(for: $0.id) }
+        let tints = HeroCarousel.pages(of: hero).map { self.tints.tint(for: $0.id) }
         guard !tints.isEmpty else { return nil }
         let position = min(max(scroll.position, 0), Double(tints.count - 1))
         let lower = Int(position.rounded(.down))
@@ -224,7 +225,7 @@ struct HomeBackground: View {
         let tint = tint
         (tint?.color ?? Color(uiColor: .systemBackground))
             .ignoresSafeArea()
-            .onChange(of: tint?.colorScheme, initial: true) { _, scheme in
+            .onChangeCompat(of: tint?.colorScheme, initial: true) { _, scheme in
                 onSchemeChange(scheme)
             }
     }
@@ -254,7 +255,7 @@ struct NoRulesBanner: View {
                     .foregroundStyle(.tertiary)
             }
             .padding()
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .glass(interactive: true, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
         .buttonStyle(.plain)
     }
@@ -283,31 +284,12 @@ struct HeroCarousel: View {
                 Color.clear
                     .overlay { ProgressView() }
             } else {
-                ScrollView(.horizontal) {
-                    LazyHStack(spacing: 0) {
-                        ForEach(Array(pages.enumerated()), id: \.offset) { index, subject in
-                            NavigationLink(value: subject) {
-                                HeroPage(subject: subject)
-                            }
-                            .buttonStyle(.plain)
-                            .containerRelativeFrame(.horizontal)
-                            .id(index)
-                        }
+                Group {
+                    if #available(iOS 18, *) {
+                        scrollingPages
+                    } else {
+                        pagedTabs
                     }
-                    .scrollTargetLayout()
-                }
-                .scrollTargetBehavior(.paging)
-                .scrollIndicators(.hidden)
-                .scrollPosition(id: $current)
-                .onScrollGeometryChange(for: Double.self) { geometry in
-                    let width = geometry.containerSize.width
-                    return width > 0 ? geometry.contentOffset.x / width : 0
-                } action: { _, value in
-                    scroll.position = value
-                }
-                .onScrollPhaseChange { _, phase in
-                    userInteracting = phase == .interacting || phase == .tracking
-                    if phase == .idle { wrapIfNeeded() }
                 }
                 .overlay(alignment: .bottom) {
                     let active = (current ?? 0) % items.count
@@ -319,14 +301,14 @@ struct HeroCarousel: View {
                         }
                     }
                     .padding(.bottom, 12)
-                    .animation(.snappy, value: active)
+                    .animation(.snappyCompat, value: active)
                 }
                 .task(id: items.map(\.id)) {
                     jump(to: 0)
                     while !Task.isCancelled {
                         try? await Task.sleep(nanoseconds: 6_000_000_000)
                         guard !Task.isCancelled, !userInteracting, items.count > 1 else { continue }
-                        withAnimation(.smooth(duration: 0.6)) {
+                        withAnimation(.smoothCompat(duration: 0.6)) {
                             current = min((current ?? 0) + 1, pages.count - 1)
                         }
                     }
@@ -335,7 +317,61 @@ struct HeroCarousel: View {
             }
         }
         // 海报占屏幕高度的大约三分之二，和竖版海报的比例接近
-        .containerRelativeFrame(.vertical) { length, _ in min(length * 0.68, 760) }
+        .containerHeight(fraction: 0.68, max: 760)
+    }
+
+    /// iOS 18 起：分页滚动，滑动时实时回报位置，背景跟着手指混色
+    @available(iOS 18, *)
+    private var scrollingPages: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(spacing: 0) {
+                ForEach(Array(pages.enumerated()), id: \.offset) { index, subject in
+                    NavigationLink(destination: AppDestination(subject)) {
+                        HeroPage(subject: subject)
+                    }
+                    .buttonStyle(.plain)
+                    .containerRelativeFrame(.horizontal)
+                    .id(index)
+                }
+            }
+            .scrollTargetLayout()
+        }
+        .scrollTargetBehavior(.paging)
+        .hideScrollIndicators()
+        .scrollPosition(id: $current)
+        .onScrollGeometryChange(for: Double.self) { geometry in
+            let width = geometry.containerSize.width
+            return width > 0 ? geometry.contentOffset.x / width : 0
+        } action: { _, value in
+            scroll.position = value
+        }
+        .onScrollPhaseChange { _, phase in
+            userInteracting = phase == .interacting || phase == .tracking
+            if phase == .idle { wrapIfNeeded() }
+        }
+    }
+
+    /// iOS 15 – 17：分页的 TabView，翻页后背景渐变到新的颜色
+    private var pagedTabs: some View {
+        TabView(selection: Binding(get: { current ?? 0 }, set: { current = $0 })) {
+            ForEach(Array(pages.enumerated()), id: \.offset) { index, subject in
+                NavigationLink(destination: AppDestination(subject)) {
+                    HeroPage(subject: subject)
+                }
+                .buttonStyle(.plain)
+                .tag(index)
+            }
+        }
+        .tabViewStyle(.page(indexDisplayMode: .never))
+        .onChange(of: current) { value in
+            withAnimation(.easeInOut(duration: 0.5)) { scroll.position = Double(value ?? 0) }
+            guard items.count > 1, value == pages.count - 1 else { return }
+            // 翻到末尾的第一页副本：等翻页动画结束再无动画跳回第一页
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 450_000_000)
+                if current == pages.count - 1 { jump(to: 0) }
+            }
+        }
     }
 
     private func wrapIfNeeded() {
@@ -356,6 +392,7 @@ struct HeroCarousel: View {
 /// 一页轮播：整幅海报，底部渐隐成透明（露出整页背景），信息居中叠在上面
 struct HeroPage: View {
     let subject: BangumiSubject
+    @ObservedObject private var tints = PosterTints.shared
     @Environment(\.colorScheme) private var scheme
 
     private var meta: String {
@@ -412,6 +449,6 @@ struct HeroPage: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .contentShape(Rectangle())
         // 文字颜色跟这一页自己的海报色走
-        .environment(\.colorScheme, PosterTints.shared.tint(for: subject.id)?.colorScheme ?? scheme)
+        .environment(\.colorScheme, tints.tint(for: subject.id)?.colorScheme ?? scheme)
     }
 }

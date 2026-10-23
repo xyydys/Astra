@@ -1,5 +1,4 @@
 import Foundation
-import Observation
 
 private func musicDirectory(_ name: String? = nil) -> URL {
     var dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -23,18 +22,17 @@ struct LXSourceEntry: Codable, Identifiable, Hashable {
     }
 }
 
-@Observable
 @MainActor
-final class LXSourceStore {
+final class LXSourceStore: ObservableObject {
     static let shared = LXSourceStore()
     static let qualityKey = "musicQuality"
 
-    private(set) var entries: [LXSourceEntry] = []
-    private(set) var activeID: String?
-    private(set) var state: String = ""
-    @ObservationIgnored private var runtime: LXSourceRuntime?
-    @ObservationIgnored private var runtimeID: String?
-    @ObservationIgnored private var starting: Task<LXSourceRuntime, Error>?
+    @Published private(set) var entries: [LXSourceEntry] = []
+    @Published private(set) var activeID: String?
+    @Published private(set) var state: String = ""
+    private var runtime: LXSourceRuntime?
+    private var runtimeID: String?
+    private var starting: Task<LXSourceRuntime, Error>?
 
     private static var listURL: URL { musicDirectory().appendingPathComponent("lx-sources.json") }
     private static func scriptURL(_ id: String) -> URL { musicDirectory("sources").appendingPathComponent(id + ".js") }
@@ -194,13 +192,12 @@ final class LXSourceStore {
 
 // MARK: - 收藏和播放历史（只给音乐用，不进底栏的收藏 / 历史）
 
-@Observable
 @MainActor
-final class MusicLibrary {
+final class MusicLibrary: ObservableObject {
     static let shared = MusicLibrary()
 
-    private(set) var favorites: [MusicTrack] = []
-    private(set) var history: [MusicTrack] = []
+    @Published private(set) var favorites: [MusicTrack] = []
+    @Published private(set) var history: [MusicTrack] = []
 
     private struct Snapshot: Codable {
         var favorites: [MusicTrack]

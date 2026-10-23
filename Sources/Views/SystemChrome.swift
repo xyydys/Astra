@@ -22,14 +22,20 @@ private struct SearchTabModifier: ViewModifier {
     @Environment(\.exitSearchTab) private var exitSearchTab
 
     func body(content: Content) -> some View {
-        content
-            .searchable(text: $text, isPresented: $presented, prompt: prompt)
-            .onChange(of: presented) { _, isPresented in
-                guard !isPresented else { return }
-                // 关闭按钮会同时清空文字，等这一轮更新完再判断
-                Task { @MainActor in
-                    if text.isEmpty { exitSearchTab() }
+        if #available(iOS 17, *) {
+            content
+                .searchable(text: $text, isPresented: $presented, prompt: prompt)
+                .onChange(of: presented) { _, isPresented in
+                    guard !isPresented else { return }
+                    // 关闭按钮会同时清空文字，等这一轮更新完再判断
+                    Task { @MainActor in
+                        if text.isEmpty { exitSearchTab() }
+                    }
                 }
-            }
+        } else {
+            // iOS 17 以前搜索是普通标签页，搜索框常驻
+            content
+                .searchable(text: $text, placement: .navigationBarDrawer(displayMode: .always), prompt: prompt)
+        }
     }
 }

@@ -1,11 +1,9 @@
 import SwiftUI
-import SwiftData
 import UniformTypeIdentifiers
 
 /// 备份与恢复：导出全部片源 / 书源 / 音源 / 书架 / 收藏 / 历史 / 设置，或从备份文件导入
 struct BackupView: View {
-    @Environment(\.modelContext) private var modelContext
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
     @State private var backups: [URL] = []
     @State private var working: String?
     @State private var pending: PendingRestore?
@@ -58,15 +56,17 @@ struct BackupView: View {
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        ShareLink(item: url) {
+                        ShareLinkCompat(url: url) {
                             Image(systemName: "square.and.arrow.up")
                         }
                         .buttonStyle(.borderless)
                     }
                     .contextMenu {
-                        ShareLink(item: url)
-                        Button("恢复这个备份", systemImage: "arrow.counterclockwise") { load(url) }
-                        Button("删除", systemImage: "trash", role: .destructive) { delete(url) }
+                        ShareLinkCompat(url: url) {
+                            Label("分享", systemImage: "square.and.arrow.up")
+                        }
+                        Button("恢复这个备份", icon: "arrow.counterclockwise") { load(url) }
+                        Button("删除", icon: "trash", role: .destructive) { delete(url) }
                     }
                 }
                 .onDelete { offsets in
@@ -88,7 +88,7 @@ struct BackupView: View {
             if let working {
                 ProgressView(working)
                     .padding(24)
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+                    .glass(in: RoundedRectangle(cornerRadius: 22, style: .continuous))
             }
         }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json, .data]) { result in
@@ -124,7 +124,7 @@ struct BackupView: View {
         working = "正在导出…"
         Task {
             do {
-                let url = try await AppBackup.export(context: modelContext)
+                let url = try await AppBackup.export()
                 refresh()
                 let (_, summary) = try await AppBackup.read(url)
                 message = "已导出「\(url.deletingPathExtension().lastPathComponent)」\n\n\(summary.text)"
@@ -152,8 +152,8 @@ struct BackupView: View {
         working = "正在恢复…"
         Task {
             do {
-                _ = try? await AppBackup.export(context: modelContext, prefix: "恢复前自动备份")
-                try await AppBackup.restore(item.archive, context: modelContext, rules: ruleStore)
+                _ = try? await AppBackup.export(prefix: "恢复前自动备份")
+                try await AppBackup.restore(item.archive, rules: ruleStore)
                 refresh()
                 message = "已恢复：\(item.summary.text)\n\n之前登录过禁漫的话需要重新登录一次。"
             } catch {

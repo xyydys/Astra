@@ -1,12 +1,9 @@
 import Foundation
 import AVFoundation
-import Observation
-import SwiftData
 import UIKit
 
-@Observable
 @MainActor
-final class PlayerModel {
+final class PlayerModel: ObservableObject {
     enum Phase: Equatable {
         case loadingChapters
         case resolving
@@ -19,31 +16,30 @@ final class PlayerModel {
     let player = AVPlayer()
     let sniffer = VideoSniffer()
 
-    var roads: [Road] = []
+    @Published var roads: [Road] = []
     /// 正在浏览的线路（选集列表显示哪条线路）
-    var selectedRoad = 0
+    @Published var selectedRoad = 0
     /// 正在播放的线路 / 集
-    var playingRoad = 0
-    var playingEpisode: Int?
-    var phase: Phase = .loadingChapters
-    var isFullscreen = false
-    var isPictureInPicture = false
+    @Published var playingRoad = 0
+    @Published var playingEpisode: Int?
+    @Published var phase: Phase = .loadingChapters
+    @Published var isFullscreen = false
+    @Published var isPictureInPicture = false
     /// 本集播放列表里去掉的广告分片数
-    var adSegmentsRemoved = 0
+    @Published var adSegmentsRemoved = 0
 
-    @ObservationIgnored var modelContext: ModelContext?
-    @ObservationIgnored private var resolveTask: Task<Void, Never>?
-    @ObservationIgnored private var statusObservation: NSKeyValueObservation?
-    @ObservationIgnored private var endObserver: NSObjectProtocol?
-    @ObservationIgnored private var timeObserver: Any?
-    @ObservationIgnored private var pendingSeek: Double = 0
-    @ObservationIgnored private var started = false
-    @ObservationIgnored private var tornDown = false
-    @ObservationIgnored private var lastResolvedURL = ""
+    private var resolveTask: Task<Void, Never>?
+    private var statusObservation: NSKeyValueObservation?
+    private var endObserver: NSObjectProtocol?
+    private var timeObserver: Any?
+    private var pendingSeek: Double = 0
+    private var started = false
+    private var tornDown = false
+    private var lastResolvedURL = ""
     /// 去广告的资源加载代理（AVAssetResourceLoader 只弱引用它，要自己持有）
-    @ObservationIgnored private var adLoader: HLSAdBlockLoader?
+    private var adLoader: HLSAdBlockLoader?
     /// 去广告后播放失败过一次，本次播放不再过滤
-    @ObservationIgnored private var adFilterFailed = false
+    private var adFilterFailed = false
 
     init(request: PlayRequest, rule: Rule?) {
         self.request = request
@@ -273,30 +269,23 @@ final class PlayerModel {
     }
 
     private func saveRecord(position: Double, duration: Double) {
-        guard let context = modelContext, let episode = currentEpisode else { return }
-        let sid = request.subjectID
-        let descriptor = FetchDescriptor<WatchRecord>(predicate: #Predicate<WatchRecord> { $0.subjectID == sid })
-        let record: WatchRecord
-        if let existing = try? context.fetch(descriptor).first {
-            record = existing
-        } else {
-            record = WatchRecord(subjectID: sid)
-            context.insert(record)
+        guard let episode = currentEpisode else { return }
+        let ruleName = request.isCMS ? request.ruleName : (rule?.name ?? request.ruleName)
+        WatchLibrary.shared.updateRecord(request.subjectID) { record in
+            record.title = request.title
+            record.name = request.name
+            record.image = request.image
+            record.ruleName = ruleName
+            record.cmsAPI = request.cmsAPI
+            record.vodID = request.vodID
+            record.sourceURL = request.sourceURL
+            record.sourceTitle = request.sourceTitle
+            record.roadIndex = playingRoad
+            record.episodeIndex = playingEpisode ?? 0
+            record.episodeName = episode.name
+            record.position = position
+            if duration > 0 { record.duration = duration } else if position == 0 { record.duration = 0 }
+            record.updatedAt = Date()
         }
-        record.title = request.title
-        record.name = request.name
-        record.image = request.image
-        record.ruleName = request.isCMS ? request.ruleName : (rule?.name ?? request.ruleName)
-        record.cmsAPI = request.cmsAPI
-        record.vodID = request.vodID
-        record.sourceURL = request.sourceURL
-        record.sourceTitle = request.sourceTitle
-        record.roadIndex = playingRoad
-        record.episodeIndex = playingEpisode ?? 0
-        record.episodeName = episode.name
-        record.position = position
-        if duration > 0 { record.duration = duration } else if position == 0 { record.duration = 0 }
-        record.updatedAt = Date()
-        try? context.save()
     }
 }

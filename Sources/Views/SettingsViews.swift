@@ -1,7 +1,7 @@
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
     @AppStorage(AppSettings.hlsAdFilterKey) private var hlsAdFilter = true
     @AppStorage(AppSettings.filterAdultKey) private var filterAdult = true
     @State private var appIcon = AppIconOption.current
@@ -18,7 +18,7 @@ struct SettingsView: View {
                 NavigationLink {
                     RulesView()
                 } label: {
-                    LabeledContent {
+                    LabeledRow {
                         Text("\(ruleStore.entries.filter(\.enabled).count) / \(ruleStore.entries.count)")
                     } label: {
                         Label("规则管理", systemImage: "puzzlepiece.extension")
@@ -63,7 +63,7 @@ struct SettingsView: View {
                 NavigationLink {
                     AppIconPicker()
                 } label: {
-                    LabeledContent {
+                    LabeledRow {
                         AppIconImage(option: appIcon, size: 30)
                     } label: {
                         Label("应用图标", systemImage: "app.badge")
@@ -86,7 +86,7 @@ struct SettingsView: View {
             }
 
             Section {
-                LabeledContent("版本", value: version)
+                LabeledRow("版本", value: version)
                 Link(destination: URL(string: "https://github.com/Predidit/Kazumi")!) {
                     Label("Kazumi 原项目", systemImage: "arrow.up.right.square")
                 }
@@ -131,7 +131,7 @@ struct JMSettingsView: View {
                         Text("线路 \(index + 1) · \(domains[index])").tag(index)
                     }
                 }
-                Button("刷新线路列表", systemImage: "arrow.clockwise") {
+                Button("刷新线路列表", icon: "arrow.clockwise") {
                     run {
                         await JMClient.prepare(force: true)
                         domains = JMClient.domains
@@ -153,7 +153,7 @@ struct JMSettingsView: View {
                         Text("分流 \(stream)").tag(stream)
                     }
                 }
-                LabeledContent("图片服务器", value: URL(string: imageHost)?.host ?? imageHost)
+                LabeledRow("图片服务器", value: URL(string: imageHost)?.host ?? imageHost)
             } header: {
                 Text("网络")
             } footer: {
@@ -162,7 +162,7 @@ struct JMSettingsView: View {
 
             Section {
                 if let username {
-                    LabeledContent("已登录", value: username)
+                    LabeledRow("已登录", value: username)
                     Button("退出登录", role: .destructive) {
                         JMClient.logout()
                         self.username = nil
@@ -222,7 +222,7 @@ struct JMSettingsView: View {
 // MARK: - 规则管理
 
 struct RulesView: View {
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
     @State private var showRepo = false
     @State private var showImport = false
     @State private var showAddCMS = false
@@ -233,15 +233,14 @@ struct RulesView: View {
     var body: some View {
         List {
             if ruleStore.entries.isEmpty {
-                ContentUnavailableView {
-                    Label("还没有片源", systemImage: "puzzlepiece.extension")
-                } description: {
-                    Text("片源决定从哪些站点搜索和播放：Kazumi 规则用于番剧；采集站（苹果 CMS 接口）番剧、电影、剧集都能搜，可以单个添加，也可以导入订阅或 TVBox 配置")
-                } actions: {
+                EmptyStateView(
+                    "还没有片源", systemImage: "puzzlepiece.extension",
+                    description: Text("片源决定从哪些站点搜索和播放：Kazumi 规则用于番剧；采集站（苹果 CMS 接口）番剧、电影、剧集都能搜，可以单个添加，也可以导入订阅或 TVBox 配置")
+                ) {
                     Button("打开规则仓库") { showRepo = true }
-                        .buttonStyle(.glassProminent)
+                        .glassProminentButtonStyle()
                     Button("添加采集站") { showAddCMS = true }
-                        .buttonStyle(.glass)
+                        .glassButtonStyle()
                 }
             }
 
@@ -251,18 +250,18 @@ struct RulesView: View {
                         RuleRow(entry: entry, rank: index + 1)
                             .swipeActions(edge: .leading) {
                                 if index > 0 {
-                                    Button("置顶", systemImage: "arrow.up.to.line") {
+                                    Button("置顶", icon: "arrow.up.to.line") {
                                         withAnimation { ruleStore.moveToTop(entry.id) }
                                     }
                                     .tint(.orange)
                                 }
                             }
                             .contextMenu {
-                                Button("置顶", systemImage: "arrow.up.to.line") {
+                                Button("置顶", icon: "arrow.up.to.line") {
                                     withAnimation { ruleStore.moveToTop(entry.id) }
                                 }
                                 .disabled(index == 0)
-                                Button("移到最后", systemImage: "arrow.down.to.line") {
+                                Button("移到最后", icon: "arrow.down.to.line") {
                                     withAnimation { ruleStore.moveToBottom(entry.id) }
                                 }
                                 .disabled(index == ruleStore.entries.count - 1)
@@ -281,40 +280,40 @@ struct RulesView: View {
         .navigationTitle("规则管理")
         .toolbar {
             if !ruleStore.entries.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .navigationBarTrailing) {
                     Button(editMode.isEditing ? "完成" : "排序") {
                         withAnimation { editMode = editMode.isEditing ? .inactive : .active }
                     }
-                    .fontWeight(editMode.isEditing ? .semibold : .regular)
+                    .fontWeightCompat(editMode.isEditing ? .semibold : .regular)
                 }
             }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Section("Kazumi 规则") {
-                        Button("从规则仓库添加", systemImage: "shippingbox") { showRepo = true }
+                        Button("从规则仓库添加", icon: "shippingbox") { showRepo = true }
                     }
                     Section("采集站") {
-                        Button("添加采集站", systemImage: "server.rack") { showAddCMS = true }
+                        Button("添加采集站", icon: "server.rack") { showAddCMS = true }
                         if hasCMS {
-                            Button("检测全部采集站", systemImage: "speedometer") {
+                            Button("检测全部采集站", icon: "speedometer") {
                                 Task { await ruleStore.testAllCMS() }
                             }
                         }
                     }
-                    Button("粘贴 / 订阅导入", systemImage: "doc.on.clipboard") { showImport = true }
+                    Button("粘贴 / 订阅导入", icon: "doc.on.clipboard") { showImport = true }
                 } label: {
                     Image(systemName: "plus")
                 }
             }
         }
         .sheet(isPresented: $showRepo) {
-            NavigationStack { RuleRepoView() }
+            NavigationStackCompat { RuleRepoView() }
         }
         .sheet(isPresented: $showAddCMS) {
-            NavigationStack { AddCMSView() }
+            NavigationStackCompat { AddCMSView() }
         }
         .sheet(isPresented: $showImport) {
-            NavigationStack { ImportRulesView() }
+            NavigationStackCompat { ImportRulesView() }
         }
     }
 }
@@ -322,7 +321,7 @@ struct RulesView: View {
 private struct RuleRow: View {
     let entry: RuleStore.Entry
     let rank: Int
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
 
     var body: some View {
         HStack(spacing: 12) {
@@ -399,7 +398,7 @@ private struct Badge: View {
 // MARK: - 规则仓库
 
 struct RuleRepoView: View {
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.dismiss) private var dismiss
 
     @State private var entries: [RepoEntry] = []
@@ -452,7 +451,7 @@ struct RuleRepoView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("关闭", systemImage: "xmark") { dismiss() }
+                Button("关闭", icon: "xmark") { dismiss() }
             }
             ToolbarItem(placement: .primaryAction) {
                 Button("全部安装") { Task { await installAll() } }
@@ -475,7 +474,7 @@ struct RuleRepoView: View {
             Button(installed == nil ? "安装" : "更新") {
                 Task { await install(entry) }
             }
-            .buttonStyle(.glass)
+            .glassButtonStyle()
             .controlSize(.small)
         }
     }
@@ -521,7 +520,7 @@ struct RuleRepoView: View {
 // MARK: - 粘贴导入
 
 struct ImportRulesView: View {
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.dismiss) private var dismiss
     @State private var text = ""
     @State private var message: String?
@@ -535,7 +534,7 @@ struct ImportRulesView: View {
                     .frame(minHeight: 200)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
-                Button("从剪贴板粘贴", systemImage: "doc.on.clipboard") {
+                Button("从剪贴板粘贴", icon: "doc.on.clipboard") {
                     text = UIPasteboard.general.string ?? ""
                 }
             } footer: {
@@ -562,7 +561,7 @@ struct ImportRulesView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("取消", systemImage: "xmark") { dismiss() }
+                Button("取消", icon: "xmark") { dismiss() }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("导入") { importSources() }
@@ -593,7 +592,7 @@ struct ImportRulesView: View {
 // MARK: - 添加采集站
 
 struct AddCMSView: View {
-    @Environment(RuleStore.self) private var ruleStore
+    @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.dismiss) private var dismiss
     @State private var name = ""
     @State private var url = ""
@@ -605,7 +604,7 @@ struct AddCMSView: View {
         Form {
             Section {
                 TextField("名称（可选）", text: $name)
-                TextField("接口地址", text: $url, axis: .vertical)
+                GrowingTextField("接口地址", text: $url)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -639,7 +638,7 @@ struct AddCMSView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .cancellationAction) {
-                Button("取消", systemImage: "xmark") { dismiss() }
+                Button("取消", icon: "xmark") { dismiss() }
             }
             ToolbarItem(placement: .confirmationAction) {
                 Button("添加") {
@@ -649,7 +648,7 @@ struct AddCMSView: View {
                 .disabled(!isValid)
             }
         }
-        .onChange(of: url) { testState = nil }
+        .onChangeCompat(of: url) { testState = nil }
     }
 
     private func test() {
