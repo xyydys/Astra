@@ -265,8 +265,8 @@ struct HistoryView: View {
         }
         .navigationTitle("历史")
         .toolbar {
-            if !records.isEmpty {
-                ToolbarItem(placement: .primaryAction) {
+            ToolbarItem(placement: .primaryAction) {
+                if !records.isEmpty {
                     Button("清空", icon: "trash") { confirmClear = true }
                 }
             }

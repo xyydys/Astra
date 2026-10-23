@@ -369,16 +369,14 @@ struct MusicTrackListView: View {
         }
         .navigationTitle(kind == .favorites ? "音乐收藏" : "播放历史")
         .toolbar {
-            if kind == .history, !tracks.isEmpty {
-                ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItemGroup(placement: .navigationBarTrailing) {
+                if kind == .history, !tracks.isEmpty {
                     Button("清空", icon: "trash") { confirmClear = true }
                         .confirmationDialog("清空播放历史？", isPresented: $confirmClear) {
                             Button("清空", role: .destructive) { library.clearHistory() }
                         }
                 }
-            }
-            if !tracks.isEmpty {
-                ToolbarItem(placement: .navigationBarTrailing) {
+                if !tracks.isEmpty {
                     Button("全部播放", icon: "play.fill") {
                         if let first = tracks.first { player.play(first, in: tracks) }
                     }

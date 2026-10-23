@@ -279,8 +279,8 @@ struct RulesView: View {
         .environment(\.editMode, $editMode)
         .navigationTitle("规则管理")
         .toolbar {
-            if !ruleStore.entries.isEmpty {
-                ToolbarItem(placement: .navigationBarTrailing) {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !ruleStore.entries.isEmpty {
                     Button(editMode.isEditing ? "完成" : "排序") {
                         withAnimation { editMode = editMode.isEditing ? .inactive : .active }
                     }
