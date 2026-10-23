@@ -76,7 +76,9 @@ jobs:
       - name: Package IPA
         run: |
           APP="build/Build/Products/Release-iphoneos/Astra.app"
-          plutil -p "$APP/Info.plist" | grep -E "CFBundleIdentifier|CFBundleDisplayName|UIFileSharingEnabled|LSSupportsOpeningDocumentsInPlace|AppIcon-" || true
+          plutil -p "$APP/Info.plist" | grep -E "CFBundleIdentifier|CFBundleDisplayName|MinimumOSVersion|UIFileSharingEnabled|LSSupportsOpeningDocumentsInPlace|AppIcon-" || true
+          # 比 iOS 15 新的系统框架必须是弱链接（LC_LOAD_WEAK_DYLIB），否则旧系统启动就崩
+          otool -l "$APP/Astra" | grep -B1 -A3 -E "SwiftData|Observation" || true
           rm -rf Payload && mkdir Payload
           cp -R "$APP" Payload/
           zip -qry Astra.ipa Payload

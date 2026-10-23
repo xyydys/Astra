@@ -102,7 +102,7 @@ final class WatchLibrary: ObservableObject {
         var records: [WatchRecord]
     }
 
-    static let fileName = "watch-library.json"
+    nonisolated static let fileName = "watch-library.json"
 
     private static var fileURL: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
