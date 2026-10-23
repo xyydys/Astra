@@ -584,3 +584,75 @@ struct GrowingTextField: View {
         }
     }
 }
+
+// MARK: - 带输入框的提示框
+
+extension View {
+    /// 带一个输入框的提示框（iOS 16 起 alert 里能放 TextField）；iOS 15 弹一个小面板
+    func textFieldAlert(
+        _ title: String,
+        isPresented: Binding<Bool>,
+        text: Binding<String>,
+        placeholder: String,
+        message: String? = nil,
+        confirm: String,
+        isURL: Bool = false,
+        action: @escaping () -> Void
+    ) -> some View {
+        modifier(TextFieldAlert(title: title, isPresented: isPresented, text: text, placeholder: placeholder,
+                                message: message, confirm: confirm, isURL: isURL, action: action))
+    }
+}
+
+private struct TextFieldAlert: ViewModifier {
+    let title: String
+    @Binding var isPresented: Bool
+    @Binding var text: String
+    let placeholder: String
+    let message: String?
+    let confirm: String
+    let isURL: Bool
+    let action: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 16, *) {
+            content.alert(title, isPresented: $isPresented) {
+                TextField(placeholder, text: $text)
+                    .textInputAutocapitalization(isURL ? .never : .sentences)
+                    .keyboardType(isURL ? .URL : .default)
+                Button("取消", role: .cancel) {}
+                Button(confirm, action: action)
+            } message: {
+                if let message { Text(message) }
+            }
+        } else {
+            content.sheet(isPresented: $isPresented) {
+                NavigationView {
+                    Form {
+                        Section {
+                            TextField(placeholder, text: $text)
+                                .textInputAutocapitalization(isURL ? .never : .sentences)
+                                .keyboardType(isURL ? .URL : .default)
+                                .disableAutocorrection(isURL)
+                        } footer: {
+                            if let message { Text(message) }
+                        }
+                    }
+                    .navigationTitle(title)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("取消") { isPresented = false }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button(confirm) {
+                                isPresented = false
+                                action()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

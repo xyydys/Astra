@@ -78,18 +78,15 @@ struct VideoDetailView: View {
         .navigationDestinationCompat(item: $playRequest) { request in
             PlayerScreen(request: request)
         }
-        .alert("修改搜索词", isPresented: $showKeywordEditor) {
-            TextField("片名", text: $keywordDraft)
-            Button("取消", role: .cancel) {}
-            Button("搜索") {
-                let word = keywordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !word.isEmpty, word != keyword {
-                    userSelected = false
-                    keyword = word
-                }
+        .textFieldAlert(
+            "修改搜索词", isPresented: $showKeywordEditor, text: $keywordDraft, placeholder: "片名",
+            message: "片源里的名称和豆瓣不一致时，可以换个叫法再搜", confirm: "搜索"
+        ) {
+            let word = keywordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !word.isEmpty, word != keyword {
+                userSelected = false
+                keyword = word
             }
-        } message: {
-            Text("片源里的名称和豆瓣不一致时，可以换个叫法再搜")
         }
     }
 

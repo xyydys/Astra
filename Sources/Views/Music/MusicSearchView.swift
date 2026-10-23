@@ -266,12 +266,11 @@ struct MusicSourcesView: View {
                 .disabled(importing)
             }
         }
-        .alert("从网址导入", isPresented: $showURLPrompt) {
-            TextField("https://…/source.js", text: $urlText)
-                .textInputAutocapitalization(.never)
-                .keyboardType(.URL)
-            Button("取消", role: .cancel) {}
-            Button("导入") { run { try await store.importURL(urlText) } }
+        .textFieldAlert(
+            "从网址导入", isPresented: $showURLPrompt, text: $urlText,
+            placeholder: "https://…/source.js", confirm: "导入", isURL: true
+        ) {
+            run { try await store.importURL(urlText) }
         }
         .alert("音源", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
             Button("好") { message = nil }
