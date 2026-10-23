@@ -71,8 +71,9 @@ targets:
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: "YES"
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: "NO"
-        # SwiftData 只在 iOS 17+ 用来迁移旧数据，弱链接，iOS 15 / 16 上没有这个框架也能启动
-        OTHER_LDFLAGS: ["$(inherited)", "-weak_framework", "SwiftData"]
+        # iOS 17 才有的库弱链接，iOS 15 / 16 上没有也能启动：
+        # SwiftData 只用来迁移旧数据；Observation 是新版 SwiftUI 自己引用的
+        OTHER_LDFLAGS: ["$(inherited)", "-weak_framework", "SwiftData", "-Xlinker", "-weak-lswiftObservation"]
         CODE_SIGN_STYLE: Manual
         CODE_SIGN_IDENTITY: ""
         CODE_SIGNING_REQUIRED: "NO"
