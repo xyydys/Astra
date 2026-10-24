@@ -4,7 +4,7 @@ import UIKit
 /// 可切换的应用图标：Resources/Assets.xcassets 里的 AppIcon（默认）和 AppIcon-*，
 /// 设置页的预览图是 IconPreview-*（图标本身不能当普通图片读）
 enum AppIconOption: String, CaseIterable, Identifiable {
-    case astra, buddy, night, tray, mochi, sky, tv
+    case astra, buddy, night, tray, mochi, sky, tv, boo
 
     var id: String { rawValue }
 
@@ -22,6 +22,7 @@ enum AppIconOption: String, CaseIterable, Identifiable {
         case .mochi: return "团子"
         case .sky: return "晴空"
         case .tv: return "电视怪"
+        case .boo: return "小白"
         }
     }
 

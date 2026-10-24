@@ -272,12 +272,11 @@ struct JMSettingsView: View {
 
         }
         .toast($message, working: working)
-        .task { await testLatency() }
         .navigationTitle("禁漫天堂")
         .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// 所有线路和分流一起测速（进入页面时自动测一次），结果显示在选项后面
+    /// 所有线路和分流一起测速（点「测速」时），结果显示在选项后面
     private func testLatency() async {
         guard !testing else { return }
         testing = true

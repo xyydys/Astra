@@ -445,6 +445,100 @@ def tv():
     return svg(defs, body)
 
 
+# ---------------------------------------------------------------- 8 小白（深灰底 + 白色软糖小怪，右上角是五种内容）
+@icon("boo")
+def boo():
+    play = rounded_poly([(0, -40), (52, 0), (0, 40)], 13)
+    defs = f"""
+<linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+  <stop offset="0" stop-color="#8E8E93"/><stop offset="0.35" stop-color="#4A4A4F"/><stop offset="1" stop-color="#1C1C1F"/>
+</linearGradient>
+<linearGradient id="panel" x1="0.2" y1="0" x2="0.8" y2="1">
+  <stop offset="0" stop-color="#3A3A3F"/><stop offset="1" stop-color="#1E1E22"/>
+</linearGradient>
+<radialGradient id="blob" cx="0.36" cy="0.2" r="0.85">
+  <stop offset="0" stop-color="#FFFFFF"/><stop offset="0.45" stop-color="#F1F1F3"/>
+  <stop offset="0.8" stop-color="#C9C9CE"/><stop offset="1" stop-color="#8F8F96"/>
+</radialGradient>
+<radialGradient id="shine" cx="0.5" cy="0.5" r="0.5">
+  <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.95"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+</radialGradient>
+<linearGradient id="eye" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#2E2E33"/><stop offset="1" stop-color="#0B0B0D"/>
+</linearGradient>
+<linearGradient id="tile" x1="0.2" y1="0" x2="0.8" y2="1">
+  <stop offset="0" stop-color="#FFFFFF"/><stop offset="0.6" stop-color="#E9E9EC"/><stop offset="1" stop-color="#BDBDC3"/>
+</linearGradient>
+<linearGradient id="glyph" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#3A3A40"/><stop offset="1" stop-color="#141417"/>
+</linearGradient>
+<linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+  <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+</linearGradient>
+<clipPath id="inner"><rect x="44" y="44" width="936" height="936" rx="200"/></clipPath>
+<clipPath id="blobClip"><path d="BLOB"/></clipPath>
+{shadow_filter("sh", -10, 34, 40, "#000", 0.55)}
+{shadow_filter("tsh", 0, 16, 18, "#000", 0.5)}
+{blur_filter("soft", 18)}
+{blur_filter("hair", 2.5)}
+"""
+
+    def tile(x, y, rot, glyph):
+        """一块白色圆角小方块，中心 (x, y)，里面放深色图标"""
+        return f"""
+<g transform="translate({x} {y}) rotate({rot}) scale(1.08)">
+  <g filter="url(#tsh)"><rect x="-82" y="-82" width="164" height="164" rx="46" fill="url(#tile)"/></g>
+  <rect x="-70" y="-74" width="140" height="62" rx="30" fill="url(#gloss)"/>
+  {glyph}
+</g>"""
+
+    play_glyph = f'<path d="{play}" fill="url(#glyph)" transform="translate(-12 0)"/>'
+    note_glyph = """
+<g fill="url(#glyph)">
+  <ellipse cx="-30" cy="34" rx="24" ry="18" transform="rotate(-22 -30 34)"/>
+  <ellipse cx="34" cy="20" rx="24" ry="18" transform="rotate(-22 34 20)"/>
+  <rect x="-12" y="-44" width="13" height="80" rx="6"/>
+  <rect x="52" y="-58" width="13" height="80" rx="6"/>
+  <path d="M-12,-44 L65,-58 L65,-34 L-12,-20 Z"/>
+</g>"""
+    # 描边加粗：渲染用的字体没有粗体
+    book_glyph = '<text x="0" y="40" text-anchor="middle" font-size="108" font-weight="700" ' \
+                 'font-family="PingFang SC, Noto Sans CJK SC, Source Han Sans SC, WenQuanYi Zen Hei, sans-serif" ' \
+                 'fill="url(#glyph)" stroke="#1E1E22" stroke-width="7" stroke-linejoin="round">书</text>'
+    # 漫画：带尾巴的对话框，里面一个感叹号
+    comic_glyph = """
+<path d="M-50,-46 Q-50,-56 -40,-56 L44,-56 Q56,-56 56,-44 L56,18 Q56,30 44,30 L-4,30 L-30,54 L-24,30 L-40,30 Q-52,30 -52,18 Z" fill="url(#glyph)"/>
+<rect x="-1" y="-42" width="16" height="44" rx="8" fill="#FFFFFF" transform="translate(-6 0)"/>
+<circle cx="2" cy="16" r="8.5" fill="#FFFFFF"/>"""
+
+    blob = "M-40,1100 L-40,640 C-40,470 130,390 330,392 C560,394 760,470 900,610 C990,700 1060,800 1080,900 L1080,1100 Z"
+    defs = defs.replace("BLOB", blob)
+    body = f"""
+<rect width="1024" height="1024" fill="url(#rim)"/>
+<rect x="44" y="44" width="936" height="936" rx="200" fill="url(#panel)"/>
+<rect x="44" y="44" width="936" height="936" rx="200" fill="none" stroke="#000" stroke-opacity="0.45" stroke-width="10"/>
+<g clip-path="url(#inner)">
+  <g filter="url(#sh)"><path d="{blob}" fill="url(#blob)"/></g>
+  <g clip-path="url(#blobClip)">
+    <path d="{blob}" fill="none" stroke="#6E6E76" stroke-width="90" opacity="0.55" filter="url(#soft)"/>
+    <path d="{blob}" fill="none" stroke="#FFFFFF" stroke-width="8" opacity="0.45" transform="translate(0 7)" filter="url(#hair)"/>
+  </g>
+  <ellipse cx="290" cy="520" rx="190" ry="62" fill="url(#shine)" transform="rotate(-10 290 520)" filter="url(#soft)"/>
+  <g transform="rotate(-14 500 660)">
+    <rect x="388" y="572" width="78" height="168" rx="39" fill="url(#eye)"/>
+    <rect x="560" y="552" width="78" height="168" rx="39" fill="url(#eye)"/>
+    <ellipse cx="414" cy="604" rx="12" ry="20" fill="#FFFFFF" opacity="0.35"/>
+    <ellipse cx="586" cy="584" rx="12" ry="20" fill="#FFFFFF" opacity="0.35"/>
+  </g>
+  {tile(632, 190, -8, play_glyph)}
+  {tile(830, 210, 7, note_glyph)}
+  {tile(660, 392, 5, book_glyph)}
+  {tile(856, 414, -6, comic_glyph)}
+</g>
+"""
+    return svg(defs, body)
+
+
 if __name__ == "__main__":
     names = sys.argv[1:] or list(ICONS)
     for name in names:
