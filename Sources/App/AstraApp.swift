@@ -60,6 +60,8 @@ struct RootView: View {
     @State private var tabBeforeSearch: AppTab = .home
     @AppStorage(AppSettings.contentModeKey) private var mode: ContentMode = .anime
     @EnvironmentObject private var ruleStore: RuleStore
+    /// 底栏图标（设置 → 外观 → 底栏图标）
+    @AppStorage(TabIcons.storageKey) private var tabIconsRaw = ""
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
     /// 从其他 App 打开的文件的导入结果
@@ -192,14 +194,18 @@ struct RootView: View {
         }
     }
 
+    private func icon(_ slot: TabIconSlot) -> String {
+        TabIcons.icon(for: slot, in: tabIconsRaw)
+    }
+
     /// iOS 18 起的 Tab 写法：iOS 26 上搜索是底栏右侧单独的圆形按钮
     @available(iOS 18, *)
     private var modernTabs: some View {
         TabView(selection: $tab) {
-            Tab("首页", systemImage: "house", value: AppTab.home) { homeTab }
-            Tab("收藏", systemImage: "heart", value: AppTab.favorites) { favoritesTab }
-            Tab("历史", systemImage: "clock.arrow.circlepath", value: AppTab.history) { historyTab }
-            Tab("我的", systemImage: "person.crop.circle", value: AppTab.settings) { settingsTab }
+            Tab("首页", systemImage: icon(.home(mode)), value: AppTab.home) { homeTab }
+            Tab("收藏", systemImage: icon(.favorites), value: AppTab.favorites) { favoritesTab }
+            Tab("历史", systemImage: icon(.history), value: AppTab.history) { historyTab }
+            Tab("我的", systemImage: icon(.settings), value: AppTab.settings) { settingsTab }
             Tab("搜索", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { searchTab }
         }
         .tabBarMinimizeOnScroll()
@@ -209,16 +215,16 @@ struct RootView: View {
     private var legacyTabs: some View {
         TabView(selection: $tab) {
             homeTab
-                .tabItem { Label("首页", systemImage: "house") }
+                .tabItem { Label("首页", systemImage: icon(.home(mode))) }
                 .tag(AppTab.home)
             favoritesTab
-                .tabItem { Label("收藏", systemImage: "heart") }
+                .tabItem { Label("收藏", systemImage: icon(.favorites)) }
                 .tag(AppTab.favorites)
             historyTab
-                .tabItem { Label("历史", systemImage: "clock.arrow.circlepath") }
+                .tabItem { Label("历史", systemImage: icon(.history)) }
                 .tag(AppTab.history)
             settingsTab
-                .tabItem { Label("我的", systemImage: "person.crop.circle") }
+                .tabItem { Label("我的", systemImage: icon(.settings)) }
                 .tag(AppTab.settings)
             searchTab
                 .tabItem { Label("搜索", systemImage: "magnifyingglass") }

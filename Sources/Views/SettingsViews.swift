@@ -82,6 +82,11 @@ struct SettingsView: View {
                         Label("强调色", systemImage: "paintpalette")
                     }
                 }
+                NavigationLink {
+                    TabIconSettingsView()
+                } label: {
+                    Label("底栏图标", systemImage: "rectangle.bottomthird.inset.filled")
+                }
                 Toggle(isOn: $nativeModeMenu) {
                     Label("首页模式菜单显示详情", systemImage: "filemenu.and.selection")
                 }
