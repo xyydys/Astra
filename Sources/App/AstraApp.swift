@@ -91,7 +91,7 @@ struct RootView: View {
             updateTabBarStyle()
         }
         .onChangeCompat(of: colorScheme) { _, scheme in
-            Diag.log("界面", "系统深浅色 → \(scheme)")
+            Diag.log("界面", "界面深浅色 → \(scheme)")
             updateTabBarStyle()
         }
         .onChangeCompat(of: scenePhase) { _, phase in
@@ -137,34 +137,29 @@ struct RootView: View {
     /// 直接改 UIKit 底栏的深浅：用 SwiftUI 的 toolbarColorScheme 切换标签时生效很慢，
     /// 经常停在别的页面了底栏还是上一页的颜色
     private func updateTabBarStyle() {
-        // 音乐首页固定深色；其他标签页明确设成系统当前的深浅（交给系统按内容判断时切换很慢）；
-        // 其他模式的首页背景跟着海报变，仍然交给系统
-        let system = UIScreen.main.traitCollection.userInterfaceStyle
-        let style: UIUserInterfaceStyle
-        if tab == .home {
-            style = mode == .music ? .dark : .unspecified
-        } else {
-            style = system
-        }
+        // 只在音乐首页把整个窗口锁成深色，其他时候窗口跟随系统，只有这一种切换。
+        // （只改底栏不行：日志显示底栏的深浅早就设对了，但 iOS 26 的玻璃底栏按背后页面内容取色，
+        // 从深色页面切走后要过一会儿才跟上。整个窗口一起切，底栏和页面同时变）
+        let style: UIUserInterfaceStyle = tab == .home && mode == .music ? .dark : .unspecified
         DiagnosticLog.context = "tab=\(tab) mode=\(mode.rawValue)"
         var found = false
         for scene in UIApplication.shared.connectedScenes {
-            for window in (scene as? UIWindowScene)?.windows ?? [] {
-                guard let controller = Self.tabBarController(in: window.rootViewController) else { continue }
+            for window in (scene as? UIWindowScene)?.windows ?? [] where window.rootViewController != nil {
                 found = true
-                let before = controller.tabBar.overrideUserInterfaceStyle
-                if before != style {
-                    controller.tabBar.overrideUserInterfaceStyle = style
-                }
-                let bar = controller.tabBar
-                Diag.log("底栏", "tab=\(tab) mode=\(mode.rawValue) 设为 \(Self.name(style))（之前 \(Self.name(before))，系统 \(Self.name(system))）bar=\(type(of: bar)) hidden=\(bar.isHidden)")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    Diag.log("底栏", "0.3 秒后：override=\(Self.name(bar.overrideUserInterfaceStyle)) 实际=\(Self.name(bar.traitCollection.userInterfaceStyle))")
+                let before = window.overrideUserInterfaceStyle
+                if before != style { window.overrideUserInterfaceStyle = style }
+                if let bar = Self.tabBarController(in: window.rootViewController)?.tabBar {
+                    // 上个版本单独给底栏设过，清掉，跟着窗口走
+                    if bar.overrideUserInterfaceStyle != .unspecified { bar.overrideUserInterfaceStyle = .unspecified }
+                    Diag.log("底栏", "tab=\(tab) mode=\(mode.rawValue) 窗口设为 \(Self.name(style))（之前 \(Self.name(before))）")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        Diag.log("底栏", "0.3 秒后：窗口=\(Self.name(window.traitCollection.userInterfaceStyle)) 底栏=\(Self.name(bar.traitCollection.userInterfaceStyle))")
+                    }
                 }
             }
         }
         if !found {
-            Diag.log("底栏", "没找到 UITabBarController（tab=\(tab) mode=\(mode.rawValue)）")
+            Diag.log("底栏", "没找到窗口（tab=\(tab) mode=\(mode.rawValue)）")
         }
     }
 

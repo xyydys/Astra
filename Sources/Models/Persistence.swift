@@ -122,6 +122,7 @@ final class WatchLibrary: ObservableObject {
             writeNow()
         }
         sort()
+        removeAutoSyncedComics()
     }
 
     // MARK: 收藏
@@ -146,6 +147,34 @@ final class WatchLibrary: ObservableObject {
     func removeFavorite(_ subjectID: Int) {
         favorites.removeAll { $0.subjectID == subjectID }
         save()
+    }
+
+    func removeFavorites(_ subjectIDs: Set<Int>) {
+        favorites.removeAll { subjectIDs.contains($0.subjectID) }
+        save()
+    }
+
+    /// 一次性清理：旧版本登录禁漫时自动把云端收藏全部拉到了本地。
+    /// 那一批的收藏时间是「同一时刻往前每本差 1 秒」，按这个特征认出来删掉，自己收藏的不受影响
+    func removeAutoSyncedComics() {
+        let key = "cleanedAutoSyncedComicFavorites"
+        guard !UserDefaults.standard.bool(forKey: key) else { return }
+        UserDefaults.standard.set(true, forKey: key)
+        let comics = favorites.filter { $0.subject.isComic }.sorted { $0.addedAt > $1.addedAt }
+        var batch = Set<Int>()
+        var run: [FavoriteItem] = []
+        func flush() {
+            if run.count >= 10 { batch.formUnion(run.map(\.subjectID)) }
+            run.removeAll()
+        }
+        for item in comics {
+            if let last = run.last, abs(last.addedAt.timeIntervalSince(item.addedAt) - 1) > 0.01 { flush() }
+            run.append(item)
+        }
+        flush()
+        guard !batch.isEmpty else { return }
+        favorites.removeAll { batch.contains($0.subjectID) }
+        writeNow()
     }
 
     // MARK: 历史

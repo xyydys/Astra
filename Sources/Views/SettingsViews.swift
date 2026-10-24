@@ -259,15 +259,14 @@ struct JMSettingsView: View {
                         run {
                             try await account.login(username: name, password: password)
                             inputPassword = ""
-                            let result = try? await account.pullFavorites()
-                            return result.map { "登录成功，已从云端同步 \($0.added) 本收藏" } ?? "登录成功"
+                            return "登录成功"
                         }
                     }
                     .disabled(inputName.isEmpty || inputPassword.isEmpty || working)
                 } header: {
                     Text("账号")
                 } footer: {
-                    Text("用禁漫天堂的账号登录。登录后会把云端收藏同步到本地，密码保存在系统钥匙串里，登录过期时自动重新登录。")
+                    Text("用禁漫天堂的账号登录。云端收藏可以在漫画模式的收藏页直接看，需要时再手动同步到本地。密码保存在系统钥匙串里，登录过期时自动重新登录。")
                 }
             }
 

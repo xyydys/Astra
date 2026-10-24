@@ -247,7 +247,11 @@ struct FavoritesView: View {
 /// 漫画模式的收藏标签：本地收藏，登录禁漫后可以切到云端收藏夹
 struct ComicFavoritesView: View {
     @ObservedObject private var account = JMAccount.shared
+    @ObservedObject private var library = WatchLibrary.shared
     @State private var cloud = false
+    @State private var confirmClear = false
+
+    private var localComics: [FavoriteItem] { library.favorites.filter { $0.subject.isComic } }
 
     var body: some View {
         Group {
@@ -258,16 +262,34 @@ struct ComicFavoritesView: View {
             }
         }
         .toolbar {
-            ToolbarItem(placement: .principal) {
+            // 和右边的排序按钮一样是文字按钮：高度一致，宽度跟着文字走
+            // （分段控件放进 iOS 26 的工具栏会被包成一个很高的圆）
+            ToolbarItem(placement: .navigationBarLeading) {
                 if account.isLoggedIn {
-                    Picker("收藏", selection: $cloud) {
-                        Text("本地").tag(false)
-                        Text("云端").tag(true)
+                    Menu {
+                        Picker("收藏", selection: $cloud) {
+                            Label("本地收藏", systemImage: "iphone").tag(false)
+                            Label("云端收藏", systemImage: "icloud").tag(true)
+                        }
+                    } label: {
+                        Text(cloud ? "云端收藏" : "本地收藏")
+                            .fixedSize()
                     }
-                    .pickerStyle(.segmented)
-                    .fixedSize()
                 }
             }
+            ToolbarItem(placement: .navigationBarTrailing) {
+                if !(cloud && account.isLoggedIn), !localComics.isEmpty {
+                    Button("清空") { confirmClear = true }
+                }
+            }
+        }
+        .confirmationDialog("清空本地的 \(localComics.count) 本漫画收藏？", isPresented: $confirmClear, titleVisibility: .visible) {
+            Button("清空", role: .destructive) {
+                library.removeFavorites(Set(localComics.map(\.subjectID)))
+                Haptics.success()
+            }
+        } message: {
+            Text("只清本地，禁漫账号里的云端收藏不受影响。")
         }
         .selectionFeedback(trigger: cloud)
     }
