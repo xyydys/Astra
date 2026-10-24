@@ -4,32 +4,37 @@ import UIKit
 /// 可切换的应用图标：Resources/Assets.xcassets 里的 AppIcon（默认）和 AppIcon-*，
 /// 设置页的预览图是 IconPreview-*（图标本身不能当普通图片读）
 enum AppIconOption: String, CaseIterable, Identifiable {
-    case astra, buddy, night, tray, mochi, sky, tv, boo
+    // 顺序就是设置页里的排列顺序；柔光是默认图标（AppIcon）
+    case chroma, glow, sticker, blueprint, white, black, gold, klein, lemon, redyellow
 
     var id: String { rawValue }
 
+    static let primary: AppIconOption = .glow
+
     /// 传给 setAlternateIconName 的名字，默认图标是 nil
-    var iconName: String? { self == .astra ? nil : "AppIcon-" + rawValue }
+    var iconName: String? { self == Self.primary ? nil : "AppIcon-" + rawValue }
 
     var previewName: String { "IconPreview-" + rawValue }
 
     var title: String {
         switch self {
-        case .astra: return "星芒"
-        case .buddy: return "星仔"
-        case .night: return "夜空"
-        case .tray: return "百宝箱"
-        case .mochi: return "团子"
-        case .sky: return "晴空"
-        case .tv: return "电视怪"
-        case .boo: return "小白"
+        case .chroma: return "多彩"
+        case .glow: return "柔光"
+        case .sticker: return "糖纸"
+        case .blueprint: return "蓝图"
+        case .white: return "白"
+        case .black: return "黑"
+        case .gold: return "黑金"
+        case .klein: return "克莱因橙"
+        case .lemon: return "柠檬紫"
+        case .redyellow: return "红黄"
         }
     }
 
     @MainActor
     static var current: AppIconOption {
-        guard let name = UIApplication.shared.alternateIconName else { return .astra }
-        return allCases.first { $0.iconName == name } ?? .astra
+        guard let name = UIApplication.shared.alternateIconName else { return primary }
+        return allCases.first { $0.iconName == name } ?? primary
     }
 }
 
