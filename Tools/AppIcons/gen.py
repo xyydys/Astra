@@ -445,10 +445,27 @@ def tv():
     return svg(defs, body)
 
 
-# ---------------------------------------------------------------- 8 小白（深灰底 + 白色软糖小怪，右上角是五种内容）
+# ---------------------------------------------------------------- 8 小白（深灰底 + 白色软糖小怪，右上角飘着四种内容）
 @icon("boo")
 def boo():
-    play = rounded_poly([(0, -40), (52, 0), (0, 40)], 13)
+    # 四个彩色立体小物件：番剧 / 影视（播放键）、音乐（音符）、小说（书）、漫画（对话框）
+    # 每个都是「底下一层深色厚度 + 渐变主体 + 左上高光」，像软糖 / 果冻
+    colors = {
+        "play": ("#FF8A7A", "#FF4D5E", "#C92A42"),
+        "note": ("#B8A6FF", "#7C5CFF", "#4E33C9"),
+        "book": ("#FFD66B", "#FFA928", "#C9740E"),
+        "talk": ("#7DF0D2", "#22C7A6", "#118A73"),
+    }
+    grads = ""
+    for key, (top, bottom, _) in colors.items():
+        grads += f"""
+<linearGradient id="g_{key}" x1="0" y1="0" x2="0.35" y2="1">
+  <stop offset="0" stop-color="{top}"/><stop offset="1" stop-color="{bottom}"/>
+</linearGradient>
+<linearGradient id="gs_{key}" gradientUnits="userSpaceOnUse" x1="0" y1="-80" x2="0" y2="80">
+  <stop offset="0" stop-color="{top}"/><stop offset="1" stop-color="{bottom}"/>
+</linearGradient>"""
+
     defs = f"""
 <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
   <stop offset="0" stop-color="#8E8E93"/><stop offset="0.35" stop-color="#4A4A4F"/><stop offset="1" stop-color="#1C1C1F"/>
@@ -466,50 +483,72 @@ def boo():
 <linearGradient id="eye" x1="0" y1="0" x2="0" y2="1">
   <stop offset="0" stop-color="#2E2E33"/><stop offset="1" stop-color="#0B0B0D"/>
 </linearGradient>
-<linearGradient id="tile" x1="0.2" y1="0" x2="0.8" y2="1">
-  <stop offset="0" stop-color="#FFFFFF"/><stop offset="0.6" stop-color="#E9E9EC"/><stop offset="1" stop-color="#BDBDC3"/>
+<linearGradient id="gloss" x1="0" y1="0" x2="0.3" y2="1">
+  <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.5"/><stop offset="0.38" stop-color="#FFFFFF" stop-opacity="0"/>
 </linearGradient>
-<linearGradient id="glyph" x1="0" y1="0" x2="0" y2="1">
-  <stop offset="0" stop-color="#3A3A40"/><stop offset="1" stop-color="#141417"/>
-</linearGradient>
-<linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
-  <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.75"/><stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
-</linearGradient>
+{grads}
 <clipPath id="inner"><rect x="44" y="44" width="936" height="936" rx="200"/></clipPath>
 <clipPath id="blobClip"><path d="BLOB"/></clipPath>
 {shadow_filter("sh", -10, 34, 40, "#000", 0.55)}
-{shadow_filter("tsh", 0, 16, 18, "#000", 0.5)}
+{shadow_filter("osh", 0, 22, 22, "#000", 0.45)}
 {blur_filter("soft", 18)}
 {blur_filter("hair", 2.5)}
+{blur_filter("hl", 4)}
 """
 
-    def tile(x, y, rot, glyph):
-        """一块白色圆角小方块，中心 (x, y)，里面放深色图标"""
+    def filled(key, shape, x, y, rot, scale=1.0):
+        """填充形状的立体物件：shape 是以 (0,0) 为中心的 SVG 元素，用 {paint} 占位颜色"""
+        dark = colors[key][2]
         return f"""
-<g transform="translate({x} {y}) rotate({rot}) scale(1.08)">
-  <g filter="url(#tsh)"><rect x="-82" y="-82" width="164" height="164" rx="46" fill="url(#tile)"/></g>
-  <rect x="-70" y="-74" width="140" height="62" rx="30" fill="url(#gloss)"/>
-  {glyph}
+<g transform="translate({x} {y}) rotate({rot}) scale({scale})">
+  <g filter="url(#osh)"><g transform="translate(0 14)">{shape.format(paint=dark)}</g></g>
+  {shape.format(paint=f"url(#g_{key})")}
+  {shape.format(paint="url(#gloss)")}
 </g>"""
 
-    play_glyph = f'<path d="{play}" fill="url(#glyph)" transform="translate(-12 0)"/>'
-    note_glyph = """
-<g fill="url(#glyph)">
-  <ellipse cx="-30" cy="34" rx="24" ry="18" transform="rotate(-22 -30 34)"/>
-  <ellipse cx="34" cy="20" rx="24" ry="18" transform="rotate(-22 34 20)"/>
-  <rect x="-12" y="-44" width="13" height="80" rx="6"/>
-  <rect x="52" y="-58" width="13" height="80" rx="6"/>
-  <path d="M-12,-44 L65,-58 L65,-34 L-12,-20 Z"/>
+    def stroked(key, paths, width, x, y, rot, scale=1.0):
+        """粗线条的立体物件（书、音符）：paths 是路径列表"""
+        dark = colors[key][2]
+        def layer(paint, w, dx=0, dy=0, extra=""):
+            return "".join(
+                f'<path d="{d}" fill="none" stroke="{paint}" stroke-width="{w}" stroke-linecap="round" '
+                f'stroke-linejoin="round" transform="translate({dx} {dy})" {extra}/>' for d in paths)
+        return f"""
+<g transform="translate({x} {y}) rotate({rot}) scale({scale})">
+  <g filter="url(#osh)">{layer(dark, width, 0, 12)}</g>
+  {layer(f"url(#gs_{key})", width)}
+  {layer("#FFFFFF", width * 0.28, -width * 0.12, -width * 0.16, 'opacity="0.55" filter="url(#hl)"')}
 </g>"""
-    # 描边加粗：渲染用的字体没有粗体
-    book_glyph = '<text x="0" y="40" text-anchor="middle" font-size="108" font-weight="700" ' \
-                 'font-family="PingFang SC, Noto Sans CJK SC, Source Han Sans SC, WenQuanYi Zen Hei, sans-serif" ' \
-                 'fill="url(#glyph)" stroke="#1E1E22" stroke-width="7" stroke-linejoin="round">书</text>'
-    # 漫画：带尾巴的对话框，里面一个感叹号
-    comic_glyph = """
-<path d="M-50,-46 Q-50,-56 -40,-56 L44,-56 Q56,-56 56,-44 L56,18 Q56,30 44,30 L-4,30 L-30,54 L-24,30 L-40,30 Q-52,30 -52,18 Z" fill="url(#glyph)"/>
-<rect x="-1" y="-42" width="16" height="44" rx="8" fill="#FFFFFF" transform="translate(-6 0)"/>
-<circle cx="2" cy="16" r="8.5" fill="#FFFFFF"/>"""
+
+    play = filled("play", '<path d="' + rounded_poly([(-46, -72), (74, 0), (-46, 72)], 30) + '" fill="{paint}"/>', 628, 214, -10, 1.1)
+    # 两个连着的八分音符：符头 + 符干 + 横梁
+    note_shape = (
+        '<g fill="{paint}">'
+        '<ellipse cx="-40" cy="52" rx="34" ry="26" transform="rotate(-24 -40 52)"/>'
+        '<ellipse cx="50" cy="34" rx="34" ry="26" transform="rotate(-24 50 34)"/>'
+        '<rect x="-14" y="-62" width="24" height="118" rx="12"/>'
+        '<rect x="76" y="-80" width="24" height="118" rx="12"/>'
+        '<path d="M-14,-50 Q-14,-62 -2,-64 L88,-80 Q100,-82 100,-70 L100,-46 Q100,-36 90,-34 L0,-18 Q-14,-16 -14,-28 Z"/>'
+        '</g>'
+    )
+    note = filled("note", note_shape, 836, 196, 8, 0.8)
+    # 「书」：横折、横折钩、竖、点，四笔手写成圆头粗线
+    book = stroked("book", [
+        "M-46,-44 L34,-44 L34,-6",
+        "M-58,-4 L54,-4 L54,44 Q54,58 40,52",
+        "M-6,-70 L-6,72",
+        "M36,-74 L52,-58",
+    ], 26, 858, 398, 6, 0.95)
+    # 漫画：圆角对话框 + 尾巴，中间一个感叹号（白色）
+    talk_shape = (
+        '<path d="M-70,-40 Q-70,-62 -48,-62 L56,-62 Q78,-62 78,-40 L78,22 Q78,44 56,44 L-6,44 L-44,74 L-34,44 L-48,44 Q-70,44 -70,22 Z" fill="{paint}"/>'
+    )
+    talk = filled("talk", talk_shape, 660, 404, -7, 0.95)
+    bang = """
+<g transform="translate(660 404) rotate(-7) scale(0.95)">
+  <rect x="-3" y="-44" width="22" height="54" rx="11" fill="#FFFFFF"/>
+  <circle cx="8" cy="26" r="11" fill="#FFFFFF"/>
+</g>"""
 
     blob = "M-40,1100 L-40,640 C-40,470 130,390 330,392 C560,394 760,470 900,610 C990,700 1060,800 1080,900 L1080,1100 Z"
     defs = defs.replace("BLOB", blob)
@@ -530,10 +569,10 @@ def boo():
     <ellipse cx="414" cy="604" rx="12" ry="20" fill="#FFFFFF" opacity="0.35"/>
     <ellipse cx="586" cy="584" rx="12" ry="20" fill="#FFFFFF" opacity="0.35"/>
   </g>
-  {tile(632, 190, -8, play_glyph)}
-  {tile(830, 210, 7, note_glyph)}
-  {tile(660, 392, 5, book_glyph)}
-  {tile(856, 414, -6, comic_glyph)}
+  {talk}{bang}
+  {play}
+  {note}
+  {book}
 </g>
 """
     return svg(defs, body)
