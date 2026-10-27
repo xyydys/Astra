@@ -43,6 +43,10 @@ targets:
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
         UIBackgroundModes: [audio]
+        # 网易云扫码登录：把二维码存到相册，再用网易云音乐从相册识别
+        NSPhotoLibraryAddUsageDescription: 把网易云登录二维码保存到相册，方便在网易云音乐里从相册扫码
+        # 「打开网易云音乐」按钮
+        LSApplicationQueriesSchemes: [orpheus]
         # Documents 在「文件」App 里可见（备份文件放在 Documents/备份）
         UIFileSharingEnabled: true
         LSSupportsOpeningDocumentsInPlace: true

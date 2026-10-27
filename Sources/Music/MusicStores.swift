@@ -237,15 +237,30 @@ final class MusicLibrary: ObservableObject {
     func toggleFavorite(_ track: MusicTrack) {
         if let index = favorites.firstIndex(where: { $0.id == track.id }) {
             favorites.remove(at: index)
+            NeteaseAccount.shared.mirror(track, liked: false)
         } else {
             favorites.insert(track, at: 0)
+            NeteaseAccount.shared.mirror(track, liked: true)
         }
         save()
     }
 
     func removeFavorites(at offsets: IndexSet) {
+        for index in offsets where favorites.indices.contains(index) {
+            NeteaseAccount.shared.mirror(favorites[index], liked: false)
+        }
         favorites.remove(atOffsets: offsets)
         save()
+    }
+
+    /// 从账号同步来的歌：只补本地没有的，按原来的顺序接在最后。返回新加的数量
+    func mergeFavorites(_ tracks: [MusicTrack]) -> Int {
+        var existing = Set(favorites.map(\.id))
+        let fresh = tracks.filter { existing.insert($0.id).inserted }
+        guard !fresh.isEmpty else { return 0 }
+        favorites += fresh
+        save()
+        return fresh.count
     }
 
     func recordPlay(_ track: MusicTrack) {

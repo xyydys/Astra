@@ -2,12 +2,23 @@ import SwiftUI
 import UIKit
 import WebKit
 
-/// Folia 的歌词动画模式（名称和 folia-major 的中文界面一致）。
+/// 歌词特效：Folia 的动画模式（名称和 folia-major 的中文界面一致）、仿 Apple Music 的 AMLL，
+/// 以及移植自 Mineradio 的粒子特效（mr- 开头，菜单里放在二级菜单）。
 /// 心象（cadenza）、群唱（cappella）、静止（still）没有放进来：菜单项太多会超出一屏要滚动，按住拖选就失效了
 enum FoliaMode: String, CaseIterable, Identifiable {
     case classic, lumiere, tempera, sonnet, partita, fume, tilt, claddagh, monet, pendolo, diorama
+    case amll
+    case mrCover = "mr-cover", mrTunnel = "mr-tunnel", mrPlanet = "mr-planet", mrVinyl = "mr-vinyl"
+    case mrRiver = "mr-river", mrEclipse = "mr-eclipse", mrDrizzle = "mr-drizzle", mrFlock = "mr-flock", mrBloom = "mr-bloom"
 
     var id: String { rawValue }
+
+    static let folia: [FoliaMode] = [.classic, .lumiere, .tempera, .sonnet, .partita, .fume, .tilt, .claddagh, .monet, .pendolo, .diorama]
+    static let mineradio: [FoliaMode] = [.mrCover, .mrTunnel, .mrPlanet, .mrVinyl, .mrRiver, .mrEclipse, .mrDrizzle, .mrFlock, .mrBloom]
+
+    var isMineradio: Bool { rawValue.hasPrefix("mr-") }
+    /// 只有 Folia 自己的模式用得上「背景」设置
+    var isFolia: Bool { Self.folia.contains(self) }
 
     var name: String {
         switch self {
@@ -22,6 +33,16 @@ enum FoliaMode: String, CaseIterable, Identifiable {
         case .monet: return "莫奈"
         case .pendolo: return "时计"
         case .diorama: return "镜台"
+        case .amll: return "仿 Apple Music"
+        case .mrCover: return "封面粒子"
+        case .mrTunnel: return "滚筒"
+        case .mrPlanet: return "星球"
+        case .mrVinyl: return "唱片"
+        case .mrRiver: return "星河"
+        case .mrEclipse: return "月蚀圣环"
+        case .mrDrizzle: return "雨幕霓虹"
+        case .mrFlock: return "折光蝶群"
+        case .mrBloom: return "深海绽放"
         }
     }
 
@@ -38,6 +59,16 @@ enum FoliaMode: String, CaseIterable, Identifiable {
         case .monet: return "photo.artframe"
         case .pendolo: return "clock"
         case .diorama: return "cube.transparent"
+        case .amll: return "text.alignleft"
+        case .mrCover: return "square.grid.3x3"
+        case .mrTunnel: return "hurricane"
+        case .mrPlanet: return "globe.asia.australia"
+        case .mrVinyl: return "opticaldisc"
+        case .mrRiver: return "sparkle"
+        case .mrEclipse: return "moon.circle"
+        case .mrDrizzle: return "cloud.rain"
+        case .mrFlock: return "paperplane"
+        case .mrBloom: return "camera.macro"
         }
     }
 }

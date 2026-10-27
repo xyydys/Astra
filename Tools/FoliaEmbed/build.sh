@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # 把 Folia（AGPL-3.0）的歌词特效打包成 App 内嵌页面，输出到 Embed/folia。
 # 用的是 folia-major 固定版本的源码 + 本目录下的入口文件（embed/、folia-embed.html、vite.embed.config.ts）。
+# 同一个页面里还有仿 Apple Music 的歌词（AMLL 核心库）和移植自 Mineradio（GPL-3.0）的粒子特效。
 set -euo pipefail
 
 FOLIA_REPO="https://github.com/chthollyphile/folia-major.git"
@@ -51,6 +52,11 @@ cp "$HERE/folia-embed.html" "$HERE/vite.embed.config.ts" "$WORK/"
 
 echo "==> npm ci"
 (cd "$WORK" && ELECTRON_SKIP_BINARY_DOWNLOAD=1 npm ci --ignore-scripts --no-audit --no-fund --loglevel=error)
+
+# Apple Music 风格歌词用的 AMLL 核心库（AGPL-3.0）；three.js 用 Folia 自带的版本（Mineradio 特效用）
+AMLL_CORE="@applemusic-like-lyrics/core@0.6.0"
+echo "==> npm install $AMLL_CORE"
+(cd "$WORK" && npm install --no-save --ignore-scripts --no-audit --no-fund --legacy-peer-deps --loglevel=error "$AMLL_CORE")
 
 echo "==> vite build"
 (cd "$WORK" && npx vite build --config vite.embed.config.ts --logLevel warn)

@@ -126,7 +126,7 @@ enum MusicPlatformAPI {
         return songs.compactMap(wyTrack)
     }
 
-    private static func wyTrack(_ song: [String: Any]) -> MusicTrack? {
+    static func wyTrack(_ song: [String: Any]) -> MusicTrack? {
         let id = RuleValue.string(song["id"])
         guard !id.isEmpty else { return nil }
         let artists = (song["ar"] as? [[String: Any]] ?? song["artists"] as? [[String: Any]] ?? [])

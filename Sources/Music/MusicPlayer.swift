@@ -252,7 +252,14 @@ final class MusicPlayer: ObservableObject {
             let withCover = working
             Task { [weak self] in await self?.loadArtwork(for: withCover) }
             do {
-                let url = try await LXSourceStore.shared.resolveURL(for: withCover)
+                let accountURL = await NeteaseAccount.shared.playbackURL(for: withCover)
+                guard !Task.isCancelled else { return }
+                let url: String
+                if let accountURL {
+                    url = accountURL
+                } else {
+                    url = try await LXSourceStore.shared.resolveURL(for: withCover)
+                }
                 guard let self, !Task.isCancelled, self.current?.id == trackID else { return }
                 self.startPlayback(url)
             } catch {

@@ -1,7 +1,8 @@
 // Astra 内嵌的 Folia 歌词动画（AGPL-3.0）
 // 派生自 folia-major 的 src/components/obs/ObsBrowserSourceApp.tsx：
 // 原版通过 SSE 从 Folia 主窗口拿歌词和播放时钟，这里改成由宿主 App（Swift / WKWebView）调用 window.kazumi 推送。
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+// 模式 amll 换成仿 Apple Music 的 AMLL 歌词（AmllView），mr-* 换成移植自 Mineradio 的粒子特效（MineradioView）。
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMotionValue } from 'framer-motion';
 import VisualizerRenderer from '../src/components/visualizer/VisualizerRenderer';
 import { NO_LYRIC_LINES } from '../src/utils/lyrics/noLyricLines';
@@ -10,6 +11,8 @@ import { findLatestActiveLineIndex } from '../src/utils/appPlaybackHelpers';
 import { DEFAULT_THEME } from '../src/services/baseThemes';
 import type { Line, Theme, VisualizerMode } from '../src/types';
 import type { VisualizerBackgroundConfig } from '../src/components/visualizer/backgrounds/definition';
+import AmllView from './AmllView';
+import MineradioView, { MINERADIO_PRESETS, type MineradioPreset } from './MineradioView';
 
 type LyricFormat = 'lrc' | 'yrc' | 'qrc' | 'krc' | 'enhanced-lrc' | 'ttml';
 
@@ -33,7 +36,8 @@ interface EmbedClock {
 interface EmbedState {
     song: EmbedSong | null;
     lines: Line[];
-    mode: VisualizerMode;
+    /** Folia 的模式名，或者 amll、mr-<预设> */
+    mode: string;
     background: VisualizerBackgroundConfig;
     theme: Theme;
     isDaylight: boolean;
@@ -122,9 +126,18 @@ const EmbedApp: React.FC = () => {
         linesRef.current = state.lines;
     }, [state.lines]);
 
+    const lyricKeyRef = useRef('');
+
     useEffect(() => {
         window.kazumi = {
             setSong: song => {
+                // 同一首歌只是补上封面时不重新解析歌词，歌词组件也就不会重置
+                const lyricKey = song ? `${song.id}|${song.lyric?.format ?? ''}|${song.lyric?.content ?? ''}|${song.lyric?.translation ?? ''}` : '';
+                if (song && lyricKey === lyricKeyRef.current) {
+                    setState(prev => ({ ...prev, song }));
+                    return;
+                }
+                lyricKeyRef.current = lyricKey;
                 const lines = parseLines(song);
                 linesRef.current = lines;
                 lineIndexRef.current = -1;
@@ -137,7 +150,7 @@ const EmbedApp: React.FC = () => {
                 setPlaying(prev => (prev === clock.playing ? prev : clock.playing));
                 setDuration(prev => (prev === clock.duration ? prev : (Number.isFinite(clock.duration) ? clock.duration : 0)));
             },
-            setMode: mode => setState(prev => ({ ...prev, mode: mode as VisualizerMode })),
+            setMode: mode => setState(prev => ({ ...prev, mode })),
             setBackground: mode => setState(prev => ({ ...prev, background: { ...prev.background, mode: mode as VisualizerBackgroundConfig['mode'] } })),
             setTheme: (theme, isDaylight) => setState(prev => ({
                 ...prev,
@@ -179,6 +192,49 @@ const EmbedApp: React.FC = () => {
     }, [audioPower, currentTime]);
 
     const { song, theme } = state;
+    const getTime = useCallback(() => clockTime(clockRef.current), []);
+    const onSeek = useCallback((time: number) => post({ type: 'seek', time }), []);
+    const onLog = useCallback((message: string) => post({ type: 'log', message }), []);
+    const format = song?.lyric?.format ?? 'lrc';
+    const mineradioPreset = state.mode.startsWith('mr-') ? state.mode.slice(3) : '';
+
+    if (state.mode === 'amll') {
+        return (
+            <div className="overflow-hidden" style={{ position: 'relative', width: '100vw', height: '100vh' }}>
+                <AmllView
+                    lines={state.lines}
+                    format={format}
+                    cover={song?.cover}
+                    getTime={getTime}
+                    playing={playing}
+                    showTranslation={state.showTranslation}
+                    staticMode={state.staticMode}
+                    onSeek={onSeek}
+                />
+            </div>
+        );
+    }
+
+    if (mineradioPreset in MINERADIO_PRESETS) {
+        return (
+            <div className="overflow-hidden" style={{ position: 'relative', width: '100vw', height: '100vh' }}>
+                <MineradioView
+                    preset={mineradioPreset as MineradioPreset}
+                    lines={state.lines}
+                    format={format}
+                    cover={song?.cover}
+                    getTime={getTime}
+                    playing={playing}
+                    staticMode={state.staticMode}
+                    showTranslation={state.showTranslation}
+                    backgroundColor={theme.backgroundColor}
+                    accentColor={theme.accentColor}
+                    onSeek={onSeek}
+                    onLog={onLog}
+                />
+            </div>
+        );
+    }
 
     return (
         <div
@@ -186,7 +242,7 @@ const EmbedApp: React.FC = () => {
             style={{ width: '100vw', height: '100vh', backgroundColor: theme.backgroundColor, color: theme.primaryColor }}
         >
             <VisualizerRenderer
-                mode={state.mode}
+                mode={state.mode as VisualizerMode}
                 currentTime={currentTime}
                 duration={duration}
                 currentLineIndex={currentLineIndex}
@@ -215,7 +271,7 @@ const EmbedApp: React.FC = () => {
                 isPlayerChromeHidden={true}
                 hideTranslationSubtitle={!state.showTranslation}
                 showSubtitleTranslation={state.showTranslation}
-                onLyricLineSeek={time => post({ type: 'seek', time })}
+                onLyricLineSeek={onSeek}
             />
         </div>
     );

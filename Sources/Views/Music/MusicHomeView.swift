@@ -254,18 +254,30 @@ private struct FoliaEffectMenu: View {
             systemImage: "wand.and.sparkles",
             menuKey: [modeRaw, backgroundRaw]
         ) {
-            let modes = UIMenu.picker(
-                options: FoliaMode.allCases.map { MenuOption(value: $0.rawValue, title: $0.name, systemImage: $0.icon) },
+            func option(_ mode: FoliaMode) -> MenuOption<String> {
+                MenuOption(value: mode.rawValue, title: mode.name, systemImage: mode.icon)
+            }
+            let modes = UIMenu.picker(options: FoliaMode.folia.map(option), selected: modeRaw) { modeRaw = $0 }
+            // 仿 Apple Music 直接放一项；Mineradio 的特效多，收进二级菜单
+            let amll = UIMenu.picker(options: [option(.amll)], selected: modeRaw) { modeRaw = $0 }
+            let mineradio = UIMenu.picker(
+                title: mode.isMineradio ? "Mineradio：\(mode.name)" : "Mineradio 粒子",
+                image: UIImage(systemName: "circle.hexagongrid"),
+                inline: false,
+                options: FoliaMode.mineradio.map(option),
                 selected: modeRaw
             ) { modeRaw = $0 }
-            let backgrounds = UIMenu.picker(
-                title: "背景：\(background.name)",
-                image: UIImage(systemName: "circle.lefthalf.filled"),
-                inline: false,
-                options: FoliaBackground.allCases.map { MenuOption(value: $0.rawValue, title: $0.name) },
-                selected: backgroundRaw
-            ) { backgroundRaw = $0 }
-            return UIMenu(title: "歌词特效", children: [modes, backgrounds])
+            var children: [UIMenuElement] = [modes, UIMenu(options: .displayInline, children: amll.children + [mineradio])]
+            if mode.isFolia {
+                children.append(UIMenu.picker(
+                    title: "背景：\(background.name)",
+                    image: UIImage(systemName: "circle.lefthalf.filled"),
+                    inline: false,
+                    options: FoliaBackground.allCases.map { MenuOption(value: $0.rawValue, title: $0.name) },
+                    selected: backgroundRaw
+                ) { backgroundRaw = $0 })
+            }
+            return UIMenu(title: "歌词特效", children: children)
         }
         .fixedSize()
         .glass(in: Capsule())

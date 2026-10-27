@@ -10,7 +10,7 @@
 - **影视**：豆瓣推荐，苹果 CMS 采集站聚合搜索，支持订阅与 TVBox 配置导入，自动去除 m3u8 内插广告
 - **漫画**：分区、排行、搜索，条漫滚动与翻页阅读（首次进入需确认已满 18 岁）
 - **小说**：兼容「阅读」3.x 书源格式，Swift 重写的规则引擎，TextKit 排版的阅读器
-- **音乐**：兼容洛雪音乐自定义音源，多平台聚合搜索，Folia 歌词动画，后台与锁屏控制
+- **音乐**：兼容洛雪音乐自定义音源，多平台聚合搜索，网易云账号登录（红心同步、歌单、每日推荐、账号播放），Folia / 仿 Apple Music / Mineradio 粒子歌词特效，后台与锁屏控制
 - **其他**：收藏与历史、一键备份恢复、10 款可切换的应用图标
 
 ## 编译
@@ -35,10 +35,13 @@ brew install xcodegen && xcodegen generate
 - [阅读 Legado](https://github.com/gedoor/legado)
 - [洛雪音乐 LX Music](https://github.com/lyswhut/lx-music-desktop)
 - [Folia](https://github.com/chthollyphile/folia-major)
+- [AMLL（Apple Music-like Lyrics）](https://github.com/amll-dev/applemusic-like-lyrics)
+- [Mineradio](https://github.com/XxHuberrr/Mineradio)
+- [Kumone](https://github.com/missuo/kumone)
 - [SwiftSoup](https://github.com/scinfu/SwiftSoup)
 
 ## 许可证
 
-[GPL-3.0](LICENSE)。音乐页的歌词动画来自 Folia（AGPL-3.0），`Tools/FoliaEmbed` 中的相关文件同样按 AGPL-3.0 提供。
+[GPL-3.0](LICENSE)。音乐页的歌词动画来自 Folia（AGPL-3.0）和 AMLL（AGPL-3.0），粒子特效移植自 Mineradio（GPL-3.0），`Tools/FoliaEmbed` 中的相关文件按 AGPL-3.0 提供；网易云账号接口参考了 Kumone（LGPL-3.0）。Mineradio 的名称和视觉设计归其作者所有。
 
 请只观看、阅读、收听你有权访问的内容。

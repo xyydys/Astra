@@ -357,6 +357,7 @@ struct MusicSourcesView: View {
 /// 设置页里的「音乐」分组
 struct MusicSettingsSection: View {
     @ObservedObject private var store = LXSourceStore.shared
+    @ObservedObject private var netease = NeteaseAccount.shared
 
     var body: some View {
         Section {
@@ -369,10 +370,19 @@ struct MusicSettingsSection: View {
                     Label("音源管理", systemImage: "music.note.list")
                 }
             }
+            NavigationLink {
+                NeteaseAccountView()
+            } label: {
+                LabeledRow {
+                    Text(netease.profile?.nickname ?? "未登录")
+                } label: {
+                    Label("网易云账号", systemImage: "person.crop.circle.badge.checkmark")
+                }
+            }
         } header: {
             Text("音乐")
         } footer: {
-            Text("播放地址来自洛雪音乐的自定义音源；歌词动画移植自开源播放器 Folia。")
+            Text("播放地址来自洛雪音乐的自定义音源，登录网易云账号后网易云的歌也可以用账号播放；歌词动画移植自 Folia、AMLL 和 Mineradio。")
         }
     }
 }
