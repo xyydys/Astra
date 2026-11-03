@@ -7,7 +7,7 @@
 ## 功能
 
 - **番剧**：Bangumi 首页 / 搜索 / 详情，兼容 Kazumi 规则，多规则并发搜源，系统播放器（画中画、AirPlay）、选集、续播
-- **影视**：豆瓣推荐，苹果 CMS 采集站聚合搜索，支持订阅与 TVBox 配置导入，自动去除 m3u8 内插广告
+- **影视**：豆瓣推荐，苹果 CMS 采集站聚合搜索，支持订阅与 TVBox 配置导入，自动去除 m3u8 内插广告；兼容 uz 影视扩展订阅，网盘资源站的分享展开成剧集直接播放（夸克、UC、天翼、123、百度、115 等）
 - **漫画**：分区、排行、搜索，条漫滚动与翻页阅读（首次进入需确认已满 18 岁）
 - **小说**：兼容「阅读」3.x 书源格式，Swift 重写的规则引擎，TextKit 排版的阅读器
 - **音乐**：兼容洛雪音乐自定义音源，多平台聚合搜索，网易云账号登录（红心同步、歌单、每日推荐、账号播放），Folia / 仿 Apple Music / Mineradio 粒子歌词特效，后台与锁屏控制
@@ -38,6 +38,7 @@ brew install xcodegen && xcodegen generate
 - [AMLL（Apple Music-like Lyrics）](https://github.com/amll-dev/applemusic-like-lyrics)
 - [Mineradio](https://github.com/XxHuberrr/Mineradio)
 - [Kumone](https://github.com/missuo/kumone)
+- [uz 影视扩展](https://github.com/YYDS678/uzVideo-extensions)
 - [SwiftSoup](https://github.com/scinfu/SwiftSoup)
 
 ## 许可证
