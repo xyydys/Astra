@@ -39,6 +39,11 @@ final class UZRuntime: @unchecked Sendable {
         return logs
     }
 
+    /// 记一条日志（复制日志时一起带上，方便排查）
+    func note(_ text: String) {
+        log(text)
+    }
+
     private func log(_ text: String) {
         logLock.lock()
         logs.append(text)
@@ -306,6 +311,9 @@ final class UZRuntime: @unchecked Sendable {
         }
 
         let maxRedirects = (options["maxRedirects"] as? NSNumber)?.intValue
+        // 日志只记域名和路径（不记查询参数和 Cookie）
+        let brief = (url.host ?? "") + url.path
+        log("→ \(request.httpMethod ?? "GET") \(brief)")
         var taskID = 0
         let task = Self.session.dataTask(with: request) { [weak self] data, response, error in
             let redirects = UZRedirectDelegate.shared.take(taskID)
@@ -313,6 +321,7 @@ final class UZRuntime: @unchecked Sendable {
             self.queue.async {
                 if let error {
                     let code = (error as? URLError)?.code == .timedOut ? 408 : 500
+                    self.log("← \(code) \(brief) \(error.localizedDescription)")
                     self.resolveResponse(id, code: code, error: error.localizedDescription, responseType: responseType)
                     return
                 }
@@ -336,6 +345,10 @@ final class UZRuntime: @unchecked Sendable {
                 let body = data ?? Data()
                 let text = String(data: body, encoding: .utf8) ?? String(decoding: body, as: UTF8.self)
                 let failed = status >= 400 || status == 0
+                // 接口返回（JSON 的开头一段）一起记下，看得到网盘给的错误码
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                let snippet = trimmed.hasPrefix("{") || failed ? " " + String(trimmed.prefix(180)) : ""
+                self.log("← \(status) \(brief)\(snippet)")
                 self.resolveResponse(
                     id, code: status, error: failed ? "HTTP \(status)" : "",
                     headers: headerMap, redirects: redirects.map { ["url": $0] },

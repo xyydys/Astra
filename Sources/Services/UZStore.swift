@@ -872,15 +872,19 @@ final class UZStore: ObservableObject {
             // 系统播放器放不了 mkv / avi 之类的原文件：这种先用网盘转码后的 m3u8，原画放最后
             let fileName = RuleValue.string(item["name"]).lowercased()
             let playable = [".mp4", ".mov", ".m4v", ".m3u8"].contains { fileName.hasSuffix($0) }
+            runtime.note("取播放地址：\(panType) \(RuleValue.string(item["name"])) \(RuleValue.string(item["remark"]))")
             let raw = try await runtime.callPan(tag: pan.id, method: "getPlayInfo", args: item, timeout: 60)
             let object = Self.json(raw)
             let info = try? Self.playInfo(object, headerKey: "playHeaders", preferOriginal: playable)
+            runtime.note("网盘工具返回：\(info.map { "\($0.alternates.count + 1) 个地址\($0.onlyOriginal ? "（只有原画）" : "")" } ?? "没有地址") \(RuleValue.string(object["error"]))")
             if let info, !info.url.isEmpty, playable || !info.onlyOriginal {
                 return info
             }
             // 只有原文件（夸克分享直链）而且是 mkv 之类：转存后用网盘转码播放
             if ["夸克", "UC"].contains(panType) {
+                runtime.note("原画是系统播放器放不了的格式，改用网盘转码")
                 let transcoded = Self.json(try await runtime.transcode(tag: pan.id, item: item))
+                runtime.note("转码返回：\(RuleValue.string(transcoded["error"]).isEmpty ? "\((transcoded["urls"] as? [Any])?.count ?? 0) 个清晰度" : RuleValue.string(transcoded["error"]))")
                 if var result = try? Self.playInfo(transcoded, headerKey: "playHeaders"), !result.url.isEmpty {
                     if let info { result.alternates += [(info.url, info.headers)] + info.alternates }
                     return result

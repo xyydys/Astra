@@ -43,6 +43,8 @@ final class PlayerModel: ObservableObject {
     /// 网盘片源：播放地址需要带的请求头（Cookie 等），以及其他清晰度（播放失败时依次换）
     private var extraHeaders: [String: String] = [:]
     private var alternates: [(url: String, headers: [String: String])] = []
+    /// 本集试过的播放地址和结果（复制日志时带上）
+    private var attempts: [String] = []
 
     init(request: PlayRequest, rule: Rule?) {
         self.request = request
@@ -78,10 +80,19 @@ final class PlayerModel: ObservableObject {
             lines = ["规则: \(rule?.name ?? request.ruleName)", "详情页: \(request.sourceURL)"]
         }
         if let ep = currentEpisode { lines.append("剧集页: \(ep.url)") }
+        if case .failed(let message) = phase { lines.append("错误: \(message)") }
         if !lastResolvedURL.isEmpty { lines.append("视频: \(lastResolvedURL)") }
+        lines.append(contentsOf: attempts)
         if adSegmentsRemoved > 0 { lines.append("去广告: 移除 \(adSegmentsRemoved) 个分片") }
         if adFilterFailed { lines.append("去广告: 过滤后播放失败，已改为原始播放列表") }
         lines.append(contentsOf: sniffer.logs)
+        if UZStore.isUZ(request.cmsAPI) {
+            let logs = UZStore.shared.runtimeLogs.suffix(60)
+            if !logs.isEmpty {
+                lines.append("—— 网盘扩展日志 ——")
+                lines.append(contentsOf: logs)
+            }
+        }
         return lines.joined(separator: "\n")
     }
 
@@ -155,6 +166,7 @@ final class PlayerModel: ObservableObject {
         adFilterFailed = false
         extraHeaders = [:]
         alternates = []
+        attempts = []
         saveRecord(position: startAt, duration: 0)
 
         let page = roads[road].episodes[episode].url
@@ -213,6 +225,7 @@ final class PlayerModel: ObservableObject {
         }
         lastResolvedURL = url.absoluteString
         if let extra { extraHeaders = extra }
+        attempts.append("尝试播放: \(url.host ?? "")\(url.path.suffix(60))\(extraHeaders.isEmpty ? "" : "（带 \(extraHeaders.keys.sorted().joined(separator: "/")) 请求头）")")
 
         let userAgent = rule?.userAgent ?? ""
         var headers = ["User-Agent": userAgent.isEmpty ? sniffer.userAgent : userAgent]
@@ -270,6 +283,7 @@ final class PlayerModel: ObservableObject {
                 player.seek(to: target, toleranceBefore: .zero, toleranceAfter: CMTime(seconds: 1, preferredTimescale: 600))
             }
         case .failed:
+            attempts.append("播放失败: \(error ?? "未知错误")")
             // 去广告改写过的播放列表放不了：退回原始播放列表再试一次，从当前位置继续
             if adLoader != nil, !adFilterFailed, !lastResolvedURL.isEmpty {
                 adFilterFailed = true
