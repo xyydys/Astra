@@ -645,15 +645,20 @@ final class UZStore: ObservableObject {
         return items
     }
 
-    /// 详情页自动找片源：搜索 → 挑最匹配的 → 取剧集（网盘分享展开成文件列表）
+    /// 详情页自动找片源：搜索 → 挑最匹配的 → 取剧集（网盘分享展开成文件列表）。
+    /// 十几个资源站同时搜，展开分享会打很多网盘接口：同时最多展开 4 个站，每个站最多 3 个分享
     func searchBest(_ source: CMSSource, keyword: String, year: String) async throws -> CMSItem? {
         let items = try await search(source, keyword: keyword)
         guard let best = VideoDetailView.bestMatch(items, title: keyword, year: year) else { return nil }
-        let full = try await detail(api: source.url, vodID: best.vodID, base: best)
+        await detailLimiter.wait()
+        defer { detailLimiter.signal() }
+        let full = try await detail(api: source.url, vodID: best.vodID, base: best, maxShares: 3)
         return full.roads.isEmpty ? nil : full
     }
 
-    func detail(api: String, vodID: String, base: CMSItem? = nil) async throws -> CMSItem {
+    private let detailLimiter = AsyncLimiter(4)
+
+    func detail(api: String, vodID: String, base: CMSItem? = nil, maxShares: Int = 8) async throws -> CMSItem {
         let key = api + "#" + vodID
         if let hit = detailCache[key], Date().timeIntervalSince(hit.date) < 600 { return hit.item }
         let ext = try findExtension(Self.extensionID(fromAPI: api))
@@ -678,7 +683,7 @@ final class UZStore: ObservableObject {
         var roads = Self.directRoads(data, ext: ext)
         let shares = (data["panUrls"] as? [Any] ?? []).map { RuleValue.string($0) }.filter { !$0.isEmpty }
         if !shares.isEmpty {
-            roads += try await panRoads(Array(shares.prefix(8)))
+            roads += try await panRoads(Array(shares.prefix(maxShares)))
         }
         item.roads = roads
         if !roads.isEmpty { detailCache[key] = (Date(), item) }
@@ -895,6 +900,33 @@ final class UZStore: ObservableObject {
         while base.count % 4 != 0 { base += "=" }
         guard let data = Data(base64Encoded: base) else { return [:] }
         return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
+    }
+}
+
+/// 简单的并发上限（主线程上用）
+@MainActor
+final class AsyncLimiter {
+    private var available: Int
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    init(_ limit: Int) {
+        available = limit
+    }
+
+    func wait() async {
+        if available > 0 {
+            available -= 1
+            return
+        }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+
+    func signal() {
+        if waiters.isEmpty {
+            available += 1
+        } else {
+            waiters.removeFirst().resume()
+        }
     }
 }
 
