@@ -12,8 +12,13 @@ enum MPVFormats {
     /// 系统播放器能放、而且有画中画 / 隔空播放的格式
     static let systemFormats: Set<String> = ["m3u8", "mp4", "m4v", "mov"]
 
-    /// 地址或网盘文件名的扩展名是 mpv 格式
-    static func needsMPV(fileName: String, url: URL) -> Bool {
+    /// 网盘标的文件类型是 mpv 格式（有的 MKV 文件名写的是 .mp4）
+    static let mimeTypes = ["matroska", "x-msvideo", "x-flv", "webm", "mp2t", "realmedia", "x-ms-wmv", "x-ms-asf", "mpeg"]
+
+    /// 地址或网盘文件名的扩展名、网盘标的文件类型是 mpv 格式
+    static func needsMPV(fileName: String, url: URL, mimeType: String = "") -> Bool {
+        let mime = mimeType.lowercased()
+        if mimeTypes.contains(where: { mime.contains($0) }) { return true }
         let urlExt = url.pathExtension.lowercased()
         if systemFormats.contains(urlExt) { return false }
         let nameExt = (fileName as NSString).pathExtension.lowercased()
@@ -201,8 +206,12 @@ final class MPVPlayback: ObservableObject {
     // MARK: 状态
 
     private func apply(_ update: MPVUpdate) {
-        guard core != nil else { return }
+        guard let core else { return }
         switch update {
+        case .preloaded(let aspect, let hook):
+            // 文件打开了、画面还没开始画：按视频宽高比定好画面尺寸，再让 mpv 继续
+            surface.setAspect(aspect)
+            core.continueHook(hook)
         case .time(let value):
             position = value
             let tick = Int(value / 5)
@@ -242,7 +251,7 @@ final class MPVPlayback: ObservableObject {
         if buffering != isBuffering {
             isBuffering = buffering
             // 播放中途卡住：记下当时的网速和码率，复制日志时能看出是网速不够还是解码跟不上
-            if buffering, waitingForCache, isLoaded { core?.noteStall(at: position) }
+            if buffering, waitingForCache, isLoaded { core.noteStall(at: position) }
         }
     }
 }
@@ -260,28 +269,69 @@ final class MPVMetalLayer: CAMetalLayer {
     }
 }
 
+/// mpv 的画面。这个 MoltenVK 版本的 mpv 只在开始画面时读一次图层尺寸，中途尺寸变了它不知道
+/// （切全屏后画面会缩在左上角一小块）。所以画面尺寸固定：按视频宽高比、以横屏全屏的大小定下来，
+/// 内嵌 / 全屏 / 旋转时由 MPVContainerView 整体缩放
 final class MPVSurfaceView: UIView {
     override class var layerClass: AnyClass { MPVMetalLayer.self }
 
     var metalLayer: MPVMetalLayer { layer as! MPVMetalLayer }
 
+    /// 画面尺寸（点）
+    private(set) var renderSize = MPVSurfaceView.size(forAspect: 16.0 / 9.0)
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .black
         isUserInteractionEnabled = false
+        contentScaleFactor = UIScreen.main.nativeScale
         metalLayer.framebufferOnly = true
         metalLayer.backgroundColor = UIColor.black.cgColor
+        applySize()
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
+    func setAspect(_ aspect: Double) {
+        let size = Self.size(forAspect: aspect)
+        guard size != renderSize else { return }
+        renderSize = size
+        applySize()
+        superview?.setNeedsLayout()
+        superview?.layoutIfNeeded()
+    }
+
+    private func applySize() {
+        bounds = CGRect(origin: .zero, size: renderSize)
+        metalLayer.drawableSize = CGSize(width: renderSize.width * contentScaleFactor, height: renderSize.height * contentScaleFactor)
+    }
+
+    /// 视频宽高比放进横屏全屏（竖屏视频放进竖屏全屏）里的尺寸
+    static func size(forAspect aspect: Double) -> CGSize {
+        let screen = UIScreen.main.bounds.size
+        let long = max(screen.width, screen.height)
+        let short = min(screen.width, screen.height)
+        let ratio = CGFloat(aspect.isFinite && aspect > 0 ? min(max(aspect, 0.2), 5) : 16.0 / 9.0)
+        let box = ratio >= 1 ? CGSize(width: long, height: short) : CGSize(width: short, height: long)
+        if box.width / box.height > ratio {
+            return CGSize(width: (box.height * ratio).rounded(), height: box.height)
+        }
+        return CGSize(width: box.width, height: (box.width / ratio).rounded())
+    }
+}
+
+/// 装 mpv 画面的容器：画面尺寸不变，按容器大小等比缩放、居中
+final class MPVContainerView: UIView {
     override func layoutSubviews() {
         super.layoutSubviews()
-        let scale = window?.screen.nativeScale ?? UIScreen.main.nativeScale
-        if contentScaleFactor != scale { contentScaleFactor = scale }
-        metalLayer.drawableSize = CGSize(width: bounds.width * scale, height: bounds.height * scale)
+        for case let surface as MPVSurfaceView in subviews {
+            let size = surface.renderSize
+            surface.center = CGPoint(x: bounds.midX, y: bounds.midY)
+            let scale = min(bounds.width / size.width, bounds.height / size.height)
+            surface.transform = scale.isFinite && scale > 0 ? CGAffineTransform(scaleX: scale, y: scale) : .identity
+        }
     }
 }
 
@@ -299,6 +349,13 @@ struct MPVStats: Sendable, Equatable {
     var width = 0
     var height = 0
     var dropped = 0
+    var decoderDropped = 0
+    var fps = 0.0
+    var displayFPS = 0.0
+    var avsync = 0.0
+    /// pq / hlg 是 HDR
+    var gamma = ""
+    var pixelFormat = ""
 
     var speedText: String { String(format: "%.1f MB/s", speed / 1_048_576) }
     /// 流畅播放需要的网速
@@ -310,13 +367,17 @@ struct MPVStats: Sendable, Equatable {
 
     var summary: String {
         var parts = ["网速 \(speedText)", "需要 \(neededText)", String(format: "缓冲 %.0f 秒", buffered), decoderText]
-        if width > 0 { parts.append("\(codec.uppercased()) \(width)×\(height)") }
-        if dropped > 0 { parts.append("丢帧 \(dropped)") }
+        if width > 0 { parts.append("\(codec.uppercased()) \(width)×\(height) \(pixelFormat)\(gamma == "pq" || gamma == "hlg" ? " HDR" : "")") }
+        parts.append(String(format: "帧率 %.2f / 屏幕 %.0f", fps, displayFPS))
+        parts.append("丢帧 \(dropped) / 解码丢帧 \(decoderDropped)")
+        parts.append(String(format: "音画差 %.3f 秒", avsync))
         return parts.joined(separator: "，")
     }
 }
 
 enum MPVUpdate: Sendable {
+    /// 文件打开了（还没开始解码）：视频宽高比，处理完要继续的钩子
+    case preloaded(Double, UInt64)
     case time(Double)
     case duration(Double)
     case cache(Double)
@@ -350,6 +411,15 @@ private final class MPVCore: @unchecked Sendable {
     private var lastError = ""
     private var lastTime = -1.0
     private var lastCache = -1.0
+    private var lastLogText = ""
+    private var repeatCount = 0
+    /// 这个文件开头的音频断续次数（太多就自动重新同步一次：用户发现拖一下进度就好了）
+    private var underruns = 0
+    private var loadedAt: Date?
+    private var resynced = false
+    private var lastUnderrunNote = Date.distantPast
+    private var generation = 0
+    private static let preloadHook: UInt64 = 1000
 
     init?(layer: CAMetalLayer, sink: @escaping @Sendable (MPVUpdate) -> Void) {
         guard let created = mpv_create() else { return nil }
@@ -359,7 +429,11 @@ private final class MPVCore: @unchecked Sendable {
 
         var wid = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
         mpv_set_option(created, "wid", MPV_FORMAT_INT64, &wid)
+        let shaderCache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("mpv-shaders")
+        try? FileManager.default.createDirectory(at: shaderCache, withIntermediateDirectories: true)
         let options: [(String, String)] = [
+            // 手机上用轻量的画面处理（缩放、HDR 峰值检测等），4K 片源也不吃力
+            ("profile", "fast"),
             ("vo", "gpu-next"),
             ("gpu-api", "vulkan"),
             ("gpu-context", "moltenvk"),
@@ -385,15 +459,20 @@ private final class MPVCore: @unchecked Sendable {
             ("subs-match-os-language", "yes"),
             ("subs-fallback", "yes"),
             ("sub-font", "PingFang SC"),
+            // 着色器编译结果存下来，第二次播放开头不用再编译
+            ("gpu-shader-cache", "yes"),
+            ("gpu-shader-cache-dir", shaderCache.path),
         ]
         for (name, value) in options { mpv_set_option_string(created, name, value) }
-        mpv_request_log_messages(created, "warn")
+        mpv_request_log_messages(created, "info")
         guard mpv_initialize(created) >= 0 else {
             mpv_terminate_destroy(created)
             handle = nil
             return nil
         }
 
+        // 文件打开后、开始画画面前停一下，先按视频宽高比定好画面尺寸
+        mpv_hook_add(created, Self.preloadHook, "on_preloaded", 0)
         mpv_observe_property(created, Observed.time.rawValue, "time-pos", MPV_FORMAT_DOUBLE)
         mpv_observe_property(created, Observed.duration.rawValue, "duration", MPV_FORMAT_DOUBLE)
         mpv_observe_property(created, Observed.pause.rawValue, "pause", MPV_FORMAT_FLAG)
@@ -434,6 +513,10 @@ private final class MPVCore: @unchecked Sendable {
             lastTime = -1
             lastCache = -1
             lastError = ""
+            underruns = 0
+            resynced = false
+            loadedAt = nil
+            generation += 1
             var agent = ""
             mpv_set_property_string(handle, "http-header-fields", "")
             for (key, value) in headers.sorted(by: { $0.key < $1.key }) {
@@ -458,6 +541,13 @@ private final class MPVCore: @unchecked Sendable {
         queue.async { [self] in
             guard let handle else { return }
             mpv_set_property_string(handle, name, value)
+        }
+    }
+
+    func continueHook(_ id: UInt64) {
+        queue.async { [self] in
+            guard let handle else { return }
+            mpv_hook_continue(handle, id)
         }
     }
 
@@ -486,7 +576,13 @@ private final class MPVCore: @unchecked Sendable {
         stats.codec = string("video-format") ?? ""
         stats.width = Int(string("video-params/w") ?? "") ?? 0
         stats.height = Int(string("video-params/h") ?? "") ?? 0
-        stats.dropped = (Int(string("frame-drop-count") ?? "") ?? 0) + (Int(string("decoder-frame-drop-count") ?? "") ?? 0)
+        stats.dropped = Int(string("frame-drop-count") ?? "") ?? 0
+        stats.decoderDropped = Int(string("decoder-frame-drop-count") ?? "") ?? 0
+        stats.fps = Double(string("estimated-vf-fps") ?? "") ?? 0
+        stats.displayFPS = Double(string("display-fps") ?? "") ?? 0
+        stats.avsync = Double(string("avsync") ?? "") ?? 0
+        stats.gamma = string("video-params/gamma") ?? ""
+        stats.pixelFormat = string("video-params/hw-pixelformat") ?? string("video-params/pixelformat") ?? ""
         return stats
     }
 
@@ -544,9 +640,20 @@ private final class MPVCore: @unchecked Sendable {
         case MPV_EVENT_PROPERTY_CHANGE:
             guard let data = event.data else { return }
             property(event.reply_userdata, data.assumingMemoryBound(to: mpv_event_property.self).pointee)
+        case MPV_EVENT_HOOK:
+            guard let data = event.data else { return }
+            let hook = data.assumingMemoryBound(to: mpv_event_hook.self).pointee
+            sink(.preloaded(videoAspect(), hook.id))
         case MPV_EVENT_FILE_LOADED:
             sink(.loaded)
             sendTracks()
+            loadedAt = Date()
+            // 开播 10 秒时记一次播放信息
+            let current = generation
+            queue.asyncAfter(deadline: .now() + 10) { [self] in
+                guard handle != nil, generation == current else { return }
+                appendLog("播放 10 秒：" + currentStats().summary)
+            }
         case MPV_EVENT_PLAYBACK_RESTART:
             sink(.playbackRestart)
         case MPV_EVENT_SEEK:
@@ -568,6 +675,7 @@ private final class MPVCore: @unchecked Sendable {
             guard !text.isEmpty else { return }
             if message.log_level.rawValue <= MPV_LOG_LEVEL_ERROR.rawValue { lastError = String(text.prefix(160)) }
             appendLog("[\(prefix)] \(text)")
+            if text.contains("underrun") { audioUnderrun() }
         default:
             break
         }
@@ -669,10 +777,46 @@ private final class MPVCore: @unchecked Sendable {
         }
     }
 
+    /// 音频断续：记下当时的播放信息；开头断续太多就从当前位置精确跳一下，重新同步音画
+    private func audioUnderrun() {
+        underruns += 1
+        if Date().timeIntervalSince(lastUnderrunNote) > 20 {
+            lastUnderrunNote = Date()
+            appendLog("音频断续：" + currentStats().summary)
+        }
+        guard !resynced, underruns >= 6, let loadedAt, Date().timeIntervalSince(loadedAt) < 90,
+              let position = Double(string("time-pos") ?? "") else { return }
+        resynced = true
+        appendLog("开头一直断续，自动重新同步一次")
+        run(["seek", String(format: "%.3f", position), "absolute+exact"])
+    }
+
+    /// 视频轨的宽高比（打开文件后、选轨之前，用分离器读到的尺寸）
+    private func videoAspect() -> Double {
+        let count = Int(string("track-list/count") ?? "") ?? 0
+        for index in 0..<count {
+            let prefix = "track-list/\(index)/"
+            guard string(prefix + "type") == "video", string(prefix + "albumart") != "yes",
+                  let width = Double(string(prefix + "demux-w") ?? ""), let height = Double(string(prefix + "demux-h") ?? ""),
+                  width > 0, height > 0 else { continue }
+            let par = Double(string(prefix + "demux-par") ?? "") ?? 1
+            return width / height * (par > 0 ? par : 1)
+        }
+        return 16.0 / 9.0
+    }
+
     private func appendLog(_ line: String) {
         logLock.lock()
+        defer { logLock.unlock() }
+        // 连续重复的日志合成一行
+        if line == lastLogText, !logLines.isEmpty {
+            repeatCount += 1
+            logLines[logLines.count - 1] = "\(line)（×\(repeatCount + 1)）"
+            return
+        }
+        lastLogText = line
+        repeatCount = 0
         logLines.append(line)
-        if logLines.count > 60 { logLines.removeFirst(logLines.count - 60) }
-        logLock.unlock()
+        if logLines.count > 80 { logLines.removeFirst(logLines.count - 80) }
     }
 }

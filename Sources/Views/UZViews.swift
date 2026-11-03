@@ -63,7 +63,7 @@ struct UZSettingsView: View {
                         UZCookieLoginView(login: login)
                     } label: {
                         LabeledRow {
-                            Text(store.env[login.envKey] == nil ? "未登录" : (login.envKey == "UCCookie" && store.env["UC_Token"] != nil ? "已登录 · 不限速" : "已登录"))
+                            Text(Self.status(login, store: store))
                         } label: {
                             Label(login.name, systemImage: "externaldrive")
                         }
@@ -77,7 +77,7 @@ struct UZSettingsView: View {
             } header: {
                 Text("网盘账号")
             } footer: {
-                Text("播放网盘资源要用你自己的账号。在网盘官网登录后自动保存 Cookie，只存在这台设备的钥匙串里。夸克的 MP4 直接取分享里的原文件，不用转存；系统播放器放不了的格式（MKV 等）会转存到你网盘里的「Astra」文件夹，用网盘转码的清晰度播放。")
+                Text("播放网盘资源要用你自己的账号。在网盘官网登录后自动保存 Cookie，只存在这台设备的钥匙串里。夸克直接取分享里的原文件，不用转存；MKV 等系统播放器放不了的格式用 mpv 播放原画。")
             }
 
             Section {
@@ -199,6 +199,17 @@ private struct UZExtensionRow: View {
 
 // MARK: - 网盘登录
 
+extension UZSettingsView {
+    @MainActor
+    static func status(_ login: UZStore.WebLogin, store: UZStore) -> String {
+        switch store.loginState(login) {
+        case .none: return "未登录"
+        case .incomplete: return "需要重新登录"
+        case .ok: return login.envKey == "UCCookie" && !(store.env["UC_Token"] ?? "").isEmpty ? "已登录 · 不限速" : "已登录"
+        }
+    }
+}
+
 /// 一个网盘的登录页：网页登录自动取 Cookie，或者手动粘贴
 struct UZCookieLoginView: View {
     let login: UZStore.WebLogin
@@ -222,13 +233,15 @@ struct UZCookieLoginView: View {
     var body: some View {
         Form {
             Section {
-                LabeledRow("状态", value: cookie == nil ? "未登录" : "已登录")
+                LabeledRow("状态", value: UZSettingsView.status(login, store: store))
                 if let qrLogin {
                     Button("扫码登录（推荐）", icon: "qrcode.viewfinder") { qrKind = qrLogin }
                 }
                 Button("网页登录", icon: "globe") { showWeb = true }
             } footer: {
-                if qrLogin != nil {
+                if store.loginState(login) == .incomplete {
+                    Text("保存的 Cookie 里没有登录信息（\(login.loginKeys.joined(separator: " / "))），像是打开登录页后没登录成功。请重新登录。")
+                } else if qrLogin != nil {
                     Text("扫码登录：用\(qrLogin?.appName ?? "")扫码确认；只有这一台手机时，点「在本机打开」直接跳到 App 里确认。也可以在\(login.name)官网用手机号登录，看到文件列表后点「完成」。")
                 } else {
                     Text("打开 \(login.name)官网，用手机号验证码或账号密码登录，看到自己的文件列表后点右上角「完成」，Cookie 会自动保存。")
@@ -262,9 +275,10 @@ struct UZCookieLoginView: View {
                     .textInputAutocapitalization(.never)
                 Button("保存", icon: "checkmark") {
                     store.setEnv(login.envKey, manual)
+                    let valid = login.hasLogin(manual)
                     manual = ""
-                    Haptics.success()
-                    message = "已保存"
+                    if valid { Haptics.success() } else { Haptics.failure() }
+                    message = valid ? "已保存" : "已保存，但里面没有 \(login.loginKeys.joined(separator: " / "))，可能不是登录后的 Cookie"
                 }
                 .disabled(manual.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             } header: {
@@ -288,7 +302,10 @@ struct UZCookieLoginView: View {
         .navigationTitle(login.name)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $showWeb) {
-            UZWebLoginSheet(title: login.name, url: login.url, domains: login.domains) { cookie in
+            UZWebLoginSheet(
+                title: login.name, url: login.url, domains: login.domains,
+                isLoggedIn: login.hasLogin, missingHint: "还没有登录成功（没读到 \(login.loginKeys.joined(separator: " / "))），登录后再点完成"
+            ) { cookie in
                 store.setEnv(login.envKey, cookie)
                 message = "登录成功，Cookie 已保存"
             }
@@ -435,6 +452,9 @@ struct UZWebLoginSheet: View {
     let url: String
     let domains: [String]
     var userAgent: String = UZRuntime.defaultUA
+    /// 读到的 Cookie 是不是登录后的（没登录时网站也会发 Cookie）
+    var isLoggedIn: (String) -> Bool = { !$0.isEmpty }
+    var missingHint = "还没有读到登录信息，登录成功后再点完成"
     let onCapture: (String) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var hint: String?
@@ -473,8 +493,8 @@ struct UZWebLoginSheet: View {
 
     private func capture() {
         Self.cookies(domains: domains) { cookie in
-            if cookie.isEmpty {
-                hint = "还没有读到登录信息，登录成功后再点完成"
+            if !isLoggedIn(cookie) {
+                hint = missingHint
                 Haptics.failure()
             } else {
                 onCapture(cookie)

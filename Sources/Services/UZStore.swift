@@ -41,15 +41,38 @@ final class UZStore: ObservableObject {
         var envKey: String
         var url: String
         var domains: [String]
+        /// 登录后才有的 Cookie（有其中一个才算登录了；没登录时网站也会发一些 Cookie）
+        var loginKeys: [String]
         var id: String { envKey }
+
+        func hasLogin(_ cookie: String) -> Bool {
+            let names = Set(cookie.components(separatedBy: ";").compactMap { part -> String? in
+                let name = part.split(separator: "=", maxSplits: 1).first.map { $0.trimmingCharacters(in: .whitespaces) }
+                return name?.isEmpty == false ? name : nil
+            })
+            return loginKeys.contains { names.contains($0) }
+        }
     }
 
     static let webLogins: [WebLogin] = [
-        WebLogin(name: "夸克网盘", envKey: "夸克Cookie", url: "https://pan.quark.cn/", domains: ["quark.cn"]),
-        WebLogin(name: "UC 网盘", envKey: "UCCookie", url: "https://drive.uc.cn/", domains: ["uc.cn"]),
-        WebLogin(name: "115 网盘", envKey: "115Cookie", url: "https://115.com/", domains: ["115.com"]),
-        WebLogin(name: "百度网盘", envKey: "百度网盘Cookie", url: "https://pan.baidu.com/", domains: ["baidu.com"]),
+        WebLogin(name: "夸克网盘", envKey: "夸克Cookie", url: "https://pan.quark.cn/", domains: ["quark.cn"], loginKeys: ["__pus", "__puus"]),
+        WebLogin(name: "UC 网盘", envKey: "UCCookie", url: "https://drive.uc.cn/", domains: ["uc.cn"], loginKeys: ["__pus", "__puus"]),
+        WebLogin(name: "115 网盘", envKey: "115Cookie", url: "https://115.com/", domains: ["115.com"], loginKeys: ["UID", "CID"]),
+        WebLogin(name: "百度网盘", envKey: "百度网盘Cookie", url: "https://pan.baidu.com/", domains: ["baidu.com"], loginKeys: ["BDUSS"]),
     ]
+
+    enum LoginState {
+        case none
+        /// 存了 Cookie 但里面没有登录信息（打开登录页没登录就点了完成之类）
+        case incomplete
+        case ok
+    }
+
+    func loginState(_ login: WebLogin) -> LoginState {
+        let cookie = env[login.envKey] ?? ""
+        if cookie.isEmpty { return .none }
+        return login.hasLogin(cookie) ? .ok : .incomplete
+    }
 
     static let officialSubscription = "https://github.com/YYDS678/uzVideo-extensions/releases/download/uzVideo-Extensions-main/uzAio.zip"
 
@@ -833,16 +856,22 @@ final class UZStore: ObservableObject {
         var onlyOriginal = false
         /// 网盘里的文件名（本地代理按扩展名告诉播放器格式）
         var fileName = ""
+        /// 网盘标的文件类型（有的 MKV 文件名写的是 .mp4）
+        var mimeType = ""
     }
 
     /// 夸克 / UC / 115 / 百度至少登录了一个
     var hasNetdiskLogin: Bool {
-        Self.webLogins.contains { !(env[$0.envKey] ?? "").isEmpty }
+        Self.webLogins.contains { loginState($0) == .ok }
+    }
+
+    private func webLogin(_ panType: String) -> WebLogin? {
+        Self.webLogins.first { $0.envKey.hasPrefix(panType) || $0.name.hasPrefix(panType) }
     }
 
     private func isLoggedIn(_ panType: String) -> Bool {
-        guard let login = Self.webLogins.first(where: { $0.envKey.hasPrefix(panType) || $0.name.hasPrefix(panType) }) else { return true }
-        return !(env[login.envKey] ?? "").isEmpty
+        guard let login = webLogin(panType) else { return true }
+        return loginState(login) == .ok
     }
 
     /// 网盘工具的报错换成 Astra 里的说法
@@ -870,8 +899,15 @@ final class UZStore: ObservableObject {
             let item = payload["item"] as? [String: Any] ?? [:]
             let panType = RuleValue.string(item["panType"])
             // 夸克 / UC / 115 / 百度都要用自己的账号：没登录直接提示，不去试
-            guard isLoggedIn(panType) else {
-                throw UZError.message("播放\(panType)网盘的资源需要先登录：我的 → 片源 → 网盘资源 → 网盘账号")
+            if let login = webLogin(panType) {
+                switch loginState(login) {
+                case .none:
+                    throw UZError.message("播放\(panType)网盘的资源需要先登录：我的 → 片源 → 网盘资源 → 网盘账号")
+                case .incomplete:
+                    throw UZError.message("\(login.name)的 Cookie 里没有登录信息（像是没登录成功），到 我的 → 片源 → 网盘资源 → 网盘账号 重新登录")
+                case .ok:
+                    break
+                }
             }
             if panType == "UC" { await NetdiskQRLogin.refreshUCTokenIfNeeded() }
             let runtime = try await prepare(pan)
@@ -880,8 +916,10 @@ final class UZStore: ObservableObject {
             runtime.note("取播放地址：\(panType) \(fileName) \(RuleValue.string(item["remark"]))")
             let raw = try await runtime.callPan(tag: pan.id, method: "getPlayInfo", args: item, timeout: 60)
             let object = Self.json(raw)
+            let mimeType = RuleValue.string((item["data"] as? [String: Any])?["formatType"])
             var info = try? Self.playInfo(object, headerKey: "playHeaders")
             info?.fileName = fileName
+            info?.mimeType = mimeType
             runtime.note("网盘工具返回：\(info.map { "\($0.alternates.count + 1) 个地址\($0.onlyOriginal ? "（只有原画）" : "")" } ?? "没有地址") \(RuleValue.string(object["error"]))")
             if let info, !info.url.isEmpty { return info }
             // 没取到原画地址：夸克 / UC 再试一下转存后用网盘转码播放
@@ -891,6 +929,7 @@ final class UZStore: ObservableObject {
                 runtime.note("转码返回：\(RuleValue.string(transcoded["error"]).isEmpty ? "\((transcoded["urls"] as? [Any])?.count ?? 0) 个清晰度" : RuleValue.string(transcoded["error"]))")
                 if var result = try? Self.playInfo(transcoded, headerKey: "playHeaders"), !result.url.isEmpty {
                     result.fileName = fileName
+                    result.mimeType = mimeType
                     return result
                 }
             }

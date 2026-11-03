@@ -8,23 +8,23 @@ struct MPVVideoHost: UIViewRepresentable {
     let surface: MPVSurfaceView
     let claim: Bool
 
-    func makeUIView(context: Context) -> UIView {
-        let container = UIView()
+    func makeUIView(context: Context) -> MPVContainerView {
+        let container = MPVContainerView()
         container.backgroundColor = .black
         container.clipsToBounds = true
         if claim { Self.attach(surface, to: container) }
         return container
     }
 
-    func updateUIView(_ container: UIView, context: Context) {
+    func updateUIView(_ container: MPVContainerView, context: Context) {
         if claim, surface.superview !== container { Self.attach(surface, to: container) }
     }
 
-    private static func attach(_ surface: UIView, to container: UIView) {
+    /// 画面尺寸不变，容器按自己的大小缩放、居中（见 MPVContainerView）
+    private static func attach(_ surface: MPVSurfaceView, to container: MPVContainerView) {
         surface.removeFromSuperview()
-        surface.frame = container.bounds
-        surface.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         container.addSubview(surface)
+        container.setNeedsLayout()
     }
 }
 

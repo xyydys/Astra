@@ -72,7 +72,7 @@ final class NetdiskProxy: @unchecked Sendable {
     // MARK: 注册
 
     /// 登记一个网盘地址，返回给播放器用的本地地址。先试一下网盘支不支持分段下载，不支持就抛错（调用方直接播原地址）
-    func register(url: String, headers: [String: String], fileName: String) async throws -> URL {
+    func register(url: String, headers: [String: String], fileName: String, mimeType: String = "") async throws -> URL {
         guard let target = URL.lenient(url) else { throw ProxyError.unavailable("地址无效") }
         var probe = URLRequest(url: target, timeoutInterval: 15)
         for (key, value) in headers { probe.setValue(value, forHTTPHeaderField: key) }
@@ -84,7 +84,7 @@ final class NetdiskProxy: @unchecked Sendable {
             throw ProxyError.noRange
         }
         let ext = (fileName as NSString).pathExtension.lowercased()
-        let contentType: String
+        var contentType: String
         switch ext {
         case "", "mp4": contentType = "video/mp4"
         case "mov": contentType = "video/quicktime"
@@ -96,6 +96,8 @@ final class NetdiskProxy: @unchecked Sendable {
         case "flv": contentType = "video/x-flv"
         default: contentType = "application/octet-stream"
         }
+        // 网盘标的类型更准（有的 MKV 文件名写的是 .mp4）
+        if mimeType.hasPrefix("video/") || mimeType.hasPrefix("application/x-matroska") { contentType = mimeType }
         let id = UUID().uuidString
         lock.lock()
         sources[id] = Source(url: target, headers: headers, length: total, contentType: contentType)

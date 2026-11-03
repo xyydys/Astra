@@ -55,8 +55,9 @@ final class PlayerModel: ObservableObject {
     private var alternates: [(url: String, headers: [String: String])] = []
     /// 本集试过的播放地址和结果（复制日志时带上）
     private var attempts: [String] = []
-    /// 网盘里的文件名（按扩展名选播放内核）
+    /// 网盘里的文件名和文件类型（按格式选播放内核）
     private var mediaName = ""
+    private var mediaType = ""
     /// 本集指定的播放内核（手动切换，或者系统播放器放不了自动换成 mpv）；nil 按格式自动选
     private var forcedEngine: Engine?
     /// mpv 播放中途断开后重新连接的次数
@@ -106,7 +107,7 @@ final class PlayerModel: ObservableObject {
         if adSegmentsRemoved > 0 { lines.append("去广告: 移除 \(adSegmentsRemoved) 个分片") }
         if adFilterFailed { lines.append("去广告: 过滤后播放失败，已改为原始播放列表") }
         lines.append(contentsOf: sniffer.logs)
-        let mpvLogs = mpv.logs.suffix(30)
+        let mpvLogs = mpv.logs.suffix(60)
         if !mpvLogs.isEmpty {
             lines.append("—— mpv 日志 ——")
             lines.append(contentsOf: mpvLogs)
@@ -211,6 +212,7 @@ final class PlayerModel: ObservableObject {
         alternates = []
         attempts = []
         mediaName = ""
+        mediaType = ""
         forcedEngine = nil
         mpvReconnects = 0
         saveRecord(position: startAt, duration: 0)
@@ -231,16 +233,19 @@ final class PlayerModel: ObservableObject {
                     guard !url.isEmpty else { throw RuleError.parse("没有取到播放地址") }
                     self.alternates = info.alternates
                     self.mediaName = info.fileName
+                    self.mediaType = info.mimeType
                     // 网盘原文件走本地多线程代理（网盘按连接限速）；转码的 m3u8 直接播
                     if !info.needsSniff, !url.lowercased().contains(".m3u8"), !info.headers.isEmpty || url.hasPrefix("http") {
                         do {
-                            let proxied = try await NetdiskProxy.shared.register(url: url, headers: info.headers, fileName: info.fileName)
+                            let proxied = try await NetdiskProxy.shared.register(url: url, headers: info.headers, fileName: info.fileName, mimeType: info.mimeType)
                             guard !Task.isCancelled, !self.tornDown else { return }
                             self.attempts.append("多线程代理: \(URL(string: url)?.host ?? "")")
                             self.alternates.insert((url, info.headers), at: 0)
                             self.attach(urlString: proxied.absoluteString, headers: [:])
                             return
                         } catch {
+                            // 换集 / 退出时这个任务被取消了：不要再接着播
+                            guard !Task.isCancelled, !self.tornDown else { return }
                             self.attempts.append("多线程代理不可用（\(error.localizedDescription)），直接播放")
                         }
                     }
@@ -285,7 +290,7 @@ final class PlayerModel: ObservableObject {
         }
         lastResolvedURL = url.absoluteString
         if let extra { extraHeaders = extra }
-        let useMPV = (forcedEngine ?? (MPVFormats.needsMPV(fileName: mediaName, url: url) ? .mpv : .system)) == .mpv
+        let useMPV = (forcedEngine ?? (MPVFormats.needsMPV(fileName: mediaName, url: url, mimeType: mediaType) ? .mpv : .system)) == .mpv
         attempts.append("尝试播放\(useMPV ? "（mpv）" : ""): \(url.host ?? "")\(url.path.suffix(60))\(extraHeaders.isEmpty ? "" : "（带 \(extraHeaders.keys.sorted().joined(separator: "/")) 请求头）")")
 
         let userAgent = rule?.userAgent ?? ""
