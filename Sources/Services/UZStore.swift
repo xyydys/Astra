@@ -149,9 +149,12 @@ final class UZStore: ObservableObject {
 
     // MARK: 环境变量 / 存储
 
-    func setEnv(_ key: String, _ value: String) {
+    /// fromScript：扩展自己写的（比如刷新 Cookie）；不是的话说明账号变了，网盘工具里缓存的 Cookie / Token 要重新读
+    func setEnv(_ key: String, _ value: String, fromScript: Bool = false) {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard env[key] != (trimmed.isEmpty ? nil : trimmed) else { return }
         if trimmed.isEmpty { env[key] = nil } else { env[key] = trimmed }
+        if !fromScript, runtime != nil || starting != nil { resetRuntime() }
         Self.replaceEnvSnapshot(env)
         if let data = try? JSONEncoder().encode(env) {
             Keychain.set(String(decoding: data, as: UTF8.self), for: Self.envKeychainKey)
@@ -227,7 +230,7 @@ final class UZStore: ObservableObject {
         storageLock.lock()
         envSnapshot[key] = value.isEmpty ? nil : value
         storageLock.unlock()
-        Task { @MainActor in UZStore.shared.setEnv(key, value) }
+        Task { @MainActor in UZStore.shared.setEnv(key, value, fromScript: true) }
     }
 
     // MARK: 运行环境
@@ -828,6 +831,8 @@ final class UZStore: ObservableObject {
         var needsSniff = false
         /// 只有原文件（没有网盘转码的清晰度）
         var onlyOriginal = false
+        /// 网盘里的文件名（本地代理按扩展名告诉播放器格式）
+        var fileName = ""
     }
 
     /// 夸克 / UC / 115 / 百度至少登录了一个
@@ -868,6 +873,7 @@ final class UZStore: ObservableObject {
             guard isLoggedIn(panType) else {
                 throw UZError.message("播放\(panType)网盘的资源需要先登录：我的 → 片源 → 网盘资源 → 网盘账号")
             }
+            if panType == "UC" { await NetdiskQRLogin.refreshUCTokenIfNeeded() }
             let runtime = try await prepare(pan)
             // 系统播放器放不了 mkv / avi 之类的原文件：这种先用网盘转码后的 m3u8，原画放最后
             let fileName = RuleValue.string(item["name"]).lowercased()
@@ -875,7 +881,8 @@ final class UZStore: ObservableObject {
             runtime.note("取播放地址：\(panType) \(RuleValue.string(item["name"])) \(RuleValue.string(item["remark"]))")
             let raw = try await runtime.callPan(tag: pan.id, method: "getPlayInfo", args: item, timeout: 60)
             let object = Self.json(raw)
-            let info = try? Self.playInfo(object, headerKey: "playHeaders", preferOriginal: playable)
+            var info = try? Self.playInfo(object, headerKey: "playHeaders", preferOriginal: playable)
+            info?.fileName = RuleValue.string(item["name"])
             runtime.note("网盘工具返回：\(info.map { "\($0.alternates.count + 1) 个地址\($0.onlyOriginal ? "（只有原画）" : "")" } ?? "没有地址") \(RuleValue.string(object["error"]))")
             if let info, !info.url.isEmpty, playable || !info.onlyOriginal {
                 return info

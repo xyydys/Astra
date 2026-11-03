@@ -184,6 +184,19 @@ final class PlayerModel: ObservableObject {
                     guard !Task.isCancelled, !self.tornDown else { return }
                     guard !url.isEmpty else { throw RuleError.parse("没有取到播放地址") }
                     self.alternates = info.alternates
+                    // 网盘原文件走本地多线程代理（网盘按连接限速）；转码的 m3u8 直接播
+                    if !info.needsSniff, !url.lowercased().contains(".m3u8"), !info.headers.isEmpty || url.hasPrefix("http") {
+                        do {
+                            let proxied = try await NetdiskProxy.shared.register(url: url, headers: info.headers, fileName: info.fileName)
+                            guard !Task.isCancelled, !self.tornDown else { return }
+                            self.attempts.append("多线程代理: \(URL(string: url)?.host ?? "")")
+                            self.alternates.insert((url, info.headers), at: 0)
+                            self.attach(urlString: proxied.absoluteString, headers: [:])
+                            return
+                        } catch {
+                            self.attempts.append("多线程代理不可用（\(error.localizedDescription)），直接播放")
+                        }
+                    }
                     self.attach(urlString: url, headers: info.headers)
                 } catch is CancellationError {
                     return
