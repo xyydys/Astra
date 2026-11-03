@@ -60,9 +60,22 @@ final class UZStore: ObservableObject {
         "https://fastly.jsdelivr.net/gh/YYDS678/uzVideo-extensions@main/",
         "https://ghfast.top/https://raw.githubusercontent.com/YYDS678/uzVideo-extensions/main/",
     ]
-    /// 仓库里最后一个没有加密的网盘工具（订阅里的新版本是加密的）
-    static let panToolsPath = "panTools/js/panTools2.js"
-    static let panToolsID = "uz_panTools2"
+    /// 仓库历史里最后一个没有加密的网盘工具（v40「夸克不转存」版，2026-04 之后改成了加密版），按提交固定
+    static let panToolsCommit = "49ca13990b0517e096d7e66de09e1a49c17d5a98"
+    static let panToolsPath = "panTools/js/panTools3.js"
+    static let panToolsID = "uz_panTools3"
+    /// 之前用过的公开版本（v39），装了新版后删掉
+    static let legacyPanToolsIDs = ["uz_panTools2"]
+    static var panToolsMirrors: [String] {
+        [
+            "https://raw.githubusercontent.com/YYDS678/uzVideo-extensions/\(panToolsCommit)/",
+            "https://cdn.jsdelivr.net/gh/YYDS678/uzVideo-extensions@\(panToolsCommit)/",
+            "https://fastly.jsdelivr.net/gh/YYDS678/uzVideo-extensions@\(panToolsCommit)/",
+            "https://ghfast.top/https://raw.githubusercontent.com/YYDS678/uzVideo-extensions/\(panToolsCommit)/",
+        ]
+    }
+    /// 没登录夸克时用的占位 Cookie：网盘工具没有 Cookie 时直接报错，先带个占位值试试分享直链（不转存）
+    static let anonymousCookie = "__astra_anonymous=1"
     static let coreFiles = [
         "CryptoJS.min.js", "JSEncrypt.min.js", "JSONbig.js", "buffer.js", "cheerio.js",
         "node-html-parser.js", "uz3lib.js", "uzUtils.js", "uzVideo.js",
@@ -227,7 +240,12 @@ final class UZStore: ObservableObject {
         let task = Task<UZRuntime, Error> {
             let core = try await Self.loadCore()
             let host = UZRuntime.Host(
-                getEnv: { key in UZStore.envValue(key) },
+                getEnv: { key in
+                    let value = UZStore.envValue(key)
+                    // 没登录夸克也先试分享直链（见 anonymousCookie）
+                    if key == "夸克Cookie", value.isEmpty { return UZStore.anonymousCookie }
+                    return value
+                },
                 setEnv: { key, value in UZStore.scriptSetEnv(key, value) },
                 getStorage: { key in UZStore.storage(key) },
                 setStorage: { key, value in UZStore.setStorage(key, value) },
@@ -315,9 +333,9 @@ final class UZStore: ObservableObject {
         resetRuntime()
     }
 
-    private nonisolated static func downloadFromRepo(_ path: String) async throws -> Data {
+    private nonisolated static func downloadFromRepo(_ path: String, mirrors: [String] = repoMirrors) async throws -> Data {
         var lastError: Error = UZError.message("下载失败")
-        for mirror in repoMirrors {
+        for mirror in mirrors {
             do {
                 return try await download(mirror + path)
             } catch {
@@ -547,23 +565,39 @@ final class UZStore: ObservableObject {
         text.contains("function") || text.contains("class ") || text.contains("=>")
     }
 
-    /// 没有可用的网盘工具时（订阅里的是加密版），从仓库下载最后一个公开版本
+    /// 没有可用的网盘工具时（订阅里的是加密版），或者装的还是旧的公开版，换成最后一个公开版本
     private func ensurePanTools() async throws {
-        guard !extensions.contains(where: { $0.isPan && !$0.encrypted }) else { return }
+        let usable = extensions.filter { $0.isPan && !$0.encrypted }
+        if !usable.isEmpty, !usable.allSatisfy({ Self.legacyPanToolsIDs.contains($0.id) }) { return }
         try await updatePanTools()
     }
 
     func updatePanTools() async throws {
-        let data = try await Self.downloadFromRepo(Self.panToolsPath)
+        let data = try await Self.downloadFromRepo(Self.panToolsPath, mirrors: Self.panToolsMirrors)
         let script = String(decoding: data, as: UTF8.self)
         var entry = Self.entry(fromScript: script, fallbackName: "网盘工具", api: Self.panToolsPath)
         entry.id = Self.panToolsID
         entry.type = 300
-        entry.origin = Self.repoMirrors[0] + Self.panToolsPath
+        entry.origin = Self.panToolsMirrors[0] + Self.panToolsPath
         var result = ImportResult()
         install(entry, script: script, origin: entry.origin, into: &result)
+        for id in Self.legacyPanToolsIDs {
+            extensions.removeAll { $0.id == id }
+            try? FileManager.default.removeItem(at: Self.scriptURL(id))
+        }
         save()
         resetRuntime()
+    }
+
+    /// 已经装了旧公开版（v39）的，第一次用到网盘时自动换成 v40
+    private func upgradeLegacyPanTools() async {
+        guard extensions.contains(where: { Self.legacyPanToolsIDs.contains($0.id) }),
+              !extensions.contains(where: { $0.id == Self.panToolsID }) else { return }
+        do {
+            try await updatePanTools()
+        } catch {
+            Diag.log("网盘扩展", "升级网盘工具失败：\(error.localizedDescription)")
+        }
     }
 
     // MARK: 管理
@@ -591,7 +625,10 @@ final class UZStore: ObservableObject {
 
     var vodExtensions: [Extension] { extensions.filter(\.isVod) }
 
-    var panTools: Extension? { extensions.first { $0.isPan && $0.usable && $0.enabled } }
+    /// 用版本最新的可用网盘工具
+    var panTools: Extension? {
+        extensions.filter { $0.isPan && $0.usable && $0.enabled }.max { $0.version < $1.version }
+    }
 
     /// 影视模式里当片源用的扩展（接口地址 uz://id）
     var vodSources: [CMSSource] {
@@ -710,6 +747,7 @@ final class UZStore: ObservableObject {
 
     /// 网盘分享链接 → 每个分享一条线路，文件是剧集
     private func panRoads(_ shares: [String]) async throws -> [Road] {
+        await upgradeLegacyPanTools()
         guard let pan = panTools else {
             throw UZError.message("还没有网盘工具，到「我的 → 网盘资源」导入订阅")
         }
@@ -795,6 +833,22 @@ final class UZStore: ObservableObject {
         var alternates: [(url: String, headers: [String: String])]
         /// 给的是网页，需要嗅探
         var needsSniff = false
+        /// 只有原文件（没有网盘转码的清晰度）
+        var onlyOriginal = false
+    }
+
+    private func isLoggedIn(_ panType: String) -> Bool {
+        guard let login = Self.webLogins.first(where: { $0.envKey.hasPrefix(panType) || $0.name.hasPrefix(panType) }) else { return true }
+        return !(env[login.envKey] ?? "").isEmpty
+    }
+
+    /// 网盘工具的报错换成 Astra 里的说法
+    private nonisolated static func friendlyError(_ error: String, panType: String, loggedIn: Bool) -> String {
+        if error.contains("环境变量") || (!loggedIn && (error.contains("cookie") || error.contains("转存失败"))) {
+            let name = panType.isEmpty ? "网盘" : panType
+            return "这个资源需要先登录\(name)：我的 → 片源 → 网盘资源 → 网盘账号"
+        }
+        return error.isEmpty ? "没有取到播放地址" : error
     }
 
     nonisolated static func isEpisodeURL(_ url: String) -> Bool {
@@ -806,15 +860,37 @@ final class UZStore: ObservableObject {
         if episodeURL.hasPrefix("uzpan:") {
             let payload = Self.decode(String(episodeURL.dropFirst(6)))
             let panID = RuleValue.string(payload["pan"])
-            guard let pan = extensions.first(where: { $0.id == panID }) ?? panTools else {
-                throw UZError.message("网盘工具不见了，到「我的 → 网盘资源」重新导入")
+            await upgradeLegacyPanTools()
+            guard let pan = panTools ?? extensions.first(where: { $0.id == panID }) else {
+                throw UZError.message("网盘工具不见了，到「我的 → 片源 → 网盘资源」重新导入")
             }
             let runtime = try await prepare(pan)
-            let raw = try await runtime.callPan(tag: pan.id, method: "getPlayInfo", args: payload["item"] ?? [:], timeout: 60)
+            let item = payload["item"] as? [String: Any] ?? [:]
+            let panType = RuleValue.string(item["panType"])
             // 系统播放器放不了 mkv / avi 之类的原文件：这种先用网盘转码后的 m3u8，原画放最后
-            let fileName = RuleValue.string((payload["item"] as? [String: Any])?["name"]).lowercased()
+            let fileName = RuleValue.string(item["name"]).lowercased()
             let playable = [".mp4", ".mov", ".m4v", ".m3u8"].contains { fileName.hasSuffix($0) }
-            return try Self.playInfo(Self.json(raw), headerKey: "playHeaders", preferOriginal: playable)
+            let raw = try await runtime.callPan(tag: pan.id, method: "getPlayInfo", args: item, timeout: 60)
+            let object = Self.json(raw)
+            let info = try? Self.playInfo(object, headerKey: "playHeaders", preferOriginal: playable)
+            if let info, !info.url.isEmpty, playable || !info.onlyOriginal {
+                return info
+            }
+            // 只有原文件（夸克分享直链）而且是 mkv 之类：登录过的话转存后用网盘转码播放
+            if ["夸克", "UC"].contains(panType) {
+                if isLoggedIn(panType) {
+                    let transcoded = Self.json(try await runtime.transcode(tag: pan.id, item: item))
+                    if var result = try? Self.playInfo(transcoded, headerKey: "playHeaders"), !result.url.isEmpty {
+                        if let info { result.alternates += [(info.url, info.headers)] + info.alternates }
+                        return result
+                    }
+                } else if info != nil {
+                    let ext = (fileName as NSString).pathExtension.uppercased()
+                    throw UZError.message("这个文件是 \(ext.isEmpty ? "非 MP4" : ext) 格式，系统播放器放不了原文件。登录\(panType)网盘后会改用网盘转码播放（我的 → 片源 → 网盘资源 → 网盘账号）")
+                }
+            }
+            if let info, !info.url.isEmpty { return info }
+            throw UZError.message(Self.friendlyError(RuleValue.string(object["error"]), panType: panType, loggedIn: isLoggedIn(panType)))
         }
         let payload = Self.decode(String(episodeURL.dropFirst(7)))
         let ext = try findExtension(RuleValue.string(payload["ext"]))
@@ -867,7 +943,10 @@ final class UZStore: ObservableObject {
             if !error.isEmpty { throw UZError.message(error) }
             return PlayInfo(url: "", headers: baseHeaders, alternates: [])
         }
-        return PlayInfo(url: first.url, headers: first.headers, alternates: candidates.dropFirst().map { ($0.url, $0.headers) })
+        return PlayInfo(
+            url: first.url, headers: first.headers, alternates: candidates.dropFirst().map { ($0.url, $0.headers) },
+            onlyOriginal: candidates.allSatisfy(\.original)
+        )
     }
 
     private nonisolated static func headers(_ value: Any?) -> [String: String] {

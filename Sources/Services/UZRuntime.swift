@@ -121,6 +121,11 @@ final class UZRuntime: @unchecked Sendable {
         try await invoke(tag: tag, target: "pan", function: method, args: args, webSite: "", timeout: timeout)
     }
 
+    /// 夸克 / UC：转存到自己网盘后取转码清晰度（系统播放器放不了 mkv 原文件时用）
+    func transcode(tag: String, item: Any, timeout: TimeInterval = 60) async throws -> String {
+        try await invoke(tag: tag, target: "transcode", function: "transcode", args: item, webSite: "", timeout: timeout)
+    }
+
     private func invoke(tag: String, target: String, function: String, args: Any, webSite: String, timeout: TimeInterval) async throws -> String {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
             queue.async { [self] in
@@ -553,6 +558,28 @@ enum UZPrelude {
       g.kIsDesktop = false; g.kIsAndroid = false; g.kIsIOS = true; g.kIsWindows = false;
       g.kIsMacOS = false; g.kIsTV = false; g.kLocale = 'zh-CN'; g.kAppVersion = 1680; g.kIsDebug = false;
 
+      // 夸克 / UC 转存后取网盘转码的清晰度（用网盘工具里 QuarkUC 的 save / getLiveTranscoding）
+      var transcode = async function (item) {
+        var pan = this;
+        var handlers = (pan && pan.panToolsHandlers) || [];
+        var handler = null;
+        for (var i = 0; i < handlers.length; i++) {
+          try { if (handlers[i].getPanType() === item.panType) { handler = handlers[i]; break; } } catch (e) {}
+        }
+        if (!handler || typeof handler.save !== 'function' || typeof handler.getLiveTranscoding !== 'function') {
+          return { url: '', urls: [], error: '这个网盘不支持转码播放' };
+        }
+        if (typeof handler.initPan === 'function') await handler.initPan();
+        var d = item.data || {};
+        var saved = await handler.save({ shareId: d.shareId, stoken: d.shareToken, fileId: d.fileId, fileToken: d.shareFileToken, clean: true });
+        if (!saved) return { url: '', urls: [], error: '转存失败，可能空间不足或登录失效' };
+        handler.saveFileIdCaches = {};
+        handler.saveFileIdCaches[d.fileId] = saved;
+        var urls = await handler.getLiveTranscoding({ fileId: d.fileId });
+        urls.sort(function (a, b) { return (b.priority || 0) - (a.priority || 0); });
+        return { url: urls.length ? urls[0].url : '', urls: urls, playHeaders: handler.playHeaders, error: urls.length ? '' : '没有取到转码地址' };
+      };
+
       // 每个扩展包在自己的函数作用域里执行，导出的东西按 uzTag 存在这里
       var registry = {};
       g.__uzExports = function (appConfig, pan, fns) { return { appConfig: appConfig, pan: pan, fns: fns }; };
@@ -567,7 +594,10 @@ enum UZPrelude {
           var ext = registry[tag];
           if (!ext) { __nativeFinish(id, '扩展没有载入', null); return; }
           var self = null, fn = null;
-          if (target === 'pan') {
+          if (target === 'transcode') {
+            self = ext.pan;
+            fn = transcode;
+          } else if (target === 'pan') {
             self = ext.pan;
             fn = self ? self[name] : null;
           } else {
