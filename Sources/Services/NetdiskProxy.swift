@@ -65,11 +65,15 @@ final class NetdiskProxy: @unchecked Sendable {
         let ext = (fileName as NSString).pathExtension.lowercased()
         let contentType: String
         switch ext {
+        case "", "mp4": contentType = "video/mp4"
         case "mov": contentType = "video/quicktime"
         case "m4v": contentType = "video/x-m4v"
         case "mkv": contentType = "video/x-matroska"
-        case "ts": contentType = "video/mp2t"
-        default: contentType = "video/mp4"
+        case "ts", "m2ts", "mts": contentType = "video/mp2t"
+        case "webm": contentType = "video/webm"
+        case "avi": contentType = "video/x-msvideo"
+        case "flv": contentType = "video/x-flv"
+        default: contentType = "application/octet-stream"
         }
         let id = UUID().uuidString
         lock.lock()

@@ -8,6 +8,10 @@ packages:
   SwiftSoup:
     url: https://github.com/scinfu/SwiftSoup
     from: "2.7.0"
+  # mpv 播放内核（LGPL 版）：MKV、AVI 之类系统播放器放不了的格式
+  MPVKit:
+    url: https://github.com/mpvkit/MPVKit
+    exactVersion: "1.0.0"
 settings:
   base:
     SWIFT_VERSION: "5.0"
@@ -31,6 +35,13 @@ targets:
         optional: true
     dependencies:
       - package: SwiftSoup
+      - package: MPVKit
+        product: MPVKit
+      # MPVKit 里的库是静态库，它们用到的系统框架要 App 自己链接
+      - sdk: CoreText.framework
+      - sdk: QuartzCore.framework
+      - sdk: IOSurface.framework
+      - sdk: Security.framework
     info:
       path: Supporting/Info.plist
       properties:

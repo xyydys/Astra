@@ -242,6 +242,7 @@ enum CMSClient {
     static func isDirectMedia(_ url: String) -> Bool {
         let lower = url.lowercased()
         return lower.contains(".m3u8") || lower.contains(".mp4") || lower.contains(".mov") || lower.contains(".m4v")
+            || MPVFormats.isMPVMedia(url)
     }
 
     // MARK: 过滤

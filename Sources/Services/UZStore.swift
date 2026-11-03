@@ -875,29 +875,25 @@ final class UZStore: ObservableObject {
             }
             if panType == "UC" { await NetdiskQRLogin.refreshUCTokenIfNeeded() }
             let runtime = try await prepare(pan)
-            // 系统播放器放不了 mkv / avi 之类的原文件：这种先用网盘转码后的 m3u8，原画放最后
-            let fileName = RuleValue.string(item["name"]).lowercased()
-            let playable = [".mp4", ".mov", ".m4v", ".m3u8"].contains { fileName.hasSuffix($0) }
-            runtime.note("取播放地址：\(panType) \(RuleValue.string(item["name"])) \(RuleValue.string(item["remark"]))")
+            // 原画优先：MKV、AVI 之类系统播放器放不了的交给 mpv，不用再退到网盘转码的低清晰度
+            let fileName = RuleValue.string(item["name"])
+            runtime.note("取播放地址：\(panType) \(fileName) \(RuleValue.string(item["remark"]))")
             let raw = try await runtime.callPan(tag: pan.id, method: "getPlayInfo", args: item, timeout: 60)
             let object = Self.json(raw)
-            var info = try? Self.playInfo(object, headerKey: "playHeaders", preferOriginal: playable)
-            info?.fileName = RuleValue.string(item["name"])
+            var info = try? Self.playInfo(object, headerKey: "playHeaders")
+            info?.fileName = fileName
             runtime.note("网盘工具返回：\(info.map { "\($0.alternates.count + 1) 个地址\($0.onlyOriginal ? "（只有原画）" : "")" } ?? "没有地址") \(RuleValue.string(object["error"]))")
-            if let info, !info.url.isEmpty, playable || !info.onlyOriginal {
-                return info
-            }
-            // 只有原文件（夸克分享直链）而且是 mkv 之类：转存后用网盘转码播放
+            if let info, !info.url.isEmpty { return info }
+            // 没取到原画地址：夸克 / UC 再试一下转存后用网盘转码播放
             if ["夸克", "UC"].contains(panType) {
-                runtime.note("原画是系统播放器放不了的格式，改用网盘转码")
+                runtime.note("没有原画地址，改用网盘转码")
                 let transcoded = Self.json(try await runtime.transcode(tag: pan.id, item: item))
                 runtime.note("转码返回：\(RuleValue.string(transcoded["error"]).isEmpty ? "\((transcoded["urls"] as? [Any])?.count ?? 0) 个清晰度" : RuleValue.string(transcoded["error"]))")
                 if var result = try? Self.playInfo(transcoded, headerKey: "playHeaders"), !result.url.isEmpty {
-                    if let info { result.alternates += [(info.url, info.headers)] + info.alternates }
+                    result.fileName = fileName
                     return result
                 }
             }
-            if let info, !info.url.isEmpty { return info }
             throw UZError.message(Self.friendlyError(RuleValue.string(object["error"]), panType: panType, loggedIn: isLoggedIn(panType)))
         }
         let payload = Self.decode(String(episodeURL.dropFirst(7)))
@@ -923,7 +919,7 @@ final class UZStore: ObservableObject {
     }
 
     private nonisolated static func playInfo(
-        _ object: [String: Any], headerKey: String, urlKey: String = "url", preferOriginal: Bool = true
+        _ object: [String: Any], headerKey: String, urlKey: String = "url"
     ) throws -> PlayInfo {
         let baseHeaders = headers(object[headerKey])
         var candidates: [(url: String, headers: [String: String], original: Bool)] = []
@@ -943,9 +939,8 @@ final class UZStore: ObservableObject {
             guard !url.isEmpty, !candidates.contains(where: { $0.url == url }) else { continue }
             candidates.append((url, baseHeaders.merging(headers(entry["headers"])) { _, new in new }, isOriginal(entry)))
         }
-        if !preferOriginal, candidates.contains(where: { !$0.original }) {
-            candidates = candidates.filter { !$0.original } + candidates.filter(\.original)
-        }
+        // 原画放最前面（mpv 什么格式都能放），网盘转码的清晰度留着播放失败时换
+        candidates = candidates.filter(\.original) + candidates.filter { !$0.original }
         guard let first = candidates.first else {
             let error = RuleValue.string(object["error"])
             if !error.isEmpty { throw UZError.message(error) }

@@ -27,7 +27,7 @@ struct PlayerScreen: View {
         }
         .onDisappear {
             // 全屏和画中画也会触发 onDisappear，这两种情况继续播放
-            guard let model, !model.isFullscreen, !model.isPictureInPicture else { return }
+            guard let model, !model.isFullscreen, !model.isPictureInPicture, !model.isMPVFullscreen else { return }
             model.teardown()
         }
         .onChangeCompat(of: scenePhase) { _, phase in
@@ -63,6 +63,12 @@ private struct PlayerContent: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
+        .fullScreenCover(isPresented: Binding(
+            get: { model.isMPVFullscreen },
+            set: { if !$0 { model.setMPVFullscreen(false) } }
+        )) {
+            MPVFullscreenPlayer(model: model)
+        }
     }
 
     // MARK: 视频区域
@@ -70,11 +76,20 @@ private struct PlayerContent: View {
     private var videoArea: some View {
         ZStack {
             Color.black
-            VideoPlayerView(
-                player: model.player,
-                onFullscreenChange: { model.isFullscreen = $0 },
-                onPictureInPictureChange: { model.isPictureInPicture = $0 }
-            )
+            Group {
+                if model.engine == .mpv {
+                    MPVVideoHost(surface: model.mpv.surface, claim: !model.isMPVFullscreen)
+                    if !model.isMPVFullscreen {
+                        MPVControls(mpv: model.mpv, isFullscreen: false) { model.setMPVFullscreen(true) }
+                    }
+                } else {
+                    VideoPlayerView(
+                        player: model.player,
+                        onFullscreenChange: { model.isFullscreen = $0 },
+                        onPictureInPictureChange: { model.isPictureInPicture = $0 }
+                    )
+                }
+            }
             .opacity(model.phase == .ready ? 1 : 0)
 
             switch model.phase {
@@ -142,11 +157,20 @@ private struct PlayerContent: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            if model.hasNextEpisode, model.phase == .ready {
-                Button("下一集", icon: "forward.end.fill") { model.playNext() }
+            if model.phase == .ready {
+                HStack(spacing: 10) {
+                    if model.hasNextEpisode {
+                        Button("下一集", icon: "forward.end.fill") { model.playNext() }
+                            .glassButtonStyle()
+                    }
+                    // 系统播放器有画中画和隔空播放；mpv 能放 MKV 之类的格式、能选音轨和字幕
+                    Button(model.engine == .mpv ? "换系统播放器" : "换 mpv 播放", icon: "arrow.triangle.2.circlepath") {
+                        model.switchEngine()
+                    }
                     .glassButtonStyle()
-                    .controlSize(.small)
-                    .padding(.top, 6)
+                }
+                .controlSize(.small)
+                .padding(.top, 6)
             }
         }
     }

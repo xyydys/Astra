@@ -11,9 +11,16 @@ final class PlayerModel: ObservableObject {
         case failed(String)
     }
 
+    /// 播放内核：系统播放器（有画中画、隔空播放），或者 mpv（MKV 之类系统放不了的格式）
+    enum Engine: Equatable {
+        case system
+        case mpv
+    }
+
     let request: PlayRequest
     let rule: Rule?
     let player = AVPlayer()
+    let mpv = MPVPlayback()
     let sniffer = VideoSniffer()
 
     @Published var roads: [Road] = []
@@ -27,6 +34,9 @@ final class PlayerModel: ObservableObject {
     @Published var isPictureInPicture = false
     /// 本集播放列表里去掉的广告分片数
     @Published var adSegmentsRemoved = 0
+    @Published private(set) var engine: Engine = .system
+    /// mpv 自己的全屏（系统播放器的全屏是 isFullscreen）
+    @Published var isMPVFullscreen = false
 
     private var resolveTask: Task<Void, Never>?
     private var statusObservation: NSKeyValueObservation?
@@ -45,6 +55,12 @@ final class PlayerModel: ObservableObject {
     private var alternates: [(url: String, headers: [String: String])] = []
     /// 本集试过的播放地址和结果（复制日志时带上）
     private var attempts: [String] = []
+    /// 网盘里的文件名（按扩展名选播放内核）
+    private var mediaName = ""
+    /// 本集指定的播放内核（手动切换，或者系统播放器放不了自动换成 mpv）；nil 按格式自动选
+    private var forcedEngine: Engine?
+    /// mpv 播放中途断开后重新连接的次数
+    private var mpvReconnects = 0
 
     init(request: PlayRequest, rule: Rule?) {
         self.request = request
@@ -57,6 +73,9 @@ final class PlayerModel: ObservableObject {
                 self?.saveProgress()
             }
         }
+        mpv.onEnd = { [weak self] in self?.mpvEnded() }
+        mpv.onFailure = { [weak self] message in self?.mpvFailed(message) }
+        mpv.onProgress = { [weak self] in self?.saveProgress() }
     }
 
     var currentEpisode: Episode? {
@@ -82,10 +101,16 @@ final class PlayerModel: ObservableObject {
         if let ep = currentEpisode { lines.append("剧集页: \(ep.url)") }
         if case .failed(let message) = phase { lines.append("错误: \(message)") }
         if !lastResolvedURL.isEmpty { lines.append("视频: \(lastResolvedURL)") }
+        if phase == .ready || engine == .mpv { lines.append("播放内核: \(engine == .mpv ? "mpv" : "系统播放器")") }
         lines.append(contentsOf: attempts)
         if adSegmentsRemoved > 0 { lines.append("去广告: 移除 \(adSegmentsRemoved) 个分片") }
         if adFilterFailed { lines.append("去广告: 过滤后播放失败，已改为原始播放列表") }
         lines.append(contentsOf: sniffer.logs)
+        let mpvLogs = mpv.logs.suffix(30)
+        if !mpvLogs.isEmpty {
+            lines.append("—— mpv 日志 ——")
+            lines.append(contentsOf: mpvLogs)
+        }
         if UZStore.isUZ(request.cmsAPI) {
             let logs = UZStore.shared.runtimeLogs.suffix(60)
             if !logs.isEmpty {
@@ -144,9 +169,21 @@ final class PlayerModel: ObservableObject {
         if roads.isEmpty {
             Task { await loadChapters() }
         } else if let ep = playingEpisode {
-            let position = player.currentTime().seconds
-            play(road: playingRoad, episode: ep, startAt: position.isFinite ? position : 0)
+            play(road: playingRoad, episode: ep, startAt: currentPosition)
         }
+    }
+
+    /// 当前播放位置和总时长（看正在用的内核）
+    private var currentPosition: Double {
+        if engine == .mpv { return mpv.position }
+        let seconds = player.currentTime().seconds
+        return seconds.isFinite ? seconds : 0
+    }
+
+    private var currentDuration: Double {
+        if engine == .mpv { return mpv.duration }
+        let seconds = player.currentItem?.duration.seconds ?? 0
+        return seconds.isFinite ? seconds : 0
     }
 
     func play(road: Int, episode: Int, startAt: Double = 0) {
@@ -160,6 +197,7 @@ final class PlayerModel: ObservableObject {
         pendingSeek = startAt > 5 ? startAt : 0
         player.pause()
         player.replaceCurrentItem(with: nil)
+        mpv.stop()
         statusObservation = nil
         lastResolvedURL = ""
         adSegmentsRemoved = 0
@@ -167,6 +205,9 @@ final class PlayerModel: ObservableObject {
         extraHeaders = [:]
         alternates = []
         attempts = []
+        mediaName = ""
+        forcedEngine = nil
+        mpvReconnects = 0
         saveRecord(position: startAt, duration: 0)
 
         let page = roads[road].episodes[episode].url
@@ -184,6 +225,7 @@ final class PlayerModel: ObservableObject {
                     guard !Task.isCancelled, !self.tornDown else { return }
                     guard !url.isEmpty else { throw RuleError.parse("没有取到播放地址") }
                     self.alternates = info.alternates
+                    self.mediaName = info.fileName
                     // 网盘原文件走本地多线程代理（网盘按连接限速）；转码的 m3u8 直接播
                     if !info.needsSniff, !url.lowercased().contains(".m3u8"), !info.headers.isEmpty || url.hasPrefix("http") {
                         do {
@@ -238,7 +280,8 @@ final class PlayerModel: ObservableObject {
         }
         lastResolvedURL = url.absoluteString
         if let extra { extraHeaders = extra }
-        attempts.append("尝试播放: \(url.host ?? "")\(url.path.suffix(60))\(extraHeaders.isEmpty ? "" : "（带 \(extraHeaders.keys.sorted().joined(separator: "/")) 请求头）")")
+        let useMPV = (forcedEngine ?? (MPVFormats.needsMPV(fileName: mediaName, url: url) ? .mpv : .system)) == .mpv
+        attempts.append("尝试播放\(useMPV ? "（mpv）" : ""): \(url.host ?? "")\(url.path.suffix(60))\(extraHeaders.isEmpty ? "" : "（带 \(extraHeaders.keys.sorted().joined(separator: "/")) 请求头）")")
 
         let userAgent = rule?.userAgent ?? ""
         var headers = ["User-Agent": userAgent.isEmpty ? sniffer.userAgent : userAgent]
@@ -247,6 +290,16 @@ final class PlayerModel: ObservableObject {
             for existing in headers.keys where existing.lowercased() == key.lowercased() { headers[existing] = nil }
             headers[key] = value
         }
+
+        if useMPV {
+            attachMPV(url: url, headers: headers)
+            return
+        }
+        if engine == .mpv {
+            mpv.stop()
+            setMPVFullscreen(false)
+        }
+        engine = .system
 
         let asset: AVURLAsset
         // 网盘地址要带 Cookie，分片也要，不走去广告（改写过的播放列表里分片请求带不上请求头）
@@ -287,6 +340,69 @@ final class PlayerModel: ObservableObject {
         player.play()
     }
 
+    /// 用 mpv 播：先停掉系统播放器
+    private func attachMPV(url: URL, headers: [String: String]) {
+        adLoader = nil
+        statusObservation = nil
+        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
+        endObserver = nil
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        engine = .mpv
+        phase = .ready
+        MusicPlayer.shared.pause()
+        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+        try? AVAudioSession.sharedInstance().setActive(true)
+        mpv.load(url: url.absoluteString, headers: headers, start: pendingSeek)
+        pendingSeek = 0
+    }
+
+    private func mpvFailed(_ message: String) {
+        guard engine == .mpv, !tornDown, phase == .ready else { return }
+        attempts.append("mpv 播放失败: \(message)")
+        // 网盘：换下一个地址（直连 / 其他清晰度）
+        if !alternates.isEmpty {
+            let next = alternates.removeFirst()
+            if mpv.position > 5 { pendingSeek = mpv.position }
+            attach(urlString: next.url, headers: next.headers)
+            return
+        }
+        phase = .failed("播放失败：\(message)。可以重试，或者换条线路 / 换个片源")
+    }
+
+    private func mpvEnded() {
+        guard engine == .mpv, !tornDown, phase == .ready else { return }
+        let position = mpv.position
+        let duration = mpv.duration
+        // 网络断开时 mpv 也会当成播完：离结尾还远，就从断开的地方重新连
+        if duration > 60, position < duration - 30, mpvReconnects < 3, !lastResolvedURL.isEmpty {
+            mpvReconnects += 1
+            attempts.append("播放在 \(Int(position)) 秒处中断，重新连接")
+            pendingSeek = position
+            attach(urlString: lastResolvedURL)
+            return
+        }
+        saveProgress()
+        playNext()
+    }
+
+    /// 手动切换播放内核，从当前位置接着播
+    func switchEngine() {
+        guard phase == .ready, !lastResolvedURL.isEmpty else { return }
+        let position = currentPosition
+        let target: Engine = engine == .mpv ? .system : .mpv
+        forcedEngine = target
+        pendingSeek = position > 5 ? position : 0
+        attempts.append("手动换成\(target == .mpv ? " mpv" : "系统播放器")")
+        attach(urlString: lastResolvedURL)
+    }
+
+    func setMPVFullscreen(_ on: Bool) {
+        guard on != isMPVFullscreen else { return }
+        isMPVFullscreen = on
+        ScreenOrientation.rotate(landscape: on && mpv.videoAspect >= 1)
+    }
+
     private func handle(status: AVPlayerItem.Status, error: String?) {
         switch status {
         case .readyToPlay:
@@ -305,7 +421,16 @@ final class PlayerModel: ObservableObject {
                 attach(urlString: lastResolvedURL)
                 return
             }
-            // 网盘：这个清晰度放不了（比如原画是 mkv）就换下一个
+            // 系统播放器放不了（编码或者封装不支持）：换 mpv 从当前位置再试
+            if forcedEngine == nil, !lastResolvedURL.isEmpty {
+                forcedEngine = .mpv
+                attempts.append("系统播放器放不了，换 mpv 再试")
+                let position = player.currentTime().seconds
+                if position.isFinite, position > 5 { pendingSeek = position }
+                attach(urlString: lastResolvedURL)
+                return
+            }
+            // 网盘：这个地址放不了就换下一个
             if !alternates.isEmpty {
                 let next = alternates.removeFirst()
                 let position = player.currentTime().seconds
@@ -328,6 +453,8 @@ final class PlayerModel: ObservableObject {
         sniffer.cancel()
         player.pause()
         player.replaceCurrentItem(with: nil)
+        mpv.destroy()
+        isMPVFullscreen = false
         statusObservation = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil
@@ -339,10 +466,9 @@ final class PlayerModel: ObservableObject {
 
     func saveProgress() {
         guard !tornDown, playingEpisode != nil, phase == .ready else { return }
-        let position = player.currentTime().seconds
-        let duration = player.currentItem?.duration.seconds ?? 0
-        guard position.isFinite, position > 0 else { return }
-        saveRecord(position: position, duration: duration.isFinite ? duration : 0)
+        let position = currentPosition
+        guard position > 0 else { return }
+        saveRecord(position: position, duration: currentDuration)
     }
 
     private func saveRecord(position: Double, duration: Double) {
