@@ -5,6 +5,7 @@ struct VideoDetailView: View {
     @State private var subject: BangumiSubject
     @ObservedObject private var library = WatchLibrary.shared
     @ObservedObject private var tints = PosterTints.shared
+    @ObservedObject private var uz = UZStore.shared
     @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.colorScheme) private var systemScheme
 
@@ -39,7 +40,8 @@ struct VideoDetailView: View {
     private var tint: PosterTint? { tints.tint(for: subject.id) }
     private var isFavorite: Bool { library.isFavorite(subject.id) }
     private var record: WatchRecord? { library.record(subject.id) }
-    private var sources: [CMSSource] { ruleStore.enabledCMS }
+    /// 采集站在前，网盘资源站（uz 扩展）在后
+    private var sources: [CMSSource] { ruleStore.enabledCMS + uz.vodSources }
 
     private var selectedItem: CMSItem? {
         guard let selectedID, case .found(let item) = results[selectedID] else { return nil }
@@ -77,6 +79,13 @@ struct VideoDetailView: View {
         .task(id: keyword + "|" + sources.map(\.id).joined(separator: ",")) { await searchSources() }
         .navigationDestinationCompat(item: $playRequest) { request in
             PlayerScreen(request: request)
+        }
+        .toast($uz.notice)
+        .sheet(item: Binding(
+            get: { uz.verifyRequest.map(UZVerifyRequest.init) },
+            set: { uz.verifyRequest = $0?.url }
+        )) { request in
+            UZVerifySheet(url: request.url)
         }
         .textFieldAlert(
             "修改搜索词", isPresented: $showKeywordEditor, text: $keywordDraft, placeholder: "片名",
@@ -215,18 +224,32 @@ struct VideoDetailView: View {
             }
 
             if item.roads.count > 1 {
-                Picker("线路", selection: $selectedRoad) {
-                    ForEach(item.roads.indices, id: \.self) { index in
-                        Text(item.roads[index].name).tag(index)
+                // 网盘分享的线路名比较长：放不下时改成菜单
+                if item.roads.count > 3 || item.roads.contains(where: { $0.name.count > 6 }) {
+                    Picker(selection: $selectedRoad) {
+                        ForEach(item.roads.indices, id: \.self) { index in
+                            Text("\(item.roads[index].name)（\(item.roads[index].episodes.count)）").tag(index)
+                        }
+                    } label: {
+                        Text("线路")
                     }
+                    .pickerStyle(.menu)
+                } else {
+                    Picker("线路", selection: $selectedRoad) {
+                        ForEach(item.roads.indices, id: \.self) { index in
+                            Text(item.roads[index].name).tag(index)
+                        }
+                    }
+                    .pickerStyle(.segmented)
                 }
-                .pickerStyle(.segmented)
             }
 
             if item.roads.indices.contains(selectedRoad) {
                 let list = item.roads[selectedRoad].episodes
                 let current = record.flatMap { $0.isCMSRecord && $0.vodID == item.vodID && $0.roadIndex == selectedRoad ? $0.episodeIndex : nil }
-                LazyVGrid(columns: columns, spacing: 10) {
+                // 网盘文件名比较长：一行一个
+                let wide = list.prefix(30).contains { $0.name.count > 8 }
+                LazyVGrid(columns: wide ? [GridItem(.flexible())] : columns, spacing: 10) {
                     ForEach(episodesReversed ? Array(list.indices.reversed()) : Array(list.indices), id: \.self) { index in
                         let isCurrent = current == index
                         Button {
@@ -234,9 +257,11 @@ struct VideoDetailView: View {
                         } label: {
                             Text(list[index].name)
                                 .font(.subheadline.weight(isCurrent ? .bold : .regular))
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.7)
-                                .frame(maxWidth: .infinity, minHeight: 40)
+                                .lineLimit(wide ? 2 : 1)
+                                .minimumScaleFactor(wide ? 0.9 : 0.7)
+                                .multilineTextAlignment(wide ? .leading : .center)
+                                .padding(.horizontal, wide ? 12 : 0)
+                                .frame(maxWidth: .infinity, minHeight: 40, alignment: wide ? .leading : .center)
                                 .foregroundStyle(isCurrent ? Color.white : Color.primary)
                                 .background(
                                     isCurrent ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.secondary.opacity(0.14)),
@@ -388,6 +413,13 @@ struct VideoDetailView: View {
             for source in targets {
                 group.addTask {
                     do {
+                        if UZStore.isUZ(source.url) {
+                            // 网盘资源站：搜到后还要取详情、把分享链接展开成剧集
+                            guard let item = try await UZStore.shared.searchBest(source, keyword: word, year: year) else {
+                                return ("cms:" + source.id, .empty)
+                            }
+                            return ("cms:" + source.id, .found(item))
+                        }
                         let items = try await CMSSearchCache.shared.search(source, keyword: word)
                         guard let best = Self.bestMatch(items, title: word, year: year) else { return ("cms:" + source.id, .empty) }
                         return ("cms:" + source.id, .found(best))

@@ -40,6 +40,9 @@ final class PlayerModel: ObservableObject {
     private var adLoader: HLSAdBlockLoader?
     /// 去广告后播放失败过一次，本次播放不再过滤
     private var adFilterFailed = false
+    /// 网盘片源：播放地址需要带的请求头（Cookie 等），以及其他清晰度（播放失败时依次换）
+    private var extraHeaders: [String: String] = [:]
+    private var alternates: [(url: String, headers: [String: String])] = []
 
     init(request: PlayRequest, rule: Rule?) {
         self.request = request
@@ -67,7 +70,9 @@ final class PlayerModel: ObservableObject {
 
     var debugLog: String {
         var lines: [String]
-        if request.isCMS {
+        if UZStore.isUZ(request.cmsAPI) {
+            lines = ["网盘片源: \(request.ruleName)", "影片 id: \(request.vodID)"]
+        } else if request.isCMS {
             lines = ["采集站: \(request.ruleName)", "接口: \(request.cmsAPI)", "影片 id: \(request.vodID)"]
         } else {
             lines = ["规则: \(rule?.name ?? request.ruleName)", "详情页: \(request.sourceURL)"]
@@ -96,7 +101,12 @@ final class PlayerModel: ObservableObject {
         phase = .loadingChapters
         do {
             let result: [Road]
-            if request.isCMS {
+            if UZStore.isUZ(request.cmsAPI) {
+                // 网盘片源：资源站详情 + 网盘分享展开成剧集
+                let item = try await UZStore.shared.detail(api: request.cmsAPI, vodID: request.vodID)
+                result = item.roads
+                if result.isEmpty { throw RuleError.parse("这个片源没有可播放的剧集，换个片源试试") }
+            } else if request.isCMS {
                 // 采集站的详情里直接带每集的播放地址
                 let item = try await CMSClient.detail(api: request.cmsAPI, vodID: request.vodID, sourceName: request.ruleName)
                 result = item.roads
@@ -143,9 +153,35 @@ final class PlayerModel: ObservableObject {
         lastResolvedURL = ""
         adSegmentsRemoved = 0
         adFilterFailed = false
+        extraHeaders = [:]
+        alternates = []
         saveRecord(position: startAt, duration: 0)
 
         let page = roads[road].episodes[episode].url
+        if UZStore.isEpisodeURL(page) {
+            resolveTask?.cancel()
+            resolveTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    // 网盘：转存到自己网盘后取播放地址（带 Cookie 请求头）
+                    let info = try await UZStore.shared.resolve(page)
+                    var url = info.url
+                    if info.needsSniff, !CMSClient.isDirectMedia(url) {
+                        url = try await self.sniffer.resolve(pageURL: url, legacy: false)
+                    }
+                    guard !Task.isCancelled, !self.tornDown else { return }
+                    guard !url.isEmpty else { throw RuleError.parse("没有取到播放地址") }
+                    self.alternates = info.alternates
+                    self.attach(urlString: url, headers: info.headers)
+                } catch is CancellationError {
+                    return
+                } catch {
+                    guard !Task.isCancelled, !self.tornDown else { return }
+                    self.phase = .failed(error.localizedDescription)
+                }
+            }
+            return
+        }
         let legacy = rule?.useLegacyParser ?? false
         let direct = request.isCMS && CMSClient.isDirectMedia(page)
         resolveTask?.cancel()
@@ -170,19 +206,25 @@ final class PlayerModel: ObservableObject {
         play(road: playingRoad, episode: ep + 1)
     }
 
-    private func attach(urlString: String) {
+    private func attach(urlString: String, headers extra: [String: String]? = nil) {
         guard let url = URL.lenient(urlString) else {
             phase = .failed("视频地址无效：\(urlString)")
             return
         }
         lastResolvedURL = url.absoluteString
+        if let extra { extraHeaders = extra }
 
         let userAgent = rule?.userAgent ?? ""
         var headers = ["User-Agent": userAgent.isEmpty ? sniffer.userAgent : userAgent]
         if let referer = rule?.referer, !referer.isEmpty { headers["Referer"] = referer }
+        for (key, value) in extraHeaders {
+            for existing in headers.keys where existing.lowercased() == key.lowercased() { headers[existing] = nil }
+            headers[key] = value
+        }
 
         let asset: AVURLAsset
-        if AppSettings.hlsAdFilter, !adFilterFailed, HLSAdBlockLoader.canHandle(url) {
+        // 网盘地址要带 Cookie，分片也要，不走去广告（改写过的播放列表里分片请求带不上请求头）
+        if extraHeaders.isEmpty, AppSettings.hlsAdFilter, !adFilterFailed, HLSAdBlockLoader.canHandle(url) {
             let loader = HLSAdBlockLoader(headers: headers)
             loader.onFiltered = { [weak self] count in
                 Task { @MainActor in self?.adSegmentsRemoved += count }
@@ -234,6 +276,14 @@ final class PlayerModel: ObservableObject {
                 let position = player.currentTime().seconds
                 if position.isFinite, position > 5 { pendingSeek = position }
                 attach(urlString: lastResolvedURL)
+                return
+            }
+            // 网盘：这个清晰度放不了（比如原画是 mkv）就换下一个
+            if !alternates.isEmpty {
+                let next = alternates.removeFirst()
+                let position = player.currentTime().seconds
+                if position.isFinite, position > 5 { pendingSeek = position }
+                attach(urlString: next.url, headers: next.headers)
                 return
             }
             phase = .failed("播放失败：\(error ?? "未知错误")。可以重试，或者换条线路 / 换个片源")

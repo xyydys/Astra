@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SettingsView: View {
     @EnvironmentObject private var ruleStore: RuleStore
+    @ObservedObject private var uz = UZStore.shared
     @AppStorage(AppSettings.hlsAdFilterKey) private var hlsAdFilter = true
     @AppStorage(AppSettings.filterAdultKey) private var filterAdult = true
     @State private var appIcon = AppIconOption.current
@@ -26,6 +27,15 @@ struct SettingsView: View {
                         Label("规则管理", systemImage: "puzzlepiece.extension")
                     }
                 }
+                NavigationLink {
+                    UZSettingsView()
+                } label: {
+                    LabeledRow {
+                        Text(uz.vodSources.isEmpty ? "未导入" : "\(uz.vodSources.count) 个资源站")
+                    } label: {
+                        Label("网盘资源", systemImage: "externaldrive.connected.to.line.below")
+                    }
+                }
                 Toggle(isOn: $filterAdult) {
                     Label("过滤成人内容", systemImage: "eye.slash")
                 }
@@ -33,7 +43,7 @@ struct SettingsView: View {
             } header: {
                 Text("片源")
             } footer: {
-                Text("Kazumi 规则和采集站在同一个列表里排优先级。过滤成人内容会按分类名隐藏采集站里的相关结果。")
+                Text("Kazumi 规则和采集站在同一个列表里排优先级。网盘资源兼容 uz 影视的扩展订阅，资源站搜到的网盘分享在影视模式里当片源用。过滤成人内容会按分类名隐藏采集站里的相关结果。")
             }
 
             Section {

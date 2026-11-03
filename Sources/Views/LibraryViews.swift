@@ -103,6 +103,7 @@ private struct VideoSearchView: View {
     }
 
     @EnvironmentObject private var ruleStore: RuleStore
+    @ObservedObject private var uz = UZStore.shared
     @State private var query = ""
     @State private var groups: [ResultGroup] = []
     @State private var pending = 0
@@ -132,7 +133,7 @@ private struct VideoSearchView: View {
         }
         .dismissKeyboardOnScroll()
         .overlay {
-            if ruleStore.enabledCMS.isEmpty {
+            if ruleStore.enabledCMS.isEmpty, uz.vodSources.isEmpty {
                 EmptyStateView("还没有添加采集站", systemImage: "server.rack",
                                description: Text("影视模式在采集站里搜索。到「我的 → 规则管理」添加采集站或导入订阅"))
             } else if groups.isEmpty, pending > 0 {
@@ -140,7 +141,7 @@ private struct VideoSearchView: View {
             } else if groups.isEmpty, !searchedQuery.isEmpty {
                 EmptyStateView.search(text: searchedQuery)
             } else if groups.isEmpty {
-                EmptyStateView("搜索影视", systemImage: "film", description: Text("在已启用的 \(ruleStore.enabledCMS.count) 个采集站里搜索电影、剧集、综艺和动漫"))
+                EmptyStateView("搜索影视", systemImage: "film", description: Text("在已启用的 \(ruleStore.enabledCMS.count + uz.vodSources.count) 个片源里搜索电影、剧集、综艺和动漫"))
             }
         }
         .navigationTitle("搜索影视")
@@ -154,13 +155,16 @@ private struct VideoSearchView: View {
         searchTask?.cancel()
         searchedQuery = word
         groups = []
-        let sources = ruleStore.enabledCMS
+        let sources = ruleStore.enabledCMS + uz.vodSources
         pending = sources.count
         searchTask = Task {
             await withTaskGroup(of: (Int, [CMSItem]).self) { taskGroup in
                 for (index, source) in sources.enumerated() {
                     taskGroup.addTask {
-                        (index, (try? await CMSSearchCache.shared.search(source, keyword: word)) ?? [])
+                        if UZStore.isUZ(source.url) {
+                            return (index, (try? await UZStore.shared.search(source, keyword: word)) ?? [])
+                        }
+                        return (index, (try? await CMSSearchCache.shared.search(source, keyword: word)) ?? [])
                     }
                 }
                 for await (priority, items) in taskGroup {

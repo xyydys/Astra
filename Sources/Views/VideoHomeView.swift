@@ -165,6 +165,7 @@ struct VideoHomeView: View {
     @State private var scroll = HeroScrollState()
     @State private var contentScheme: ColorScheme?
     @EnvironmentObject private var ruleStore: RuleStore
+    @ObservedObject private var uz = UZStore.shared
     @Environment(\.colorScheme) private var systemScheme
 
     private let grid = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 14)]
@@ -178,7 +179,7 @@ struct VideoHomeView: View {
             VStack(alignment: .leading, spacing: 28) {
                 HeroCarousel(items: model.hero, scroll: scroll)
 
-                if ruleStore.enabledCMS.isEmpty {
+                if ruleStore.enabledCMS.isEmpty, uz.vodSources.isEmpty {
                     NoRulesBanner(
                         title: "还没有添加采集站",
                         message: "影视模式通过采集站搜片播放，点这里添加或导入订阅"
