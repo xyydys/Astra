@@ -111,6 +111,11 @@ final class PlayerModel: ObservableObject {
             lines.append("—— mpv 日志 ——")
             lines.append(contentsOf: mpvLogs)
         }
+        let proxyLogs = NetdiskProxy.shared.logs
+        if UZStore.isUZ(request.cmsAPI), !proxyLogs.isEmpty {
+            lines.append("—— 网盘代理 ——")
+            lines.append(contentsOf: proxyLogs)
+        }
         if UZStore.isUZ(request.cmsAPI) {
             let logs = UZStore.shared.runtimeLogs.suffix(60)
             if !logs.isEmpty {

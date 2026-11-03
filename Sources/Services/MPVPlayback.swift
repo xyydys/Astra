@@ -49,6 +49,11 @@ final class MPVPlayback: ObservableObject {
     @Published private(set) var audioTracks: [Track] = []
     @Published private(set) var subtitleTracks: [Track] = []
     @Published private(set) var subtitleOff = true
+    /// 播放信息（网速、缓冲、码率、解码方式），打开「播放信息」时每秒刷新
+    @Published private(set) var stats: MPVStats?
+    @Published var showStats = false {
+        didSet { showStats ? startStats() : stopStats() }
+    }
 
     var onEnd: (() -> Void)?
     var onFailure: ((String) -> Void)?
@@ -63,6 +68,7 @@ final class MPVPlayback: ObservableObject {
     private var progressTick = -1
     private var resumeAfterBackground = false
     private var observers: [NSObjectProtocol] = []
+    private var statsTimer: Timer?
 
     init() {
         let center = NotificationCenter.default
@@ -140,11 +146,39 @@ final class MPVPlayback: ObservableObject {
 
     /// 离开播放页时调用，之后不能再用
     func destroy() {
+        stopStats()
         finalLogs = core?.logSnapshot ?? finalLogs
         core?.destroy()
         core = nil
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers = []
+    }
+
+    // MARK: 播放信息
+
+    private func startStats() {
+        statsTimer?.invalidate()
+        refreshStats()
+        statsTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshStats() }
+        }
+    }
+
+    private func stopStats() {
+        statsTimer?.invalidate()
+        statsTimer = nil
+    }
+
+    private func refreshStats() {
+        core?.readStats { [weak self] stats in
+            guard let owner = self else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard owner.showStats else { return }
+                    owner.stats = stats
+                }
+            }
+        }
     }
 
     // MARK: 前后台
@@ -205,7 +239,11 @@ final class MPVPlayback: ObservableObject {
             onFailure?(message)
         }
         let buffering = waitingForPlayback || waitingForCache
-        if buffering != isBuffering { isBuffering = buffering }
+        if buffering != isBuffering {
+            isBuffering = buffering
+            // 播放中途卡住：记下当时的网速和码率，复制日志时能看出是网速不够还是解码跟不上
+            if buffering, waitingForCache, isLoaded { core?.noteStall(at: position) }
+        }
     }
 }
 
@@ -248,6 +286,35 @@ final class MPVSurfaceView: UIView {
 }
 
 // MARK: - libmpv
+
+struct MPVStats: Sendable, Equatable {
+    /// 网络读取速度（字节 / 秒）
+    var speed: Double = 0
+    /// 已经缓冲的秒数
+    var buffered: Double = 0
+    /// 平均码率（比特 / 秒，文件大小 ÷ 时长）
+    var bitrate: Double = 0
+    var hwdec = ""
+    var codec = ""
+    var width = 0
+    var height = 0
+    var dropped = 0
+
+    var speedText: String { String(format: "%.1f MB/s", speed / 1_048_576) }
+    /// 流畅播放需要的网速
+    var neededText: String { bitrate > 0 ? String(format: "%.1f MB/s", bitrate / 8 / 1_048_576) : "未知" }
+    var bitrateText: String { bitrate > 0 ? String(format: "%.1f Mbps", bitrate / 1_000_000) : "未知" }
+    var decoderText: String {
+        hwdec.isEmpty || hwdec == "no" ? "软件解码" : "硬件解码（\(hwdec)）"
+    }
+
+    var summary: String {
+        var parts = ["网速 \(speedText)", "需要 \(neededText)", String(format: "缓冲 %.0f 秒", buffered), decoderText]
+        if width > 0 { parts.append("\(codec.uppercased()) \(width)×\(height)") }
+        if dropped > 0 { parts.append("丢帧 \(dropped)") }
+        return parts.joined(separator: "，")
+    }
+}
 
 enum MPVUpdate: Sendable {
     case time(Double)
@@ -296,7 +363,8 @@ private final class MPVCore: @unchecked Sendable {
             ("vo", "gpu-next"),
             ("gpu-api", "vulkan"),
             ("gpu-context", "moltenvk"),
-            ("hwdec", "videotoolbox"),
+            // 硬件解码；画面直通不了时退到硬件解码后拷贝，不至于变成纯软件解码
+            ("hwdec", "videotoolbox,videotoolbox-copy"),
             ("video-rotate", "no"),
             ("idle", "yes"),
             ("keep-open", "no"),
@@ -305,8 +373,11 @@ private final class MPVCore: @unchecked Sendable {
             ("ytdl", "no"),
             ("load-scripts", "no"),
             ("cache", "yes"),
-            ("demuxer-max-bytes", "150MiB"),
+            ("demuxer-max-bytes", "200MiB"),
             ("demuxer-max-back-bytes", "50MiB"),
+            // 缓冲不够时先攒 4 秒再播（默认 1 秒，网速勉强够的时候会播一下停一下）
+            ("cache-pause-wait", "4"),
+            ("cache-pause-initial", "yes"),
             ("network-timeout", "30"),
             ("tls-verify", "no"),
             // 字幕：优先简体中文，没有就用文件里标成默认的那条
@@ -388,6 +459,35 @@ private final class MPVCore: @unchecked Sendable {
             guard let handle else { return }
             mpv_set_property_string(handle, name, value)
         }
+    }
+
+    func readStats(_ completion: @escaping @Sendable (MPVStats) -> Void) {
+        queue.async { [self] in
+            guard handle != nil else { return }
+            completion(currentStats())
+        }
+    }
+
+    func noteStall(at position: Double) {
+        queue.async { [self] in
+            guard handle != nil else { return }
+            appendLog(String(format: "卡顿（%.0f 秒处）：", position) + currentStats().summary)
+        }
+    }
+
+    private func currentStats() -> MPVStats {
+        var stats = MPVStats()
+        stats.speed = Double(string("cache-speed") ?? "") ?? 0
+        stats.buffered = Double(string("demuxer-cache-duration") ?? "") ?? 0
+        let size = Double(string("file-size") ?? "") ?? 0
+        let duration = Double(string("duration") ?? "") ?? 0
+        if size > 0, duration > 0 { stats.bitrate = size * 8 / duration }
+        stats.hwdec = string("hwdec-current") ?? ""
+        stats.codec = string("video-format") ?? ""
+        stats.width = Int(string("video-params/w") ?? "") ?? 0
+        stats.height = Int(string("video-params/h") ?? "") ?? 0
+        stats.dropped = (Int(string("frame-drop-count") ?? "") ?? 0) + (Int(string("decoder-frame-drop-count") ?? "") ?? 0)
+        return stats
     }
 
     func destroy() {

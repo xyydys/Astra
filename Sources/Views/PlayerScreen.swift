@@ -168,6 +168,12 @@ private struct PlayerContent: View {
                         model.switchEngine()
                     }
                     .glassButtonStyle()
+                    // 播放卡顿时也能复制日志（里面有网速、码率和解码方式）
+                    Button(copiedLog ? "已复制" : "日志", icon: "doc.on.doc") {
+                        UIPasteboard.general.string = model.debugLog
+                        copiedLog = true
+                    }
+                    .glassButtonStyle()
                 }
                 .controlSize(.small)
                 .padding(.top, 6)

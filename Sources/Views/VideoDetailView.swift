@@ -24,6 +24,8 @@ struct VideoDetailView: View {
     @State private var selectedRoad = 0
     @State private var playRequest: PlayRequest?
     @State private var summaryExpanded = false
+    /// 选集很多时默认只显示前几行
+    @State private var episodesExpanded = false
     @State private var showKeywordEditor = false
     @State private var keywordDraft = ""
     @State private var directors = ""
@@ -249,8 +251,13 @@ struct VideoDetailView: View {
                 let current = record.flatMap { $0.isCMSRecord && $0.vodID == item.vodID && $0.roadIndex == selectedRoad ? $0.episodeIndex : nil }
                 // 网盘文件名比较长：一行一个
                 let wide = list.prefix(30).contains { $0.name.count > 8 }
+                let order = episodesReversed ? Array(list.indices.reversed()) : Array(list.indices)
+                // 集数多时先显示前几行（页面短一些，下面的片源不用划很久；搜索中切换片源时页面也不会大幅跳动）
+                let limit = wide ? 6 : 20
+                let foldable = order.count > limit + 4
+                let shown = foldable && !episodesExpanded ? Array(order.prefix(limit)) : order
                 LazyVGrid(columns: wide ? [GridItem(.flexible())] : columns, spacing: 10) {
-                    ForEach(episodesReversed ? Array(list.indices.reversed()) : Array(list.indices), id: \.self) { index in
+                    ForEach(shown, id: \.self) { index in
                         let isCurrent = current == index
                         Button {
                             play(item, episode: index)
@@ -258,10 +265,12 @@ struct VideoDetailView: View {
                             Text(list[index].name)
                                 .font(.subheadline.weight(isCurrent ? .bold : .regular))
                                 .lineLimit(wide ? 2 : 1)
-                                .minimumScaleFactor(wide ? 0.9 : 0.7)
+                                .minimumScaleFactor(wide ? 0.85 : 0.7)
                                 .multilineTextAlignment(wide ? .leading : .center)
                                 .padding(.horizontal, wide ? 12 : 0)
-                                .frame(maxWidth: .infinity, minHeight: 40, alignment: wide ? .leading : .center)
+                                // 高度固定：格子高度不一时，快速滚动会让懒加载的网格估错高度、页面跳动
+                                .frame(maxWidth: .infinity, alignment: wide ? .leading : .center)
+                                .frame(height: wide ? 54 : 40)
                                 .foregroundStyle(isCurrent ? Color.white : Color.primary)
                                 .background(
                                     isCurrent ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.secondary.opacity(0.14)),
@@ -270,6 +279,16 @@ struct VideoDetailView: View {
                         }
                         .buttonStyle(.plain)
                     }
+                }
+                if foldable {
+                    Button {
+                        withAnimation(.snappyCompat) { episodesExpanded.toggle() }
+                    } label: {
+                        Label(episodesExpanded ? "收起" : "展开全部 \(list.count) 集", systemImage: episodesExpanded ? "chevron.up" : "chevron.down")
+                            .font(.subheadline.weight(.medium))
+                            .frame(maxWidth: .infinity, minHeight: 36)
+                    }
+                    .glassButtonStyle()
                 }
             }
         }

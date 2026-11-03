@@ -62,6 +62,14 @@ struct MPVControls: View {
                     .allowsHitTesting(false)
             }
 
+            if mpv.showStats, let stats = mpv.stats {
+                statsPanel(stats)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    .padding(.top, isFullscreen ? 52 : 8)
+                    .padding(.leading, 10)
+                    .allowsHitTesting(false)
+            }
+
             // 隐藏时只是透明，不从界面上拿掉：菜单打开时控制条自动隐藏也不会把菜单关掉
             VStack(spacing: 0) {
                 if isFullscreen { topBar }
@@ -176,12 +184,30 @@ struct MPVControls: View {
                     }
                 }
             }
+            Section {
+                Button { mpv.showStats.toggle() } label: { checkLabel("播放信息（网速、码率、解码）", mpv.showStats) }
+            }
         } label: {
             Image(systemName: "captions.bubble")
                 .frame(width: 32, height: 32)
                 .contentShape(Rectangle())
         }
         .accessibilityLabel("音轨、字幕和倍速")
+    }
+
+    private func statsPanel(_ stats: MPVStats) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("网速 \(stats.speedText) · 需要 \(stats.neededText)")
+            Text("缓冲 \(Int(stats.buffered)) 秒 · 码率 \(stats.bitrateText)")
+            Text(stats.decoderText)
+            if stats.width > 0 {
+                Text("\(stats.codec.uppercased()) \(stats.width)×\(stats.height)\(stats.dropped > 0 ? " · 丢帧 \(stats.dropped)" : "")")
+            }
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(.white)
+        .padding(8)
+        .background(.black.opacity(0.55), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     @ViewBuilder
