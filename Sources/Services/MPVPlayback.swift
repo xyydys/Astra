@@ -430,6 +430,7 @@ private final class MPVCore: @unchecked Sendable {
         var wid = Int64(Int(bitPattern: Unmanaged.passUnretained(layer).toOpaque()))
         mpv_set_option(created, "wid", MPV_FORMAT_INT64, &wid)
         let shaderCache = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("mpv-shaders")
+        let subtitleFonts = Bundle.main.bundleURL.appendingPathComponent("SubtitleFonts")
         try? FileManager.default.createDirectory(at: shaderCache, withIntermediateDirectories: true)
         let options: [(String, String)] = [
             // 手机上用轻量的画面处理（缩放、HDR 峰值检测等），4K 片源也不吃力
@@ -458,7 +459,16 @@ private final class MPVCore: @unchecked Sendable {
             ("slang", "chs,sc,zh-hans,zh-cn,chi,zho,zh,cht,tc,zh-hant"),
             ("subs-match-os-language", "yes"),
             ("subs-fallback", "yes"),
-            ("sub-font", "PingFang SC"),
+            // 字幕字体用 App 里带的 Noto Sans SC：系统苹方的字体文件字幕库（libass）读不了，
+            // 每遇到缺字都去系统里找一遍、打开失败十几次，播放会被拖慢（片头特效字幕多时一直卡）。
+            // 不再去系统里找字体，只用片子内嵌的字体和这个字体
+            ("sub-font-provider", "none"),
+            ("sub-fonts-dir", subtitleFonts.path),
+            ("sub-font", "Noto Sans SC"),
+            // 解码放到单独线程，4K 大帧解码慢的时候不耽误给音频续数据；音频多缓冲一点，偶尔慢一下不会断
+            ("vd-queue-enable", "yes"),
+            ("ad-queue-enable", "yes"),
+            ("audio-buffer", "0.5"),
             // 着色器编译结果存下来，第二次播放开头不用再编译
             ("gpu-shader-cache", "yes"),
             ("gpu-shader-cache-dir", shaderCache.path),

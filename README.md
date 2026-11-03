@@ -44,6 +44,6 @@ brew install xcodegen && xcodegen generate
 
 ## 许可证
 
-[GPL-3.0](LICENSE)。音乐页的歌词动画来自 Folia（AGPL-3.0）和 AMLL（AGPL-3.0），粒子特效移植自 Mineradio（GPL-3.0），`Tools/FoliaEmbed` 中的相关文件按 AGPL-3.0 提供；网易云账号接口参考了 Kumone（LGPL-3.0）；视频的 mpv 内核使用 MPVKit 的 LGPL 版本（mpv、FFmpeg 等，LGPL-2.1 及以上）。Mineradio 的名称和视觉设计归其作者所有。
+[GPL-3.0](LICENSE)。音乐页的歌词动画来自 Folia（AGPL-3.0）和 AMLL（AGPL-3.0），粒子特效移植自 Mineradio（GPL-3.0），`Tools/FoliaEmbed` 中的相关文件按 AGPL-3.0 提供；网易云账号接口参考了 Kumone（LGPL-3.0）；视频的 mpv 内核使用 MPVKit 的 LGPL 版本（mpv、FFmpeg 等，LGPL-2.1 及以上）；mpv 字幕字体是 Noto Sans SC 的子集（SIL OFL 1.1，见 `licenses/`）。Mineradio 的名称和视觉设计归其作者所有。
 
 请只观看、阅读、收听你有权访问的内容。

@@ -33,6 +33,10 @@ targets:
         type: folder
         buildPhase: resources
         optional: true
+      # mpv 字幕用的中文字体（Noto Sans SC 子集，SIL OFL 1.1）：iOS 不让字幕库读系统苹方
+      - path: SubtitleFonts
+        type: folder
+        buildPhase: resources
     dependencies:
       - package: SwiftSoup
       - package: MPVKit

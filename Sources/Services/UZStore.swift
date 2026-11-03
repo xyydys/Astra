@@ -313,7 +313,7 @@ final class UZStore: ObservableObject {
             guard let raw = try? String(contentsOf: Self.scriptURL(ext.id), encoding: .utf8) else {
                 throw UZError.message("「\(ext.name)」的脚本不见了，重新导入一下订阅")
             }
-            try await runtime.install(tag: ext.id, name: ext.name, script: UZPrelude.strip(raw))
+            try await runtime.install(tag: ext.id, name: ext.name, script: UZPrelude.strip(Self.patchScript(raw)))
         }
         installing[ext.id] = task
         do {
@@ -323,6 +323,21 @@ final class UZStore: ObservableObject {
             throw error
         }
         return runtime
+    }
+
+    /// 给网盘工具打的补丁（找不到对应代码就原样不动）
+    nonisolated static func patchScript(_ raw: String) -> String {
+        var script = raw
+        // 百度原画直链：每个分享要用自己的 BDCLND（提取码验证后得到）。原脚本用的是 Cookie 里最后一次验证的那个，
+        // 搜索时验证过好几个百度分享，播放前面那个分享的文件就会返回 errno -9
+        let baiduAnchor = "const response = await this.api(apiPath, {}, headers, 'get')"
+        if script.contains("getDirectPlayUrl(uk, shareid, fsid, randsk)"), script.components(separatedBy: baiduAnchor).count == 2 {
+            script = script.replacingOccurrences(of: baiduAnchor, with: """
+            const shareCookie = (this.cookie || '').replace(/BDCLND=[^;]*;?\\s*/g, '').replace(/[;\\s]+$/, '') + (randsk ? '; BDCLND=' + randsk : '')
+                        const response = (await axios.get(this.apiUrl + apiPath, { headers: { ...this.baseHeader, ...headers, Cookie: shareCookie } })).data
+            """)
+        }
+        return script
     }
 
     /// 基础库：第一次用时从 uz 扩展仓库下载，之后用缓存
@@ -921,7 +936,18 @@ final class UZStore: ObservableObject {
             info?.fileName = fileName
             info?.mimeType = mimeType
             runtime.note("网盘工具返回：\(info.map { "\($0.alternates.count + 1) 个地址\($0.onlyOriginal ? "（只有原画）" : "")" } ?? "没有地址") \(RuleValue.string(object["error"]))")
-            if let info, !info.url.isEmpty { return info }
+            if var info, !info.url.isEmpty {
+                if panType == "百度" {
+                    // 百度直链：只带网盘客户端的 UA（不带 Referer），先把跳转解析出来再播（猫影视源包的做法）
+                    let agent = info.headers.first { $0.key.lowercased() == "user-agent" }?.value ?? BaiduLink.userAgent
+                    let probe = await BaiduLink.resolve(info.url, userAgent: agent)
+                    runtime.note("百度直链：\(probe.summary)")
+                    info.alternates = [(info.url, info.headers)] + info.alternates
+                    info.headers = ["User-Agent": agent]
+                    if let location = probe.location { info.url = location }
+                }
+                return info
+            }
             // 没取到原画地址：夸克 / UC 再试一下转存后用网盘转码播放
             if ["夸克", "UC"].contains(panType) {
                 runtime.note("没有原画地址，改用网盘转码")
@@ -1048,6 +1074,72 @@ final class AsyncLimiter {
         } else {
             waiters.removeFirst().resume()
         }
+    }
+}
+
+// MARK: - 百度直链
+
+enum BaiduLink {
+    static let userAgent = "netdisk;P2SP;2.2.91.136;android-android;"
+
+    struct Probe {
+        var status = 0
+        var location: String?
+        var host = ""
+        var body = ""
+
+        var summary: String {
+            if let location { return "\(host) \(status) → \(URL(string: location)?.host ?? String(location.prefix(40)))" }
+            return "\(host) \(status) \(body)"
+        }
+    }
+
+    private final class NoRedirect: NSObject, URLSessionTaskDelegate {
+        func urlSession(
+            _ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void
+        ) {
+            completionHandler(nil)
+        }
+    }
+
+    private static let session: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.timeoutIntervalForRequest = 15
+        return URLSession(configuration: config, delegate: NoRedirect(), delegateQueue: nil)
+    }()
+
+    /// 请求一次直链但不跟随跳转：拿到跳转后的地址；失败时记下状态码和返回的开头
+    static func resolve(_ url: String, userAgent: String) async -> Probe {
+        var probe = Probe()
+        guard let target = URL.lenient(url) else {
+            probe.body = "地址无效"
+            return probe
+        }
+        probe.host = target.host ?? ""
+        var request = URLRequest(url: target, timeoutInterval: 15)
+        request.setValue(userAgent, forHTTPHeaderField: "User-Agent")
+        do {
+            let (bytes, response) = try await session.bytes(for: request)
+            defer { bytes.task.cancel() }
+            guard let http = response as? HTTPURLResponse else { return probe }
+            probe.status = http.statusCode
+            if (300..<400).contains(http.statusCode), let location = http.value(forHTTPHeaderField: "Location"), !location.isEmpty {
+                probe.location = URL(string: location, relativeTo: target)?.absoluteString ?? location
+            } else if http.statusCode >= 400 {
+                var data = Data()
+                for try await byte in bytes {
+                    data.append(byte)
+                    if data.count >= 240 { break }
+                }
+                probe.body = String(decoding: data, as: UTF8.self)
+            }
+        } catch {
+            probe.body = error.localizedDescription
+        }
+        return probe
     }
 }
 
