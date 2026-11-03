@@ -98,20 +98,29 @@ enum Net {
 }
 
 extension URL {
-    /// 宽松解析：补全协议相对地址、对非法字符做百分号编码
+    /// 宽松解析：补全协议相对地址、对非法字符做百分号编码（已经编码过的 %XX 保持原样）
     static func lenient(_ raw: String) -> URL? {
         var s = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if s.isEmpty { return nil }
         if s.hasPrefix("//") { s = "https:" + s }
-        if let u = URL(string: s), u.scheme != nil { return u }
+        if let u = strict(s), u.scheme != nil { return u }
         let allowed = CharacterSet.urlQueryAllowed
             .union(.urlPathAllowed)
             .union(CharacterSet(charactersIn: "#%"))
         if let encoded = s.addingPercentEncoding(withAllowedCharacters: allowed),
-           let u = URL(string: encoded), u.scheme != nil {
+           let u = strict(encoded), u.scheme != nil {
             return u
         }
         return nil
+    }
+
+    /// iOS 17 起 URL(string:) 遇到非法字符（比如 |）会把整段重新编码，连已经编码的 %3D 也变成 %253D：
+    /// 带签名的地址（百度直链的 sign）就失效了。这里不让它自动编码，非法字符由上面自己编码
+    private static func strict(_ s: String) -> URL? {
+        if #available(iOS 17, macOS 14, *) {
+            return URL(string: s, encodingInvalidCharacters: false)
+        }
+        return URL(string: s)
     }
 }
 

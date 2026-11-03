@@ -1127,7 +1127,8 @@ enum BaiduLink {
             guard let http = response as? HTTPURLResponse else { return probe }
             probe.status = http.statusCode
             if (300..<400).contains(http.statusCode), let location = http.value(forHTTPHeaderField: "Location"), !location.isEmpty {
-                probe.location = URL(string: location, relativeTo: target)?.absoluteString ?? location
+                // 跳转地址原样用（带签名，交给 URL 解析可能被重新编码）；只有相对地址才拼上域名
+                probe.location = location.lowercased().hasPrefix("http") ? location : (URL(string: location, relativeTo: target)?.absoluteString ?? location)
             } else if http.statusCode >= 400 {
                 var data = Data()
                 for try await byte in bytes {
