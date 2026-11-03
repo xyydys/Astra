@@ -74,8 +74,6 @@ final class UZStore: ObservableObject {
             "https://ghfast.top/https://raw.githubusercontent.com/YYDS678/uzVideo-extensions/\(panToolsCommit)/",
         ]
     }
-    /// 没登录夸克时用的占位 Cookie：网盘工具没有 Cookie 时直接报错，先带个占位值试试分享直链（不转存）
-    static let anonymousCookie = "__astra_anonymous=1"
     static let coreFiles = [
         "CryptoJS.min.js", "JSEncrypt.min.js", "JSONbig.js", "buffer.js", "cheerio.js",
         "node-html-parser.js", "uz3lib.js", "uzUtils.js", "uzVideo.js",
@@ -240,12 +238,7 @@ final class UZStore: ObservableObject {
         let task = Task<UZRuntime, Error> {
             let core = try await Self.loadCore()
             let host = UZRuntime.Host(
-                getEnv: { key in
-                    let value = UZStore.envValue(key)
-                    // 没登录夸克也先试分享直链（见 anonymousCookie）
-                    if key == "夸克Cookie", value.isEmpty { return UZStore.anonymousCookie }
-                    return value
-                },
+                getEnv: { key in UZStore.envValue(key) },
                 setEnv: { key, value in UZStore.scriptSetEnv(key, value) },
                 getStorage: { key in UZStore.storage(key) },
                 setStorage: { key, value in UZStore.setStorage(key, value) },
@@ -837,6 +830,11 @@ final class UZStore: ObservableObject {
         var onlyOriginal = false
     }
 
+    /// 夸克 / UC / 115 / 百度至少登录了一个
+    var hasNetdiskLogin: Bool {
+        Self.webLogins.contains { !(env[$0.envKey] ?? "").isEmpty }
+    }
+
     private func isLoggedIn(_ panType: String) -> Bool {
         guard let login = Self.webLogins.first(where: { $0.envKey.hasPrefix(panType) || $0.name.hasPrefix(panType) }) else { return true }
         return !(env[login.envKey] ?? "").isEmpty
@@ -864,9 +862,13 @@ final class UZStore: ObservableObject {
             guard let pan = panTools ?? extensions.first(where: { $0.id == panID }) else {
                 throw UZError.message("网盘工具不见了，到「我的 → 片源 → 网盘资源」重新导入")
             }
-            let runtime = try await prepare(pan)
             let item = payload["item"] as? [String: Any] ?? [:]
             let panType = RuleValue.string(item["panType"])
+            // 夸克 / UC / 115 / 百度都要用自己的账号：没登录直接提示，不去试
+            guard isLoggedIn(panType) else {
+                throw UZError.message("播放\(panType)网盘的资源需要先登录：我的 → 片源 → 网盘资源 → 网盘账号")
+            }
+            let runtime = try await prepare(pan)
             // 系统播放器放不了 mkv / avi 之类的原文件：这种先用网盘转码后的 m3u8，原画放最后
             let fileName = RuleValue.string(item["name"]).lowercased()
             let playable = [".mp4", ".mov", ".m4v", ".m3u8"].contains { fileName.hasSuffix($0) }
@@ -876,17 +878,12 @@ final class UZStore: ObservableObject {
             if let info, !info.url.isEmpty, playable || !info.onlyOriginal {
                 return info
             }
-            // 只有原文件（夸克分享直链）而且是 mkv 之类：登录过的话转存后用网盘转码播放
+            // 只有原文件（夸克分享直链）而且是 mkv 之类：转存后用网盘转码播放
             if ["夸克", "UC"].contains(panType) {
-                if isLoggedIn(panType) {
-                    let transcoded = Self.json(try await runtime.transcode(tag: pan.id, item: item))
-                    if var result = try? Self.playInfo(transcoded, headerKey: "playHeaders"), !result.url.isEmpty {
-                        if let info { result.alternates += [(info.url, info.headers)] + info.alternates }
-                        return result
-                    }
-                } else if info != nil {
-                    let ext = (fileName as NSString).pathExtension.uppercased()
-                    throw UZError.message("这个文件是 \(ext.isEmpty ? "非 MP4" : ext) 格式，系统播放器放不了原文件。登录\(panType)网盘后会改用网盘转码播放（我的 → 片源 → 网盘资源 → 网盘账号）")
+                let transcoded = Self.json(try await runtime.transcode(tag: pan.id, item: item))
+                if var result = try? Self.playInfo(transcoded, headerKey: "playHeaders"), !result.url.isEmpty {
+                    if let info { result.alternates += [(info.url, info.headers)] + info.alternates }
+                    return result
                 }
             }
             if let info, !info.url.isEmpty { return info }

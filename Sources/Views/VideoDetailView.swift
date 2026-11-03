@@ -300,6 +300,18 @@ struct VideoDetailView: View {
                 NoRulesBanner(title: "还没有添加采集站", message: "点这里添加采集站或导入订阅，之后就能搜片播放")
             }
 
+            if !uz.vodSources.isEmpty, !uz.hasNetdiskLogin {
+                NavigationLink {
+                    UZSettingsView()
+                } label: {
+                    Label("网盘片源要先登录网盘（夸克、UC 等）才能播放", systemImage: "person.crop.circle.badge.exclamationmark")
+                        .font(.footnote)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+
             VStack(spacing: 0) {
                 ForEach(sources) { source in
                     sourceRow(source)
