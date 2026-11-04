@@ -109,6 +109,8 @@ final class UZStore: ObservableObject {
     /// 环境变量（网盘 Cookie、账号等），存在钥匙串里
     @Published private(set) var env: [String: String] = [:]
     @Published private(set) var working = false
+    /// 从 uz 订阅里挪出来的猫影视插件包地址（猫影视插件页面会自动填上）
+    var movedCatSubscription: String?
 
     private var runtime: UZRuntime?
     private var starting: Task<UZRuntime, Error>?
@@ -155,6 +157,19 @@ final class UZStore: ObservableObject {
            let snapshot = try? JSONDecoder().decode(Snapshot.self, from: data) {
             extensions = snapshot.extensions
             subscriptions = snapshot.subscriptions
+        }
+        // 之前当成 uz 扩展导入的猫影视插件包（只能在 Node 里运行）：去掉，订阅地址转到猫影视插件
+        let catPackages = extensions.filter { ext in
+            ((try? String(contentsOf: Self.scriptURL(ext.id), encoding: .utf8)).map(CatStore.looksLikePackage)) ?? false
+        }
+        if !catPackages.isEmpty {
+            let ids = Set(catPackages.map(\.id))
+            extensions.removeAll { ids.contains($0.id) }
+            for ext in catPackages { try? FileManager.default.removeItem(at: Self.scriptURL(ext.id)) }
+            let origins = Set(catPackages.map(\.origin).filter { !$0.isEmpty })
+            subscriptions.removeAll { origins.contains($0.url) }
+            movedCatSubscription = origins.first { $0.lowercased().hasPrefix("http") }
+            save()
         }
         if let raw = Keychain.get(Self.envKeychainKey),
            let dict = try? JSONDecoder().decode([String: String].self, from: Data(raw.utf8)) {
@@ -406,6 +421,10 @@ final class UZStore: ObservableObject {
         working = true
         defer { working = false }
         let isURL = text.lowercased().hasPrefix("http")
+        // 猫影视插件包（index.js.md5）不是 uz 扩展，要在内置 Node 里运行
+        if isURL, text.lowercased().hasSuffix("index.js.md5") {
+            throw UZError.message("这是猫影视插件包，请到「我的 → 片源 → 猫影视插件」里添加")
+        }
         let data: Data
         if isURL {
             data = try await Self.download(text)
@@ -421,6 +440,9 @@ final class UZStore: ObservableObject {
             result = try await importJSON(json, base: isURL ? text : "", origin: origin)
         } else {
             let script = String(decoding: data, as: UTF8.self)
+            if CatStore.looksLikePackage(script) {
+                throw UZError.message("这是猫影视插件包，请到「我的 → 片源 → 猫影视插件」里添加")
+            }
             guard script.contains("function") || script.contains("class ") else {
                 throw UZError.message("没有识别到 uz 订阅或扩展脚本")
             }

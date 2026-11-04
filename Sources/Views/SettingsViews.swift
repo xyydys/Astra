@@ -3,6 +3,7 @@ import SwiftUI
 struct SettingsView: View {
     @EnvironmentObject private var ruleStore: RuleStore
     @ObservedObject private var uz = UZStore.shared
+    @ObservedObject private var cat = CatStore.shared
     @AppStorage(AppSettings.hlsAdFilterKey) private var hlsAdFilter = true
     @AppStorage(AppSettings.filterAdultKey) private var filterAdult = true
     @State private var appIcon = AppIconOption.current
@@ -34,6 +35,15 @@ struct SettingsView: View {
                         Text(uz.vodSources.isEmpty ? "未导入" : "\(uz.vodSources.count) 个资源站")
                     } label: {
                         Label("网盘资源", systemImage: "externaldrive.connected.to.line.below")
+                    }
+                }
+                NavigationLink {
+                    CatSettingsView()
+                } label: {
+                    LabeledRow {
+                        Text(cat.hasPackage ? "\(cat.vodSources.count) 个站点" : "未添加")
+                    } label: {
+                        Label("猫影视插件", systemImage: "pawprint")
                     }
                 }
                 Toggle(isOn: $filterAdult) {

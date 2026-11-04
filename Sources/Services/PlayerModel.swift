@@ -29,7 +29,17 @@ final class PlayerModel: ObservableObject {
     /// 正在播放的线路 / 集
     @Published var playingRoad = 0
     @Published var playingEpisode: Int?
-    @Published var phase: Phase = .loadingChapters
+    @Published var phase: Phase = .loadingChapters {
+        didSet {
+            // 猫影视插件的片源出错时取一份插件的运行日志，复制日志时带上
+            if case .failed = phase, CatStore.isCat(request.cmsAPI) {
+                Task { [weak self] in
+                    let logs = await CatStore.shared.nodeLogs()
+                    self?.catLogs = logs
+                }
+            }
+        }
+    }
     @Published var isFullscreen = false
     @Published var isPictureInPicture = false
     /// 本集播放列表里去掉的广告分片数
@@ -55,6 +65,8 @@ final class PlayerModel: ObservableObject {
     private var alternates: [(url: String, headers: [String: String])] = []
     /// 本集试过的播放地址和结果（复制日志时带上）
     private var attempts: [String] = []
+    /// 猫影视插件的运行日志（出错时取一份，复制日志时带上）
+    private var catLogs: [String] = []
     /// 网盘里的文件名和文件类型（按格式选播放内核）
     private var mediaName = ""
     private var mediaType = ""
@@ -92,7 +104,9 @@ final class PlayerModel: ObservableObject {
 
     var debugLog: String {
         var lines: [String]
-        if UZStore.isUZ(request.cmsAPI) {
+        if CatStore.isCat(request.cmsAPI) {
+            lines = ["猫影视插件: \(request.ruleName)", "影片 id: \(request.vodID)"]
+        } else if UZStore.isUZ(request.cmsAPI) {
             lines = ["网盘片源: \(request.ruleName)", "影片 id: \(request.vodID)"]
         } else if request.isCMS {
             lines = ["采集站: \(request.ruleName)", "接口: \(request.cmsAPI)", "影片 id: \(request.vodID)"]
@@ -124,6 +138,11 @@ final class PlayerModel: ObservableObject {
                 lines.append(contentsOf: logs)
             }
         }
+        if CatStore.isCat(request.cmsAPI) {
+            lines.append("—— 猫影视插件 ——")
+            lines.append(contentsOf: CatStore.shared.diagnostics.suffix(20))
+            lines.append(contentsOf: catLogs.suffix(40))
+        }
         return lines.joined(separator: "\n")
     }
 
@@ -143,7 +162,12 @@ final class PlayerModel: ObservableObject {
         phase = .loadingChapters
         do {
             let result: [Road]
-            if UZStore.isUZ(request.cmsAPI) {
+            if CatStore.isCat(request.cmsAPI) {
+                // 猫影视插件：插件包里取详情
+                let item = try await CatStore.shared.detail(api: request.cmsAPI, vodID: request.vodID)
+                result = item.roads
+                if result.isEmpty { throw RuleError.parse("这个片源没有可播放的剧集，换个片源试试") }
+            } else if UZStore.isUZ(request.cmsAPI) {
                 // 网盘片源：资源站详情 + 网盘分享展开成剧集
                 let item = try await UZStore.shared.detail(api: request.cmsAPI, vodID: request.vodID)
                 result = item.roads
@@ -218,13 +242,15 @@ final class PlayerModel: ObservableObject {
         saveRecord(position: startAt, duration: 0)
 
         let page = roads[road].episodes[episode].url
-        if UZStore.isEpisodeURL(page) {
+        if UZStore.isEpisodeURL(page) || CatStore.isEpisodeURL(page) {
             resolveTask?.cancel()
             resolveTask = Task { [weak self] in
                 guard let self else { return }
                 do {
                     // 网盘：转存到自己网盘后取播放地址（带 Cookie 请求头）
-                    let info = try await UZStore.shared.resolve(page)
+                    let info = CatStore.isEpisodeURL(page)
+                        ? try await CatStore.shared.resolve(page)
+                        : try await UZStore.shared.resolve(page)
                     var url = info.url
                     if info.needsSniff, !CMSClient.isDirectMedia(url) {
                         url = try await self.sniffer.resolve(pageURL: url, legacy: false)
@@ -235,7 +261,9 @@ final class PlayerModel: ObservableObject {
                     self.mediaName = info.fileName
                     self.mediaType = info.mimeType
                     // 网盘原文件走本地多线程代理（网盘按连接限速）；转码的 m3u8 直接播
-                    if !info.needsSniff, !url.lowercased().contains(".m3u8"), !info.headers.isEmpty || url.hasPrefix("http") {
+                    // 插件包给的本机地址（它自己已经是多线程代理）不再套一层
+                    let isLocal = URL(string: url)?.host == "127.0.0.1"
+                    if !info.needsSniff, !isLocal, !url.lowercased().contains(".m3u8"), !info.headers.isEmpty || url.hasPrefix("http") {
                         do {
                             let proxied = try await NetdiskProxy.shared.register(url: url, headers: info.headers, fileName: info.fileName, mimeType: info.mimeType)
                             guard !Task.isCancelled, !self.tornDown else { return }

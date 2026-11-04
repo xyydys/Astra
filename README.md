@@ -7,7 +7,7 @@
 ## 功能
 
 - **番剧**：Bangumi 首页 / 搜索 / 详情，兼容 Kazumi 规则，多规则并发搜源，系统播放器（画中画、AirPlay）、选集、续播
-- **影视**：豆瓣推荐，苹果 CMS 采集站聚合搜索，支持订阅与 TVBox 配置导入，自动去除 m3u8 内插广告；兼容 uz 影视扩展订阅，网盘资源站的分享展开成剧集直接播放（夸克、UC、天翼、123、百度、115 等）；MKV、AVI 等系统播放器放不了的格式用 mpv 内核播放原画，可切换音轨和字幕
+- **影视**：豆瓣推荐，苹果 CMS 采集站聚合搜索，支持订阅与 TVBox 配置导入，自动去除 m3u8 内插广告；兼容 uz 影视扩展订阅，网盘资源站的分享展开成剧集直接播放（夸克、UC、天翼、123、百度、115 等）；兼容猫影视插件包订阅（index.js.md5，内置 Node.js 运行，插件里的 4K 网盘站、秒播站当片源用）；MKV、AVI 等系统播放器放不了的格式用 mpv 内核播放原画，可切换音轨和字幕
 - **漫画**：分区、排行、搜索，条漫滚动与翻页阅读（首次进入需确认已满 18 岁）
 - **小说**：兼容「阅读」3.x 书源格式，Swift 重写的规则引擎，TextKit 排版的阅读器
 - **音乐**：兼容洛雪音乐自定义音源，多平台聚合搜索，网易云账号登录（红心同步、歌单、每日推荐、账号播放），Folia / 仿 Apple Music / Mineradio 粒子歌词特效，后台与锁屏控制
@@ -41,9 +41,10 @@ brew install xcodegen && xcodegen generate
 - [uz 影视扩展](https://github.com/YYDS678/uzVideo-extensions)
 - [SwiftSoup](https://github.com/scinfu/SwiftSoup)
 - [mpv](https://github.com/mpv-player/mpv) / [MPVKit](https://github.com/mpvkit/MPVKit)
+- [nodejs-mobile](https://github.com/nodejs-mobile/nodejs-mobile)
 
 ## 许可证
 
-[GPL-3.0](LICENSE)。音乐页的歌词动画来自 Folia（AGPL-3.0）和 AMLL（AGPL-3.0），粒子特效移植自 Mineradio（GPL-3.0），`Tools/FoliaEmbed` 中的相关文件按 AGPL-3.0 提供；网易云账号接口参考了 Kumone（LGPL-3.0）；视频的 mpv 内核使用 MPVKit 的 LGPL 版本（mpv、FFmpeg 等，LGPL-2.1 及以上）；mpv 字幕字体是 Noto Sans SC 的子集（SIL OFL 1.1，见 `licenses/`）。Mineradio 的名称和视觉设计归其作者所有。
+[GPL-3.0](LICENSE)。音乐页的歌词动画来自 Folia（AGPL-3.0）和 AMLL（AGPL-3.0），粒子特效移植自 Mineradio（GPL-3.0），`Tools/FoliaEmbed` 中的相关文件按 AGPL-3.0 提供；网易云账号接口参考了 Kumone（LGPL-3.0）；视频的 mpv 内核使用 MPVKit 的 LGPL 版本（mpv、FFmpeg 等，LGPL-2.1 及以上）；mpv 字幕字体是 Noto Sans SC 的子集（SIL OFL 1.1，见 `licenses/`）；内置的 Node.js 运行时是 nodejs-mobile（MIT 及 Node.js 的相关许可）。Mineradio 的名称和视觉设计归其作者所有。
 
 请只观看、阅读、收听你有权访问的内容。

@@ -6,6 +6,7 @@ struct VideoDetailView: View {
     @ObservedObject private var library = WatchLibrary.shared
     @ObservedObject private var tints = PosterTints.shared
     @ObservedObject private var uz = UZStore.shared
+    @ObservedObject private var cat = CatStore.shared
     @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.colorScheme) private var systemScheme
 
@@ -43,7 +44,7 @@ struct VideoDetailView: View {
     private var isFavorite: Bool { library.isFavorite(subject.id) }
     private var record: WatchRecord? { library.record(subject.id) }
     /// 采集站在前，网盘资源站（uz 扩展）在后
-    private var sources: [CMSSource] { ruleStore.enabledCMS + uz.vodSources }
+    private var sources: [CMSSource] { ruleStore.enabledCMS + uz.vodSources + cat.vodSources }
 
     private var selectedItem: CMSItem? {
         guard let selectedID, case .found(let item) = results[selectedID] else { return nil }
@@ -444,6 +445,13 @@ struct VideoDetailView: View {
             for source in targets {
                 group.addTask {
                     do {
+                        if CatStore.isCat(source.url) {
+                            // 猫影视插件的站点：插件包里搜索、取详情
+                            guard let item = try await CatStore.shared.searchBest(source, keyword: word, year: year) else {
+                                return ("cms:" + source.id, .empty)
+                            }
+                            return ("cms:" + source.id, .found(item))
+                        }
                         if UZStore.isUZ(source.url) {
                             // 网盘资源站：搜到后还要取详情、把分享链接展开成剧集
                             guard let item = try await UZStore.shared.searchBest(source, keyword: word, year: year) else {

@@ -41,6 +41,9 @@ targets:
       - package: SwiftSoup
       - package: MPVKit
         product: MPVKit
+      # 内置 Node.js（nodejs-mobile，CI 里下载到 Vendor/）：运行猫影视插件包
+      - framework: Vendor/NodeMobile.xcframework
+        embed: true
       # MPVKit 里的库是静态库，它们用到的系统框架要 App 自己链接
       - sdk: CoreText.framework
       - sdk: QuartzCore.framework
