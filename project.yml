@@ -88,10 +88,10 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        # 只写这一个键：同时写了 NSAllowsArbitraryLoadsInWebContent / ForMedia 的话，系统会忽略这一个，
+        # App 里的 http 请求（采集站、扩展、本机的插件服务）都会被拦下
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-          NSAllowsArbitraryLoadsInWebContent: true
-          NSAllowsArbitraryLoadsForMedia: true
     settings:
       base:
         # 包名和显示名可以在编译时覆盖（CI 手动运行时可填），例如用旧包名编一版覆盖安装来导出备份

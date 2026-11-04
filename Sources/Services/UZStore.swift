@@ -689,8 +689,19 @@ final class UZStore: ObservableObject {
     /// 影视模式里当片源用的扩展（接口地址 uz://id）
     var vodSources: [CMSSource] {
         extensions
-            .filter { $0.isVod && $0.usable && $0.enabled && !(AppSettings.filterAdult && $0.isAV) }
+            .filter { $0.isVod && $0.usable && $0.enabled && !(AppSettings.filterAdult && $0.isAV) && !noSearchAtLaunch.contains($0.id) }
             .map { source(for: $0) }
+    }
+
+    /// 没实现搜索的扩展（只能浏览分类）：记下来，下次启动起不再当片源（这次启动不动，免得正在进行的搜索被打断重来）
+    private static let noSearchKey = "uz.noSearchExtensions"
+    private let noSearchAtLaunch = Set(UserDefaults.standard.stringArray(forKey: UZStore.noSearchKey) ?? [])
+
+    private func markNoSearch(_ id: String) {
+        var list = UserDefaults.standard.stringArray(forKey: Self.noSearchKey) ?? []
+        guard !list.contains(id) else { return }
+        list.append(id)
+        UserDefaults.standard.set(list, forKey: Self.noSearchKey)
     }
 
     private func source(for ext: Extension) -> CMSSource {
@@ -724,7 +735,13 @@ final class UZStore: ObservableObject {
         if let hit = searchCache[key], Date().timeIntervalSince(hit.date) < 600 { return hit.items }
         let ext = try findExtension(Self.extensionID(fromAPI: source.url))
         let runtime = try await prepare(ext)
-        let raw = try await runtime.call(tag: ext.id, function: "searchVideo", args: ["searchWord": word, "page": 1, "url": ""], webSite: ext.webSite)
+        let raw: String
+        do {
+            raw = try await runtime.call(tag: ext.id, function: "searchVideo", args: ["searchWord": word, "page": 1, "url": ""], webSite: ext.webSite)
+        } catch {
+            if error.localizedDescription.contains("没有实现 searchVideo") { markNoSearch(ext.id) }
+            throw error
+        }
         let object = Self.json(raw)
         var items = (object["data"] as? [[String: Any]] ?? []).compactMap { Self.item($0, ext: ext) }
         if items.isEmpty, let error = object["error"] as? String, !error.isEmpty {
