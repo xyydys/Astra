@@ -306,9 +306,9 @@ struct VideoDetailView: View {
 
     private var sourceList: some View {
         let found = rankedFound.map(\.source)
-        let loading = sources.filter { group($0) == .loading }
-        let empty = sources.filter { group($0) == .empty }
-        let failed = sources.filter { group($0) == .failed }
+        let loading = sources.filter { state(of: $0) == .loading }
+        let empty = sources.filter { state(of: $0) == .empty }
+        let failed = sources.filter { state(of: $0) == .failed }
         let showOthers = problemsExpanded ?? (found.isEmpty && loading.isEmpty)
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -508,9 +508,9 @@ struct VideoDetailView: View {
 
     // MARK: 排序
 
-    private enum Group { case found, loading, empty, failed }
+    private enum SourceState { case found, loading, empty, failed }
 
-    private func group(_ source: CMSSource) -> Group {
+    private func state(of source: CMSSource) -> SourceState {
         switch results["cms:" + source.id] ?? .loading {
         case .found: return .found
         case .loading: return .loading
