@@ -409,6 +409,8 @@ struct VideoDetailView: View {
             case .found:
                 userSelected = true
                 selectedRoad = 0
+                // 记住这部作品选的片源，下次打开排在最前面、默认选中
+                SourceMemory.shared.setPreferred(id, for: subject.id)
                 withAnimation(.snappyCompat) { selectedID = id }
             case .failed, .empty:
                 problemSource = source
@@ -459,7 +461,11 @@ struct VideoDetailView: View {
         var parts = [item.name]
         if !item.year.isEmpty { parts.append(item.year) }
         if !item.remarks.isEmpty { parts.append(item.remarks) } else if item.episodeCount > 1 { parts.append("\(item.episodeCount) 集") }
-        if let record, record.isCMSRecord, record.cmsAPI == item.api { parts.append("上次看的") }
+        if let record, record.isCMSRecord, record.cmsAPI == item.api {
+            parts.append("上次看的")
+        } else if SourceMemory.shared.preferred(for: subject.id) == "cms:" + item.api.lowercased() {
+            parts.append("上次选的")
+        }
         return parts.joined(separator: " · ")
     }
 
@@ -486,10 +492,10 @@ struct VideoDetailView: View {
     nonisolated static func problem(_ message: String) -> Problem {
         let text = message.lowercased()
         func has(_ words: [String]) -> Bool { words.contains { text.contains($0) } }
-        if has(["没有实现"]) {
-            return Problem(label: "不支持搜索", hint: "这个扩展只能浏览分类，不能按片名搜索，下次启动起不再参与搜索。")
+        if has(["没有实现"]) || (has(["route"]) && has(["not found"])) {
+            return Problem(label: "不支持搜索", hint: "这个扩展 / 插件站点只能浏览，不能按片名搜索，下次启动起不再参与搜索。")
         }
-        if has(["登录", "cookie", "bduss"]) {
+        if has(["登录", "bduss", "未授权"]) {
             return Problem(label: "需要登录", hint: "网盘没登录或者登录过期了。网盘资源的账号在「我的 → 片源 → 网盘资源 → 网盘账号」，猫影视插件的站点在插件的配置中心登录。")
         }
         if has(["插件运行环境", "插件启动", "还没有添加猫影视插件", "插件包里没有这个站点", "插件包运行出错"]) {
@@ -499,7 +505,7 @@ struct VideoDetailView: View {
             "timed out", "timeout", "超时", "could not connect", "无法连接", "connection was lost", "network connection",
             "tls", "ssl", "certificate", "证书", "offline", "hostname", "could not be found", "dns",
             "econnrefused", "econnreset", "etimedout", "enotfound", "eai_again", "socket hang up",
-            "接口返回", "status code", "http error", "app transport security", "cloudflare",
+            "接口返回", "status code", "http error", "app transport security", "cloudflare", "turnstile", "429",
         ]) {
             return Problem(label: "站点连不上", hint: "网站打不开、太慢或者拦了请求（超时、证书、404 之类），和有没有这部片无关。过段时间再试，一直这样可以在设置里关掉这个片源。")
         }
@@ -530,24 +536,10 @@ struct VideoDetailView: View {
     }
 
     private func score(_ item: CMSItem, index: Int, total: Int) -> Double {
-        var value = 0.0
-        let target = CMSClient.normalizeTitle(keyword)
-        let name = CMSClient.normalizeTitle(item.name)
-        if name == target {
-            value += 4
-        } else if !target.isEmpty, name.contains(target) || target.contains(name) {
-            value += 1.5
-        }
-        if let year = Int(subject.airDate.prefix(4)), let itemYear = Int(item.year.prefix(4)) {
-            let diff = abs(year - itemYear)
-            value += diff == 0 ? 2 : (diff == 1 ? 0.5 : -1.5)
-        }
-        if subject.episodes > 1, item.episodeCount > 0 {
-            value += 2 * min(Double(item.episodeCount) / Double(subject.episodes), 1)
-        }
-        if let record, record.isCMSRecord, record.cmsAPI == item.api { value += 6 }
-        value += 1 - Double(index) / Double(max(total, 1))
-        return value
+        var value = SourceScore.match(name: item.name, year: item.year, episodeCount: item.episodeCount, keyword: keyword, subject: subject)
+        if SourceMemory.shared.preferred(for: subject.id) == "cms:" + item.api.lowercased() { value += SourceScore.preferredBonus }
+        if let record, record.isCMSRecord, record.cmsAPI == item.api { value += SourceScore.lastWatchedBonus }
+        return value + SourceScore.priority(index: index, total: total)
     }
 
     // MARK: 搜索报告

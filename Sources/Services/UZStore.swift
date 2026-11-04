@@ -747,10 +747,8 @@ final class UZStore: ObservableObject {
         if items.isEmpty, let error = object["error"] as? String, !error.isEmpty {
             throw UZError.message(error)
         }
-        // 网盘站的搜索很宽泛，只留片名里有搜索词的
-        let target = CMSClient.normalizeTitle(word)
-        let matched = items.filter { CMSClient.normalizeTitle($0.name).contains(target) }
-        if !matched.isEmpty { items = matched }
+        // 网盘站的搜索很宽泛，只留片名里有搜索词的（一个都对不上就当没找到，不把不相干的结果当片源）
+        items = items.filter { CMSClient.isRelevant($0.name, keyword: word) }
         searchCache[key] = (Date(), items)
         return items
     }

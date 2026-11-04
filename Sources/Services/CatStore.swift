@@ -22,6 +22,23 @@ final class CatStore: ObservableObject {
         var updatedAt: Date?
         var sites: [Site] = []
         var disabled: Set<String> = []
+        /// 默认不搜的站点（音乐、课堂之类）里手动打开的
+        var enabled: Set<String> = []
+        /// 插件里没有搜索接口的站点（下次启动起不再搜）
+        var noSearch: Set<String> = []
+
+        init() {}
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            url = (try? c.decode(String.self, forKey: .url)) ?? ""
+            md5 = (try? c.decode(String.self, forKey: .md5)) ?? ""
+            updatedAt = try? c.decode(Date.self, forKey: .updatedAt)
+            sites = (try? c.decode([Site].self, forKey: .sites)) ?? []
+            disabled = (try? c.decode(Set<String>.self, forKey: .disabled)) ?? []
+            enabled = (try? c.decode(Set<String>.self, forKey: .enabled)) ?? []
+            noSearch = (try? c.decode(Set<String>.self, forKey: .noSearch)) ?? []
+        }
     }
 
     enum Status: Equatable {
@@ -47,13 +64,16 @@ final class CatStore: ObservableObject {
 
     /// 不当片源的站点：首页推荐、设置、推送、更新日期
     private static let hiddenKeys: Set<String> = ["nodejs_push", "nodejs_baseset", "nodejs_gengxin", "nodejs_douban"]
-    /// 直播、电台、听书之类的站点搜不到影视，不参与搜索
-    private static let nonVideoWords = ["直播", "电台", "听书", "舞曲", "体育"]
+    /// 直播、音乐、课堂之类的站点搜不到影视，默认不参与搜索（可以在设置里手动打开）
+    private static let nonVideoWords = ["直播", "电台", "听书", "舞曲", "体育", "音乐", "歌曲", "戏曲", "课堂", "教育", "舞蹈", "合集"]
+    /// 启动时就知道没有搜索接口的站点（这次启动里新发现的下次才去掉，免得正在进行的搜索被打断重来）
+    private var noSearchAtLaunch: Set<String> = []
 
     private init() {
         if let data = try? Data(contentsOf: Self.stateURL), let value = try? JSONDecoder().decode(Saved.self, from: data) {
             saved = value
         }
+        noSearchAtLaunch = saved.noSearch
     }
 
     // MARK: 文件
@@ -91,22 +111,36 @@ final class CatStore: ObservableObject {
 
     nonisolated static func isEpisodeURL(_ url: String) -> Bool { url.hasPrefix("catplay:") }
 
-    /// 可以搜索的影视站点
+    /// 能搜索的站点（设置里列出来的）
     var videoSites: [Site] {
         saved.sites.filter { site in
-            site.searchable && !Self.hiddenKeys.contains(site.key) && !Self.nonVideoWords.contains { site.name.contains($0) }
+            site.searchable && !Self.hiddenKeys.contains(site.key) && !noSearchAtLaunch.contains(site.key)
         }
+    }
+
+    /// 音乐、课堂、直播之类默认不搜
+    static func isNonVideo(_ site: Site) -> Bool { nonVideoWords.contains { site.name.contains($0) } }
+
+    func isEnabled(_ site: Site) -> Bool {
+        if saved.disabled.contains(site.key) { return false }
+        return !Self.isNonVideo(site) || saved.enabled.contains(site.key)
     }
 
     var vodSources: [CMSSource] {
         guard hasPackage else { return [] }
         return videoSites
-            .filter { !saved.disabled.contains($0.key) }
+            .filter { isEnabled($0) }
             .map { CMSSource(name: $0.name, url: Self.scheme + $0.key) }
     }
 
     func setEnabled(_ key: String, _ enabled: Bool) {
-        if enabled { saved.disabled.remove(key) } else { saved.disabled.insert(key) }
+        if enabled {
+            saved.disabled.remove(key)
+            saved.enabled.insert(key)
+        } else {
+            saved.disabled.insert(key)
+            saved.enabled.remove(key)
+        }
         save()
     }
 
@@ -265,7 +299,9 @@ final class CatStore: ObservableObject {
     func ensureRunning() async throws {
         guard hasPackage else { throw UZError.message("还没有添加猫影视插件：我的 → 片源 → 猫影视插件") }
         if CatNode.shared.hasExited { throw UZError.message("插件运行环境退出了，重启 App 再试") }
-        if status == .running, (try? await CatHTTP.get(serviceURL("/health"), timeout: 3)) != nil { return }
+        // 运行中就直接用：不在每次请求前探测（几十个站点同时搜时插件回得慢，探测超时会被误判成挂了、触发重新载入，
+        // 把正在进行的请求全断掉）；真连不上了由 call() 发现后再重新载入
+        if status == .running { return }
         if let startTask { return try await startTask.value }
         let task = Task<Void, Error> { @MainActor in
             defer { self.startTask = nil }
@@ -385,11 +421,28 @@ final class CatStore: ObservableObject {
     private func call(_ site: Site, _ action: String, _ body: [String: Any], timeout: TimeInterval = 40) async throws -> [String: Any] {
         try await ensureRunning()
         do {
-            let result = try await CatHTTP.post(serviceURL(site.api + "/" + action), body: body, timeout: timeout)
+            let result: [String: Any]
+            do {
+                result = try await CatHTTP.post(serviceURL(site.api + "/" + action), body: body, timeout: timeout)
+            } catch let error as URLError where error.code == .cannotConnectToHost {
+                // 插件服务没在监听了（比如退到后台久了）：重新载入后再试一次
+                if status == .running { status = .idle }
+                try await ensureRunning()
+                result = try await CatHTTP.post(serviceURL(site.api + "/" + action), body: body, timeout: timeout)
+            } catch let error as URLError where error.code == .networkConnectionLost {
+                // 复用的连接刚好被插件关掉：重发一次
+                result = try await CatHTTP.post(serviceURL(site.api + "/" + action), body: body, timeout: timeout)
+            }
             note("\(site.name) \(action)：\((result["list"] as? [Any])?.count.description ?? (result["url"] != nil ? "有地址" : "完成"))")
             return result
         } catch {
-            note("\(site.name) \(action) 失败：\(error.localizedDescription)")
+            let message = error.localizedDescription
+            // 插件里这个站点没有这个接口（比如没有搜索）：下次启动起不再搜
+            if message.contains("Route"), message.contains("not found") {
+                saved.noSearch.insert(site.key)
+                save()
+            }
+            note("\(site.name) \(action) 失败：\(message)")
             throw error
         }
     }
@@ -401,11 +454,9 @@ final class CatStore: ObservableObject {
         await searchLimiter.wait()
         defer { searchLimiter.signal() }
         let result = try await call(site, "search", ["wd": word, "page": 1, "quick": false], timeout: 30)
-        var items = CMSClient.parseList(result, api: source.url, sourceName: site.name)
-        let target = CMSClient.normalizeTitle(word)
-        let matched = items.filter { CMSClient.normalizeTitle($0.name).contains(target) }
-        if !matched.isEmpty { items = matched }
-        return items
+        // 插件的搜索很宽泛（短剧、音乐站会返回不相干的结果）：只留片名里有搜索词的
+        return CMSClient.parseList(result, api: source.url, sourceName: site.name)
+            .filter { CMSClient.isRelevant($0.name, keyword: word) }
     }
 
     func searchBest(_ source: CMSSource, keyword: String, year: String) async throws -> CMSItem? {

@@ -36,7 +36,11 @@ final class CatNode: @unchecked Sendable {
         }
         started = true
         lock.unlock()
-        let args = ["node", boot.path, dataDir.path, packageDir.path, String(Self.catPort), String(Self.controlPort)]
+        // --security-revert：插件里有的站点要用 RSA PKCS1 v1.5 解密（Node 18.20 起默认禁止）
+        let args = [
+            "node", "--security-revert=CVE-2023-46809",
+            boot.path, dataDir.path, packageDir.path, String(Self.catPort), String(Self.controlPort),
+        ]
         let thread = Thread { [weak self] in
             let code = Self.run(args)
             guard let self else { return }

@@ -12,7 +12,7 @@ struct CatSettingsView: View {
         switch store.status {
         case .idle: return store.hasPackage ? "未启动（用到时自动启动）" : "未添加"
         case .starting: return "启动中…"
-        case .running: return "运行中 · \(store.videoSites.count) 个影视站点"
+        case .running: return "运行中 · \(store.vodSources.count) 个站点参与搜索"
         case .failed(let message): return message
         }
     }
@@ -83,14 +83,14 @@ struct CatSettingsView: View {
                     Section {
                         ForEach(store.videoSites) { site in
                             Toggle(site.name, isOn: Binding(
-                                get: { !store.saved.disabled.contains(site.key) },
+                                get: { store.isEnabled(site) },
                                 set: { store.setEnabled(site.key, $0) }
                             ))
                         }
                     } header: {
                         Text("影视站点")
                     } footer: {
-                        Text("关掉的站点不参与影视详情页的自动找片源和搜索。直播、电台、听书类站点不参与搜索。")
+                        Text("关掉的站点不参与详情页的自动找片源和搜索。音乐、课堂、直播、电台、听书这类站点搜不到影视，默认关着，需要的话可以打开。")
                     }
                 }
             }
