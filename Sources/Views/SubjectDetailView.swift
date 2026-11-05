@@ -17,7 +17,8 @@ struct SubjectDetailView: View {
 
     init(subject: BangumiSubject) {
         _subject = State(initialValue: subject)
-        _search = StateObject(wrappedValue: SourceSearch(subject: subject))
+        // 同一部作品最近搜过就直接用上次的结果（去播放再回来、退回列表再点进来都不重搜）
+        _search = StateObject(wrappedValue: SourceSearch.shared(for: subject))
     }
 
     /// 海报主色：首页列表会提前取色，大多数情况下打开时第一帧就是对的
@@ -65,7 +66,7 @@ struct SubjectDetailView: View {
         .navigationTitleHidden()
         .task { await loadDetail() }
         .task { await PosterTints.shared.ensure(subject) }
-        .task(id: search.keyword + "|" + list.map(\.id).joined(separator: ",")) { await search.run(list) }
+        .task(id: search.keyword + "|" + list.map(\.id).joined(separator: ",")) { await search.start(list) }
         .navigationDestinationCompat(item: $playRequest) { request in
             PlayerScreen(request: request)
         }

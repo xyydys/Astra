@@ -151,6 +151,16 @@ struct SourceListSection: View {
                         .buttonStyle(.plain)
                     }
                     Spacer()
+                    Button {
+                        search.refresh()
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.subheadline)
+                    }
+                    .glassButtonStyle()
+                    .controlSize(.small)
+                    .disabled(search.isSearching)
+                    .accessibilityLabel("重新搜索")
                     Button(search.reportCopied ? "已复制" : "复制报告", icon: search.reportCopied ? "checkmark" : "doc.on.doc") {
                         copyReport()
                     }

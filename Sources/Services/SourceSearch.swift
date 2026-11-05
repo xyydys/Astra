@@ -77,16 +77,41 @@ final class SourceSearch: ObservableObject {
     @Published var reportCopied = false
     /// 用户手动选过片源后，不再自动切到排序更靠前的
     private(set) var userSelected = false
-    private var runKey = ""
+    /// 已经开始搜的关键词（nil：还没搜过）
+    private var searchedKeyword: String?
+    /// 正在搜的片源（搜索任务归这个对象管，离开页面、去播放都不会打断）
+    private var inFlight: Set<String> = []
     private var started = Date()
     /// 这部作品上次搜完时的片源顺序：还在搜的、没找到的按这个排，列表不乱跳
     private let rememberedOrder: [String: Int]
 
-    init(subject: BangumiSubject) {
+    private init(subject: BangumiSubject) {
         self.subject = subject
         keyword = subject.title
         let order = SourceMemory.shared.order(for: subject.id)
         rememberedOrder = Dictionary(order.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    // MARK: 暂存
+
+    /// 最近打开过的作品的搜索（只在内存里，最多 12 部）：去播放再回来、退回列表再点进同一部，
+    /// 都直接用上次的结果，没搜完的接着搜；搜了 30 分钟以上的再打开时重新搜
+    private static var recent: [Int: SourceSearch] = [:]
+    private static let keepSeconds: TimeInterval = 30 * 60
+    private var lastOpened = Date()
+
+    static func shared(for subject: BangumiSubject) -> SourceSearch {
+        let now = Date()
+        if let search = recent[subject.id], now.timeIntervalSince(search.started) < keepSeconds {
+            search.lastOpened = now
+            return search
+        }
+        let search = SourceSearch(subject: subject)
+        recent[subject.id] = search
+        if recent.count > 12, let oldest = recent.min(by: { $0.value.lastOpened < $1.value.lastOpened }) {
+            recent[oldest.key] = nil
+        }
+        return search
     }
 
     /// 片源列表：规则管理里的顺序（Kazumi 规则、采集站），然后是网盘资源站、猫影视插件
@@ -108,7 +133,7 @@ final class SourceSearch: ObservableObject {
 
     /// 还没开始搜（页面刚打开）也算在搜，免得按钮先闪一下「未找到」
     var isSearching: Bool {
-        runKey.isEmpty || candidates.contains { result(of: $0) == .loading }
+        searchedKeyword == nil || candidates.contains { result(of: $0) == .loading }
     }
 
     var selected: Ranked? {
@@ -251,62 +276,67 @@ final class SourceSearch: ObservableObject {
 
     // MARK: 搜索
 
-    /// 搜索所有片源。关键词或片源列表变了就从头搜；同一次搜索中途离开页面（任务被取消）回来后只补搜没出结果的
-    func run(_ list: [Candidate]) async {
-        let word = keyword
-        let key = word + "|" + list.map(\.id).joined(separator: ",")
-        if key != runKey {
-            runKey = key
-            candidates = list
+    /// 搜索所有片源：关键词变了从头搜；片源列表变了（增减片源）只补搜新加的，已有的结果留着。
+    /// 搜索任务不跟页面走，去播放、离开页面都接着搜，回来直接看到结果
+    func start(_ list: [Candidate]) {
+        if searchedKeyword != keyword {
+            searchedKeyword = keyword
             results = [:]
             timings = [:]
+            inFlight = []
             problemsExpanded = nil
             reportCopied = false
             if !userSelected { selectedID = nil }
             started = Date()
         }
-        let pending = list.filter { result(of: $0) == .loading }
-        guard !pending.isEmpty else { return }
+        if candidates != list { candidates = list }
+        let word = keyword
         let subject = subject
         let year = subject.airDate.count >= 4 ? String(subject.airDate.prefix(4)) : ""
-        await withTaskGroup(of: (String, Result)?.self) { group in
-            for candidate in pending {
-                group.addTask {
-                    let result = await Self.fetch(candidate, keyword: word, year: year, subject: subject)
-                    return Task.isCancelled ? nil : (candidate.id, result)
-                }
-            }
-            for await output in group {
-                guard let output, runKey == key else { continue }
-                results[output.0] = output.1
-                timings[output.0] = Date().timeIntervalSince(started)
-                autoSelect()
+        for candidate in list where results[candidate.id] == nil && !inFlight.contains(candidate.id) {
+            inFlight.insert(candidate.id)
+            Task { [weak self] in
+                let result = await SourceSearch.fetch(candidate, keyword: word, year: year, subject: subject)
+                self?.finish(candidate.id, result, keyword: word)
             }
         }
+    }
+
+    /// 全部重新搜一遍
+    func refresh() {
+        searchedKeyword = nil
+        start(candidates)
+    }
+
+    private func finish(_ id: String, _ result: Result, keyword word: String) {
+        guard word == searchedKeyword else { return }
+        inFlight.remove(id)
+        results[id] = result
+        timings[id] = Date().timeIntervalSince(started)
+        autoSelect()
         // 搜完记住这次的顺序，下次打开先按它排
-        if runKey == key, !isSearching {
+        if !isSearching {
             let found = ranked.map(\.id)
-            let rest = ordered(list).map(\.id).filter { !found.contains($0) }
+            let rest = ordered(candidates).map(\.id).filter { !found.contains($0) }
             SourceMemory.shared.setOrder(found + rest, for: subject.id)
         }
     }
 
     /// 重搜一个片源（出错后重试、网页验证完成后）
     func retry(_ candidate: Candidate, items: [SearchItem]? = nil) async {
-        let key = runKey
+        guard !inFlight.contains(candidate.id) else { return }
+        let word = keyword
+        inFlight.insert(candidate.id)
         results[candidate.id] = .loading
         let subject = subject
         let year = subject.airDate.count >= 4 ? String(subject.airDate.prefix(4)) : ""
         let result: Result
         if let items, !items.isEmpty, let rule = candidate.rule {
-            result = await Self.ruleHit(rule, items: items, keyword: keyword, subject: subject)
+            result = await Self.ruleHit(rule, items: items, keyword: word, subject: subject)
         } else {
-            result = await Self.fetch(candidate, keyword: keyword, year: year, subject: subject)
+            result = await Self.fetch(candidate, keyword: word, year: year, subject: subject)
         }
-        guard runKey == key else { return }
-        results[candidate.id] = result
-        timings[candidate.id] = Date().timeIntervalSince(started)
-        autoSelect()
+        finish(candidate.id, result, keyword: word)
     }
 
     nonisolated static func fetch(_ candidate: Candidate, keyword: String, year: String, subject: BangumiSubject) async -> Result {

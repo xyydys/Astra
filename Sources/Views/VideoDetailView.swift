@@ -18,7 +18,8 @@ struct VideoDetailView: View {
 
     init(subject: BangumiSubject) {
         _subject = State(initialValue: subject)
-        _search = StateObject(wrappedValue: SourceSearch(subject: subject))
+        // 同一部作品最近搜过就直接用上次的结果（去播放再回来、退回列表再点进来都不重搜）
+        _search = StateObject(wrappedValue: SourceSearch.shared(for: subject))
     }
 
     private var tint: PosterTint? { tints.tint(for: subject.id) }
@@ -61,7 +62,7 @@ struct VideoDetailView: View {
         .navigationTitleHidden()
         .task { await PosterTints.shared.ensure(subject) }
         .task { await loadAbstract() }
-        .task(id: search.keyword + "|" + list.map(\.id).joined(separator: ",")) { await search.run(list) }
+        .task(id: search.keyword + "|" + list.map(\.id).joined(separator: ",")) { await search.start(list) }
         .navigationDestinationCompat(item: $playRequest) { request in
             PlayerScreen(request: request)
         }
