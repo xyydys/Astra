@@ -461,7 +461,7 @@ final class CatStore: ObservableObject {
 
     func searchBest(_ source: CMSSource, keyword: String, year: String) async throws -> CMSItem? {
         let items = try await search(source, keyword: keyword)
-        guard let best = VideoDetailView.bestMatch(items, title: keyword, year: year) else { return nil }
+        guard let best = SourceSearch.bestMatch(items, title: keyword, year: year) else { return nil }
         let full = try await detail(api: source.url, vodID: best.vodID, base: best)
         return full.roads.isEmpty ? nil : full
     }

@@ -1,13 +1,68 @@
 import Foundation
 
-/// 片源和作品的匹配度（影视详情和番剧选片源共用）
+/// 片源的大类
+enum SourceKind: String, CaseIterable, Identifiable, Codable {
+    case cat, uz, cms, rule
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .cat: return "猫影视"
+        case .uz: return "网盘"
+        case .cms: return "采集站"
+        case .rule: return "规则"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .cat: return "猫影视插件包里的站点"
+        case .uz: return "网盘资源站（uz 扩展）搜到的网盘分享"
+        case .cms: return "苹果 CMS 采集站"
+        case .rule: return "Kazumi 规则（只用于番剧）"
+        }
+    }
+}
+
+/// 片源大类的优先级：片名对得上的结果里，排在前面的大类优先（默认猫影视 → 网盘 → 采集站 → 规则）。
+/// 存成逗号分隔的字符串，设置页可以直接用 @AppStorage 读写
+enum SourceKindOrder {
+    static let key = "source.kindOrder"
+    static let defaultOrder: [SourceKind] = [.cat, .uz, .cms, .rule]
+
+    static func parse(_ raw: String) -> [SourceKind] {
+        var list: [SourceKind] = []
+        for part in raw.split(separator: ",") {
+            if let kind = SourceKind(rawValue: String(part)), !list.contains(kind) { list.append(kind) }
+        }
+        for kind in defaultOrder where !list.contains(kind) { list.append(kind) }
+        return list
+    }
+
+    static func raw(_ order: [SourceKind]) -> String {
+        order.map(\.rawValue).joined(separator: ",")
+    }
+
+    static var order: [SourceKind] {
+        get { parse(UserDefaults.standard.string(forKey: key) ?? "") }
+        set { UserDefaults.standard.set(raw(newValue), forKey: key) }
+    }
+}
+
+/// 片源和作品的匹配度（影视详情和番剧详情共用）
 enum SourceScore {
+    /// 搜索词和作品的各种叫法（规整过的）
+    private static func targets(_ keyword: String, _ subject: BangumiSubject) -> Set<String> {
+        Set(([keyword] + subject.searchKeywords).map(CMSClient.normalizeTitle).filter { !$0.isEmpty })
+    }
+
     /// 一条搜索结果的匹配度：片名一致 4 分、片名包含 1.5 分；年份一致 +2、差一年 +0.5、对不上 -1.5；
     /// 集数和作品的集数比，齐全最多 +2
     static func match(name: String, year: String, episodeCount: Int, keyword: String, subject: BangumiSubject) -> Double {
         var value = 0.0
         let title = CMSClient.normalizeTitle(name)
-        let targets = Set(([keyword] + subject.searchKeywords).map(CMSClient.normalizeTitle).filter { !$0.isEmpty })
+        let targets = targets(keyword, subject)
         if targets.contains(title) {
             value += 4
         } else if !title.isEmpty, targets.contains(where: { title.contains($0) || $0.contains(title) }) {
@@ -23,14 +78,30 @@ enum SourceScore {
         return value
     }
 
+    /// 匹配档次：片名一致 2、片名包含 1、对不上 0；年份差两年以上、集数不到找到的最全那个的一半，各降一档。
+    /// 同一档里才轮到片源大类的优先级，免得优先的大类里一个对不上的结果排到最前
+    static func level(name: String, year: String, episodeCount: Int, maxEpisodes: Int, keyword: String, subject: BangumiSubject) -> Int {
+        let title = CMSClient.normalizeTitle(name)
+        let targets = targets(keyword, subject)
+        var value = 0
+        if targets.contains(title) {
+            value = 2
+        } else if !title.isEmpty, targets.contains(where: { title.contains($0) || $0.contains(title) }) {
+            value = 1
+        }
+        if let wanted = Int(subject.airDate.prefix(4)), let found = Int(year.prefix(4)), abs(wanted - found) > 1 {
+            value -= 1
+        }
+        if maxEpisodes > 1, episodeCount * 2 < maxEpisodes {
+            value -= 1
+        }
+        return max(value, 0)
+    }
+
     /// 自己排的优先级：越靠前加分越多（最多 1 分，只在匹配度差不多时起作用）
     static func priority(index: Int, total: Int) -> Double {
         1 - Double(index) / Double(max(total, 1))
     }
-
-    /// 这部作品点过 / 看过的片源
-    static let preferredBonus = 8.0
-    static let lastWatchedBonus = 6.0
 }
 
 /// 每部作品记住的首选片源和上次的片源顺序（打开时先按上次的顺序排，搜索结果陆续回来也不乱跳）。

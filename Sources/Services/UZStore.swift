@@ -757,7 +757,7 @@ final class UZStore: ObservableObject {
     /// 十几个资源站同时搜，展开分享会打很多网盘接口：同时最多展开 4 个站，每个站最多 3 个分享
     func searchBest(_ source: CMSSource, keyword: String, year: String) async throws -> CMSItem? {
         let items = try await search(source, keyword: keyword)
-        guard let best = VideoDetailView.bestMatch(items, title: keyword, year: year) else { return nil }
+        guard let best = SourceSearch.bestMatch(items, title: keyword, year: year) else { return nil }
         await detailLimiter.wait()
         defer { detailLimiter.signal() }
         let full = try await detail(api: source.url, vodID: best.vodID, base: best, maxShares: 3)

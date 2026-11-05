@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// 影视详情：打开后自动在所有启用的片源里按片名搜索，按匹配度选中最合适的片源，直接选集播放
+/// 影视详情：打开后自动在所有启用的片源里按片名搜索，按匹配度和片源大类顺序选中最合适的片源，直接选集播放
 struct VideoDetailView: View {
     @State private var subject: BangumiSubject
+    @StateObject private var search: SourceSearch
     @ObservedObject private var library = WatchLibrary.shared
     @ObservedObject private var tints = PosterTints.shared
     @ObservedObject private var uz = UZStore.shared
@@ -10,66 +11,41 @@ struct VideoDetailView: View {
     @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.colorScheme) private var systemScheme
 
-    enum SourceResult: Equatable {
-        case loading
-        case found(CMSItem)
-        case empty
-        case failed(String)
-    }
-
-    @State private var keyword: String
-    @State private var results: [String: SourceResult] = [:]
-    @State private var selectedID: String?
-    /// 用户手动选过片源后，不再自动切到优先级更高的
-    @State private var userSelected = false
-    @State private var selectedRoad = 0
     @State private var playRequest: PlayRequest?
     @State private var summaryExpanded = false
-    /// 选集很多时默认只显示前几行
-    @State private var episodesExpanded = false
-    @State private var showKeywordEditor = false
-    @State private var keywordDraft = ""
     @State private var directors = ""
     @State private var actors = ""
-    /// 每个片源这次搜索用了多久（复制报告时带上）
-    @State private var timings: [String: TimeInterval] = [:]
-    /// 没找到 / 出错的片源列表展开（nil：没有找到任何结果时自动展开）
-    @State private var problemsExpanded: Bool?
-    @State private var problemSource: CMSSource?
-    @State private var reportCopied = false
-    @AppStorage("episodeListReversed") private var episodesReversed = false
-
-    private let columns = [GridItem(.adaptive(minimum: 76), spacing: 10)]
 
     init(subject: BangumiSubject) {
         _subject = State(initialValue: subject)
-        _keyword = State(initialValue: subject.title)
+        _search = StateObject(wrappedValue: SourceSearch(subject: subject))
     }
 
     private var tint: PosterTint? { tints.tint(for: subject.id) }
     private var isFavorite: Bool { library.isFavorite(subject.id) }
     private var record: WatchRecord? { library.record(subject.id) }
-    /// 采集站在前，网盘资源站（uz 扩展）在后
-    private var sources: [CMSSource] { ruleStore.enabledCMS + uz.vodSources + cat.vodSources }
 
-    private var selectedItem: CMSItem? {
-        guard let selectedID, case .found(let item) = results[selectedID] else { return nil }
-        return item
-    }
-
-    private var isSearching: Bool {
-        sources.contains { results["cms:" + $0.id] == nil || results["cms:" + $0.id] == .loading }
+    /// 影视只搜采集站、网盘资源站和猫影视插件（Kazumi 规则都是动漫站）
+    private var candidates: [SourceSearch.Candidate] {
+        SourceSearch.candidates(entries: ruleStore.searchableEntries(includeRules: false), uz: uz.vodSources, cat: cat.vodSources)
     }
 
     var body: some View {
-        ScrollView {
+        let list = candidates
+        let selected = search.selected
+        return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 header
                 actions
-                if let item = selectedItem {
-                    episodes(of: item)
+                if let selected, !selected.hit.roads.isEmpty {
+                    EpisodePanel(hit: selected.hit, road: $search.selectedRoad, current: search.recordEpisode) { episode in
+                        play(episode)
+                    }
                 }
-                sourceList
+                SourceListSection(
+                    search: search, hasSources: !list.isEmpty,
+                    emptyTitle: "还没有添加采集站", emptyMessage: "点这里添加采集站或导入订阅，之后就能搜片播放"
+                )
                 info
             }
             .padding(.bottom, 32)
@@ -85,7 +61,7 @@ struct VideoDetailView: View {
         .navigationTitleHidden()
         .task { await PosterTints.shared.ensure(subject) }
         .task { await loadAbstract() }
-        .task(id: keyword + "|" + sources.map(\.id).joined(separator: ",")) { await searchSources() }
+        .task(id: search.keyword + "|" + list.map(\.id).joined(separator: ",")) { await search.run(list) }
         .navigationDestinationCompat(item: $playRequest) { request in
             PlayerScreen(request: request)
         }
@@ -95,16 +71,6 @@ struct VideoDetailView: View {
             set: { uz.verifyRequest = $0?.url }
         )) { request in
             UZVerifySheet(url: request.url)
-        }
-        .textFieldAlert(
-            "修改搜索词", isPresented: $showKeywordEditor, text: $keywordDraft, placeholder: "片名",
-            message: "片源里的名称和豆瓣不一致时，可以换个叫法再搜", confirm: "搜索"
-        ) {
-            let word = keywordDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-            if !word.isEmpty, word != keyword {
-                userSelected = false
-                keyword = word
-            }
         }
     }
 
@@ -184,9 +150,9 @@ struct VideoDetailView: View {
             }
             .glassProminentButtonStyle()
             .controlSize(.large)
-        } else if let item = selectedItem {
+        } else if search.selected != nil {
             Button {
-                play(item, episode: 0)
+                play(0)
             } label: {
                 Label("播放", systemImage: "play.fill")
                     .frame(maxWidth: .infinity)
@@ -196,8 +162,8 @@ struct VideoDetailView: View {
         } else {
             Button {} label: {
                 Label(
-                    sources.isEmpty ? "还没有添加采集站" : (isSearching ? "正在查找片源…" : "未找到相关资源"),
-                    systemImage: isSearching ? "magnifyingglass" : "exclamationmark.circle"
+                    candidates.isEmpty ? "还没有添加采集站" : (search.isSearching ? "正在查找片源…" : "未找到相关资源"),
+                    systemImage: search.isSearching ? "magnifyingglass" : "exclamationmark.circle"
                 )
                 .frame(maxWidth: .infinity)
             }
@@ -207,387 +173,11 @@ struct VideoDetailView: View {
         }
     }
 
-    // MARK: 选集
-
-    private func episodes(of item: CMSItem) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text(item.episodeCount > 1 ? "选集 · 共 \(item.episodeCount) 集" : "播放")
-                    .font(.headline)
-                if !item.remarks.isEmpty {
-                    Text(item.remarks)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                if item.episodeCount > 1 {
-                    Button {
-                        withAnimation(.snappyCompat) { episodesReversed.toggle() }
-                    } label: {
-                        Label(episodesReversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
-                            .font(.subheadline)
-                    }
-                    .glassButtonStyle()
-                    .controlSize(.small)
-                }
-            }
-
-            if item.roads.count > 1 {
-                // 网盘分享的线路名比较长：放不下时改成菜单
-                if item.roads.count > 3 || item.roads.contains(where: { $0.name.count > 6 }) {
-                    Picker(selection: $selectedRoad) {
-                        ForEach(item.roads.indices, id: \.self) { index in
-                            Text("\(item.roads[index].name)（\(item.roads[index].episodes.count)）").tag(index)
-                        }
-                    } label: {
-                        Text("线路")
-                    }
-                    .pickerStyle(.menu)
-                } else {
-                    Picker("线路", selection: $selectedRoad) {
-                        ForEach(item.roads.indices, id: \.self) { index in
-                            Text(item.roads[index].name).tag(index)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                }
-            }
-
-            if item.roads.indices.contains(selectedRoad) {
-                let list = item.roads[selectedRoad].episodes
-                let current = record.flatMap { $0.isCMSRecord && $0.vodID == item.vodID && $0.roadIndex == selectedRoad ? $0.episodeIndex : nil }
-                // 网盘文件名比较长：一行一个
-                let wide = list.prefix(30).contains { $0.name.count > 8 }
-                let order = episodesReversed ? Array(list.indices.reversed()) : Array(list.indices)
-                // 集数多时先显示前几行（页面短一些，下面的片源不用划很久；搜索中切换片源时页面也不会大幅跳动）
-                let limit = wide ? 6 : 20
-                let foldable = order.count > limit + 4
-                let shown = foldable && !episodesExpanded ? Array(order.prefix(limit)) : order
-                LazyVGrid(columns: wide ? [GridItem(.flexible())] : columns, spacing: 10) {
-                    ForEach(shown, id: \.self) { index in
-                        let isCurrent = current == index
-                        Button {
-                            play(item, episode: index)
-                        } label: {
-                            Text(list[index].name)
-                                .font(.subheadline.weight(isCurrent ? .bold : .regular))
-                                .lineLimit(wide ? 2 : 1)
-                                .minimumScaleFactor(wide ? 0.85 : 0.7)
-                                .multilineTextAlignment(wide ? .leading : .center)
-                                .padding(.horizontal, wide ? 12 : 0)
-                                // 高度固定：格子高度不一时，快速滚动会让懒加载的网格估错高度、页面跳动
-                                .frame(maxWidth: .infinity, alignment: wide ? .leading : .center)
-                                .frame(height: wide ? 54 : 40)
-                                .foregroundStyle(isCurrent ? Color.white : Color.primary)
-                                .background(
-                                    isCurrent ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(Color.secondary.opacity(0.14)),
-                                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                )
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                if foldable {
-                    Button {
-                        withAnimation(.snappyCompat) { episodesExpanded.toggle() }
-                    } label: {
-                        Label(episodesExpanded ? "收起" : "展开全部 \(list.count) 集", systemImage: episodesExpanded ? "chevron.up" : "chevron.down")
-                            .font(.subheadline.weight(.medium))
-                            .frame(maxWidth: .infinity, minHeight: 36)
-                    }
-                    .glassButtonStyle()
-                }
-            }
-        }
-        .padding(.horizontal)
-    }
-
-    // MARK: 片源
-
-    private var sourceList: some View {
-        let found = rankedFound.map(\.source)
-        let loading = sources.filter { state(of: $0) == .loading }
-        let empty = sources.filter { state(of: $0) == .empty }
-        let failed = sources.filter { state(of: $0) == .failed }
-        let showOthers = problemsExpanded ?? (found.isEmpty && loading.isEmpty)
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack {
-                Text("片源")
-                    .font(.headline)
-                Text("按匹配度")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Button("换个搜索词", icon: "character.cursor.ibeam") {
-                    keywordDraft = keyword
-                    showKeywordEditor = true
-                }
-                .font(.subheadline)
-                .glassButtonStyle()
-                .controlSize(.small)
-            }
-
-            if sources.isEmpty {
-                NoRulesBanner(title: "还没有添加采集站", message: "点这里添加采集站或导入订阅，之后就能搜片播放")
-            }
-
-            if !uz.vodSources.isEmpty, !uz.hasNetdiskLogin {
-                NavigationLink {
-                    UZSettingsView()
-                } label: {
-                    Label("网盘片源要先登录网盘（夸克、UC 等）才能播放", systemImage: "person.crop.circle.badge.exclamationmark")
-                        .font(.footnote)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-            }
-
-            if !found.isEmpty || !loading.isEmpty {
-                sourceCard(found + loading)
-            }
-
-            if !empty.isEmpty || !failed.isEmpty {
-                HStack(spacing: 10) {
-                    Button {
-                        withAnimation(.snappyCompat) { problemsExpanded = !showOthers }
-                    } label: {
-                        Label(
-                            [failed.isEmpty ? "" : "\(failed.count) 个出错", empty.isEmpty ? "" : "\(empty.count) 个没找到"]
-                                .filter { !$0.isEmpty }.joined(separator: " · "),
-                            systemImage: showOthers ? "chevron.up" : "chevron.down"
-                        )
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    Spacer()
-                    Button(reportCopied ? "已复制" : "复制报告", icon: reportCopied ? "checkmark" : "doc.on.doc") {
-                        copyReport()
-                    }
-                    .font(.subheadline)
-                    .glassButtonStyle()
-                    .controlSize(.small)
-                    .accessibilityHint("复制每个片源的搜索结果和出错原因，可以发给开发者排查")
-                }
-                if showOthers {
-                    sourceCard(failed + empty)
-                }
-            }
-        }
-        .padding(.horizontal)
-        .alert(
-            problemSource?.name ?? "",
-            isPresented: Binding(get: { problemSource != nil }, set: { if !$0 { problemSource = nil } }),
-            presenting: problemSource
-        ) { source in
-            Button("复制") { UIPasteboard.general.string = problemText(source) }
-            Button("好", role: .cancel) {}
-        } message: { source in
-            Text(problemText(source))
-        }
-    }
-
-    private func sourceCard(_ list: [CMSSource]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(list) { source in
-                sourceRow(source)
-                if source.id != list.last?.id {
-                    Divider().padding(.leading, 14)
-                }
-            }
-        }
-        .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-    }
-
-    private func sourceRow(_ source: CMSSource) -> some View {
-        let id = "cms:" + source.id
-        let result = results[id] ?? .loading
-        let selected = selectedID == id
-        return Button {
-            switch result {
-            case .found:
-                userSelected = true
-                selectedRoad = 0
-                // 记住这部作品选的片源，下次打开排在最前面、默认选中
-                SourceMemory.shared.setPreferred(id, for: subject.id)
-                withAnimation(.snappyCompat) { selectedID = id }
-            case .failed, .empty:
-                problemSource = source
-            case .loading:
-                break
-            }
-        } label: {
-            HStack(spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(source.name)
-                        .font(.subheadline.weight(selected ? .semibold : .regular))
-                        .foregroundStyle(.primary)
-                    Group {
-                        switch result {
-                        case .loading:
-                            Text("搜索中…")
-                        case .found(let item):
-                            Text(foundSummary(item))
-                        case .empty:
-                            Text("没有找到")
-                        case .failed(let message):
-                            Text(Self.problem(message).label).foregroundColor(.orange) + Text(" · " + message)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                }
-                Spacer()
-                if result == .loading {
-                    ProgressView().controlSize(.small)
-                } else if selected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.tint)
-                } else if case .failed = result {
-                    Image(systemName: "info.circle")
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func foundSummary(_ item: CMSItem) -> String {
-        var parts = [item.name]
-        if !item.year.isEmpty { parts.append(item.year) }
-        if !item.remarks.isEmpty { parts.append(item.remarks) } else if item.episodeCount > 1 { parts.append("\(item.episodeCount) 集") }
-        if let record, record.isCMSRecord, record.cmsAPI == item.api {
-            parts.append("上次看的")
-        } else if SourceMemory.shared.preferred(for: subject.id) == "cms:" + item.api.lowercased() {
-            parts.append("上次选的")
-        }
-        return parts.joined(separator: " · ")
-    }
-
-    private func problemText(_ source: CMSSource) -> String {
-        switch results["cms:" + source.id] ?? .loading {
-        case .failed(let message):
-            let problem = Self.problem(message)
-            return "\(problem.label)：\(problem.hint)\n\n原始信息：\(message)"
-        case .empty:
-            return "这个片源搜「\(keyword)」没有结果（或者结果的片名对不上）。片名叫法不一样的话，可以点「换个搜索词」。"
-        default:
-            return ""
-        }
-    }
-
-    // MARK: 出错原因
-
-    struct Problem {
-        let label: String
-        let hint: String
-    }
-
-    /// 把各种报错归成几类：分得清是站点连不上、要登录、插件没运行，还是站点 / 扩展本身坏了
-    nonisolated static func problem(_ message: String) -> Problem {
-        let text = message.lowercased()
-        func has(_ words: [String]) -> Bool { words.contains { text.contains($0) } }
-        if has(["没有实现"]) || (has(["route"]) && has(["not found"])) {
-            return Problem(label: "不支持搜索", hint: "这个扩展 / 插件站点只能浏览，不能按片名搜索，下次启动起不再参与搜索。")
-        }
-        if has(["登录", "bduss", "未授权"]) {
-            return Problem(label: "需要登录", hint: "网盘没登录或者登录过期了。网盘资源的账号在「我的 → 片源 → 网盘资源 → 网盘账号」，猫影视插件的站点在插件的配置中心登录。")
-        }
-        if has(["插件运行环境", "插件启动", "还没有添加猫影视插件", "插件包里没有这个站点", "插件包运行出错"]) {
-            return Problem(label: "插件没运行", hint: "到「我的 → 片源 → 猫影视插件」看运行状态和运行日志。")
-        }
-        if has([
-            "timed out", "timeout", "超时", "could not connect", "无法连接", "connection was lost", "network connection",
-            "tls", "ssl", "certificate", "证书", "offline", "hostname", "could not be found", "dns",
-            "econnrefused", "econnreset", "etimedout", "enotfound", "eai_again", "socket hang up",
-            "接口返回", "status code", "http error", "app transport security", "cloudflare", "turnstile", "429",
-        ]) {
-            return Problem(label: "站点连不上", hint: "网站打不开、太慢或者拦了请求（超时、证书、404 之类），和有没有这部片无关。过段时间再试，一直这样可以在设置里关掉这个片源。")
-        }
-        return Problem(label: "解析出错", hint: "网站改版了，或者扩展 / 插件本身有问题，要等订阅更新。点「复制报告」发给开发者可以帮忙定位。")
-    }
-
-    // MARK: 排序
-
-    private enum SourceState { case found, loading, empty, failed }
-
-    private func state(of source: CMSSource) -> SourceState {
-        switch results["cms:" + source.id] ?? .loading {
-        case .found: return .found
-        case .loading: return .loading
-        case .empty: return .empty
-        case .failed: return .failed
-        }
-    }
-
-    /// 找到结果的片源按匹配度排：片名一致、年份一致、集数齐全、上次看的就是这个片源，最后才是自己排的优先级
-    private var rankedFound: [(source: CMSSource, score: Double)] {
-        let list = sources
-        return list.enumerated().compactMap { index, source -> (source: CMSSource, score: Double)? in
-            guard case .found(let item) = results["cms:" + source.id] else { return nil }
-            return (source, score(item, index: index, total: list.count))
-        }
-        .sorted { $0.score > $1.score }
-    }
-
-    private func score(_ item: CMSItem, index: Int, total: Int) -> Double {
-        var value = SourceScore.match(name: item.name, year: item.year, episodeCount: item.episodeCount, keyword: keyword, subject: subject)
-        if SourceMemory.shared.preferred(for: subject.id) == "cms:" + item.api.lowercased() { value += SourceScore.preferredBonus }
-        if let record, record.isCMSRecord, record.cmsAPI == item.api { value += SourceScore.lastWatchedBonus }
-        return value + SourceScore.priority(index: index, total: total)
-    }
-
-    // MARK: 搜索报告
-
-    /// 每个片源的搜索结果、出错原因和耗时，加上扩展 / 插件的日志，复制出来发给开发者排查
-    private func copyReport() {
-        let word = keyword
-        var lines = [
-            "片源搜索报告",
-            "片名：\(subject.title)　搜索词：\(word)　年份：\(subject.airDate)　集数：\(subject.episodes)",
-            "",
-        ]
-        for source in sources {
-            let id = "cms:" + source.id
-            let kind = CatStore.isCat(source.url) ? "猫影视" : (UZStore.isUZ(source.url) ? "uz" : "采集站")
-            let time = timings[id].map { String(format: "%.1f 秒", $0) } ?? ""
-            switch results[id] ?? .loading {
-            case .found(let item):
-                lines.append("✅ \(source.name)（\(kind)）\(time)：\(item.name) \(item.year) \(item.remarks)，\(item.roads.count) 条线路 \(item.episodeCount) 集")
-            case .empty:
-                lines.append("➖ \(source.name)（\(kind)）\(time)：没找到")
-            case .loading:
-                lines.append("⏳ \(source.name)（\(kind)）：还在搜")
-            case .failed(let message):
-                lines.append("❌ \(source.name)（\(kind)）\(time)：\(Self.problem(message).label)｜\(message)")
-            }
-        }
-        let uzLogs = Array(UZStore.shared.runtimeLogs.suffix(40))
-        let catLines = Array(CatStore.shared.diagnostics.suffix(30))
-        Task {
-            var text = lines
-            if !uzLogs.isEmpty { text += ["", "—— uz 扩展日志 ——"] + uzLogs }
-            if !catLines.isEmpty { text += ["", "—— 猫影视插件 ——"] + catLines }
-            if CatStore.shared.hasPackage {
-                let node = await CatStore.shared.nodeLogs()
-                if !node.isEmpty { text += ["", "—— 插件输出 ——"] + node.suffix(60) }
-            }
-            UIPasteboard.general.string = text.joined(separator: "\n")
-            reportCopied = true
-            Haptics.success()
-        }
-    }
-
     // MARK: 简介
 
     @ViewBuilder
     private var info: some View {
-        let item = selectedItem
+        let item = search.selected?.hit.cms
         let summary = item?.content ?? subject.summary
         let director = directors.isEmpty ? (item?.director ?? "") : directors
         let actor = actors.isEmpty ? (item?.actor ?? "") : actors
@@ -624,89 +214,15 @@ struct VideoDetailView: View {
         if subject.score == 0 { subject.score = info.score }
         directors = info.directors
         actors = info.actors
+        // 年份、集数参与片源排序
+        search.subject = subject
     }
 
-    private func searchSources() async {
-        let word = keyword
-        let targets = sources
-        guard !targets.isEmpty else { return }
-        for source in targets { results["cms:" + source.id] = .loading }
-        if !userSelected { selectedID = nil }
-        timings = [:]
-        problemsExpanded = nil
-        reportCopied = false
-        let started = Date()
-        let year = subject.airDate.count >= 4 ? String(subject.airDate.prefix(4)) : ""
-        await withTaskGroup(of: (String, SourceResult).self) { group in
-            for source in targets {
-                group.addTask {
-                    do {
-                        if CatStore.isCat(source.url) {
-                            // 猫影视插件的站点：插件包里搜索、取详情
-                            guard let item = try await CatStore.shared.searchBest(source, keyword: word, year: year) else {
-                                return ("cms:" + source.id, .empty)
-                            }
-                            return ("cms:" + source.id, .found(item))
-                        }
-                        if UZStore.isUZ(source.url) {
-                            // 网盘资源站：搜到后还要取详情、把分享链接展开成剧集
-                            guard let item = try await UZStore.shared.searchBest(source, keyword: word, year: year) else {
-                                return ("cms:" + source.id, .empty)
-                            }
-                            return ("cms:" + source.id, .found(item))
-                        }
-                        let items = try await CMSSearchCache.shared.search(source, keyword: word)
-                        guard let best = Self.bestMatch(items, title: word, year: year) else { return ("cms:" + source.id, .empty) }
-                        return ("cms:" + source.id, .found(best))
-                    } catch {
-                        return ("cms:" + source.id, .failed(error.localizedDescription))
-                    }
-                }
-            }
-            for await (id, result) in group {
-                results[id] = result
-                timings[id] = Date().timeIntervalSince(started)
-                autoSelect()
-            }
-        }
-    }
-
-    /// 自动选中最匹配的片源（上次看的片源优先）。结果陆续回来时，新的明显更匹配才换，免得来回跳
-    private func autoSelect() {
-        guard !userSelected else { return }
-        let ranked = rankedFound
-        guard let best = ranked.first else { return }
-        let id = "cms:" + best.source.id
-        guard selectedID != id else { return }
-        if let current = ranked.first(where: { "cms:" + $0.source.id == selectedID }), best.score < current.score + 0.5 { return }
-        selectedRoad = 0
-        withAnimation(.snappyCompat) { selectedID = id }
-    }
-
-    /// 片名完全一致的优先，再按年份挑
-    nonisolated static func bestMatch(_ items: [CMSItem], title: String, year: String) -> CMSItem? {
-        let target = CMSClient.normalizeTitle(title)
-        let exact = items.filter { CMSClient.normalizeTitle($0.name) == target }
-        let pool = exact.isEmpty ? items : exact
-        if !year.isEmpty, let sameYear = pool.first(where: { $0.year == year }) { return sameYear }
-        return pool.first
-    }
-
-    private func play(_ item: CMSItem, episode: Int) {
-        var request = PlayRequest(subject: subject, pick: .cms(item), episodeIndex: episode)
-        request.roadIndex = selectedRoad
-        if let record, record.isCMSRecord, record.vodID == item.vodID, record.roadIndex == selectedRoad,
-           record.episodeIndex == episode {
-            request.position = record.position
-        }
-        playRequest = request
+    private func play(_ episode: Int) {
+        if let request = search.playRequest(episode: episode) { playRequest = request }
     }
 
     private func toggleFavorite() {
         library.toggleFavorite(subject)
     }
-}
-
-extension WatchRecord {
-    var isCMSRecord: Bool { !cmsAPI.isEmpty }
 }

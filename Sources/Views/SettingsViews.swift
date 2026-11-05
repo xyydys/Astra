@@ -9,6 +9,7 @@ struct SettingsView: View {
     @State private var appIcon = AppIconOption.current
     @AppStorage(AppAccent.key) private var accentHex = ""
     @AppStorage(ContentModeMenu.nativeKey) private var nativeModeMenu = false
+    @AppStorage(SourceKindOrder.key) private var kindOrderRaw = ""
 
     private var version: String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -46,6 +47,15 @@ struct SettingsView: View {
                         Label("猫影视插件", systemImage: "pawprint")
                     }
                 }
+                NavigationLink {
+                    SourceKindOrderView()
+                } label: {
+                    LabeledRow {
+                        Text("\(SourceKindOrder.parse(kindOrderRaw).first?.label ?? "")优先")
+                    } label: {
+                        Label("片源大类顺序", systemImage: "arrow.up.arrow.down.square")
+                    }
+                }
                 Toggle(isOn: $filterAdult) {
                     Label("过滤成人内容", systemImage: "eye.slash")
                 }
@@ -53,7 +63,7 @@ struct SettingsView: View {
             } header: {
                 Text("片源")
             } footer: {
-                Text("Kazumi 规则和采集站在同一个列表里排优先级。网盘资源兼容 uz 影视的扩展订阅，资源站搜到的网盘分享在影视模式里当片源用。过滤成人内容会按分类名隐藏采集站里的相关结果。")
+                Text("Kazumi 规则和采集站在同一个列表里排优先级。网盘资源兼容 uz 影视的扩展订阅，资源站搜到的网盘分享当片源用。详情页找到的片源按片名匹配和「片源大类顺序」排列（默认猫影视优先）。过滤成人内容会按分类名隐藏采集站里的相关结果。")
             }
 
             Section {

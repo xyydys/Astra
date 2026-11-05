@@ -1,18 +1,23 @@
 import SwiftUI
 
+/// 番剧详情：和影视详情一样，打开后自动在所有片源（Kazumi 规则、采集站、网盘资源站、猫影视插件）里按片名搜索，
+/// 按匹配度和片源大类顺序选中最合适的片源，直接选集播放
 struct SubjectDetailView: View {
     @State private var subject: BangumiSubject
+    @StateObject private var search: SourceSearch
     @ObservedObject private var library = WatchLibrary.shared
     @ObservedObject private var tints = PosterTints.shared
+    @ObservedObject private var uz = UZStore.shared
+    @ObservedObject private var cat = CatStore.shared
+    @EnvironmentObject private var ruleStore: RuleStore
 
-    @State private var showSources = false
-    @State private var pendingRequest: PlayRequest?
     @State private var playRequest: PlayRequest?
     @State private var summaryExpanded = false
     @Environment(\.colorScheme) private var systemScheme
 
     init(subject: BangumiSubject) {
         _subject = State(initialValue: subject)
+        _search = StateObject(wrappedValue: SourceSearch(subject: subject))
     }
 
     /// 海报主色：首页列表会提前取色，大多数情况下打开时第一帧就是对的
@@ -21,11 +26,28 @@ struct SubjectDetailView: View {
     private var isFavorite: Bool { library.isFavorite(subject.id) }
     private var record: WatchRecord? { library.record(subject.id) }
 
+    private var candidates: [SourceSearch.Candidate] {
+        SourceSearch.candidates(entries: ruleStore.searchableEntries(includeRules: true), uz: uz.vodSources, cat: cat.vodSources)
+    }
+
     var body: some View {
-        ScrollView {
+        let list = candidates
+        let selected = search.selected
+        return ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 header
                 actions
+                if let selected, !selected.hit.roads.isEmpty {
+                    EpisodePanel(hit: selected.hit, road: $search.selectedRoad, current: search.recordEpisode) { episode in
+                        play(episode)
+                    }
+                }
+                SourceListSection(
+                    search: search, hasSources: !list.isEmpty,
+                    emptyTitle: "还没有添加片源",
+                    emptyMessage: "点这里从规则仓库添加 Kazumi 规则或采集站，之后就能搜番播放",
+                    reportTitle: "片源搜索报告（番剧）"
+                )
                 if !subject.summary.isEmpty { summary }
                 if !subject.tags.isEmpty { tags }
             }
@@ -43,19 +65,16 @@ struct SubjectDetailView: View {
         .navigationTitleHidden()
         .task { await loadDetail() }
         .task { await PosterTints.shared.ensure(subject) }
-        .sheet(isPresented: $showSources, onDismiss: {
-            if let pendingRequest {
-                playRequest = pendingRequest
-                self.pendingRequest = nil
-            }
-        }) {
-            SourcePickerView(subject: subject) { pick in
-                pendingRequest = PlayRequest(subject: subject, pick: pick, episodeIndex: record?.episodeIndex ?? 0)
-                showSources = false
-            }
-        }
+        .task(id: search.keyword + "|" + list.map(\.id).joined(separator: ",")) { await search.run(list) }
         .navigationDestinationCompat(item: $playRequest) { request in
             PlayerScreen(request: request)
+        }
+        .toast($uz.notice)
+        .sheet(item: Binding(
+            get: { uz.verifyRequest.map(UZVerifyRequest.init) },
+            set: { uz.verifyRequest = $0?.url }
+        )) { request in
+            UZVerifySheet(url: request.url)
         }
     }
 
@@ -122,34 +141,7 @@ struct SubjectDetailView: View {
     private var actions: some View {
         GlassGroup(spacing: 12) {
             HStack(spacing: 12) {
-                if let record {
-                    Button {
-                        playRequest = record.playRequest
-                    } label: {
-                        Label("继续 \(record.episodeName)", systemImage: "play.fill")
-                            .lineLimit(1)
-                            .frame(maxWidth: .infinity)
-                    }
-                    .glassProminentButtonStyle()
-                    .controlSize(.large)
-
-                    Button {
-                        showSources = true
-                    } label: {
-                        Label("换源", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                    .glassButtonStyle()
-                    .controlSize(.large)
-                } else {
-                    Button {
-                        showSources = true
-                    } label: {
-                        Label("开始观看", systemImage: "play.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .glassProminentButtonStyle()
-                    .controlSize(.large)
-                }
+                primaryButton
 
                 Button {
                     toggleFavorite()
@@ -163,6 +155,41 @@ struct SubjectDetailView: View {
             }
         }
         .padding(.horizontal)
+    }
+
+    @ViewBuilder
+    private var primaryButton: some View {
+        if let record {
+            Button {
+                playRequest = record.playRequest
+            } label: {
+                Label("继续 \(record.episodeName)", systemImage: "play.fill")
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+            }
+            .glassProminentButtonStyle()
+            .controlSize(.large)
+        } else if search.selected != nil {
+            Button {
+                play(0)
+            } label: {
+                Label("开始观看", systemImage: "play.fill")
+                    .frame(maxWidth: .infinity)
+            }
+            .glassProminentButtonStyle()
+            .controlSize(.large)
+        } else {
+            Button {} label: {
+                Label(
+                    candidates.isEmpty ? "还没有添加片源" : (search.isSearching ? "正在查找片源…" : "未找到相关资源"),
+                    systemImage: search.isSearching ? "magnifyingglass" : "exclamationmark.circle"
+                )
+                .frame(maxWidth: .infinity)
+            }
+            .glassButtonStyle()
+            .controlSize(.large)
+            .disabled(true)
+        }
     }
 
     private var tags: some View {
@@ -207,7 +234,13 @@ struct SubjectDetailView: View {
                 merged.thumb = subject.thumb
             }
             subject = merged
+            // 放送日期、集数、原名参与片源排序
+            search.subject = merged
         }
+    }
+
+    private func play(_ episode: Int) {
+        if let request = search.playRequest(episode: episode) { playRequest = request }
     }
 
     private func toggleFavorite() {
