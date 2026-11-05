@@ -190,9 +190,9 @@ final class SourceSearch: ObservableObject {
 
     /// 手动选一个片源：记住，这部作品下次打开排在最前面、默认选中
     func select(_ id: String) {
-        guard selectedID != id else { return }
         userSelected = true
         SourceMemory.shared.setPreferred(id, for: subject.id)
+        guard selectedID != id else { return }
         selectedRoad = initialRoad(for: id)
         selectedID = id
     }
