@@ -21,6 +21,23 @@ struct SettingsView: View {
         List {
             Section {
                 NavigationLink {
+                    PromoListView()
+                } label: {
+                    Label {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("更多插件")
+                            Text("作者做的其他插件")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "sparkles")
+                    }
+                }
+            }
+
+            Section {
+                NavigationLink {
                     RulesView()
                 } label: {
                     LabeledRow {
