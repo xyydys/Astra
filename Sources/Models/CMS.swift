@@ -248,8 +248,11 @@ enum CMSClient {
     // MARK: 过滤
 
     /// 去掉空白、标点和符号并转小写，「摔跤吧！爸爸」和「摔跤吧!爸爸」视为相同
+    /// 片名比较时去掉的字符（空白、标点、符号）。只建一次：搜索结果排序时每秒要规整上千次片名
+    private static let titleDropSet = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).union(.symbols)
+
     static func normalizeTitle(_ s: String) -> String {
-        let drop = CharacterSet.whitespacesAndNewlines.union(.punctuationCharacters).union(.symbols)
+        let drop = titleDropSet
         return String(String.UnicodeScalarView(s.lowercased().unicodeScalars.filter { !drop.contains($0) }))
     }
 

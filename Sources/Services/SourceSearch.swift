@@ -64,14 +64,20 @@ final class SourceSearch: ObservableObject {
         var id: String { candidate.id }
     }
 
-    @Published var subject: BangumiSubject
-    @Published private(set) var keyword: String
-    @Published private(set) var candidates: [Candidate] = []
-    @Published private(set) var results: [String: Result] = [:]
+    // 下面几项一变，排序缓存就作废
+    @Published var subject: BangumiSubject { didSet { version += 1 } }
+    @Published private(set) var keyword: String { didSet { version += 1 } }
+    @Published private(set) var candidates: [Candidate] = [] { didSet { version += 1 } }
+    @Published private(set) var results: [String: Result] = [:] { didSet { version += 1 } }
     @Published private(set) var selectedID: String?
     @Published var selectedRoad = 0
-    /// 每个片源这次搜索用了多久（复制报告时带上）
-    @Published private(set) var timings: [String: TimeInterval] = [:]
+    /// 每个片源这次搜索用了多久（复制报告时带上；不触发页面刷新）
+    private(set) var timings: [String: TimeInterval] = [:]
+    /// 刚搜完、还没交给页面的结果：攒 0.25 秒一起刷新，几十个片源陆续返回时页面不会每个都重排一次（滑动不卡）
+    private var inbox: [String: Result] = [:]
+    private var flushScheduled = false
+    private var version = 0
+    private var rankedCache: (key: RankKey, value: [Ranked])?
     /// 没找到 / 出错的片源列表展开（nil：没有找到任何结果时自动展开）
     @Published var problemsExpanded: Bool?
     @Published var reportCopied = false
@@ -174,13 +180,33 @@ final class SourceSearch: ObservableObject {
         return order
     }
 
+    private struct RankKey: Equatable {
+        var version: Int
+        var order: [SourceKind]
+        var preferred: String?
+        var record: String
+    }
+
     /// 找到结果的片源，排好序。排序值分几段叠加，前一段永远压过后一段：
-    /// 上次选的（2000）/ 上次看的（1000）→ 匹配档次（每档 100）→ 大类顺序（每类 20）→ 匹配度（-1.5…8）+ 自己排的顺序（0…1）
+    /// 上次选的（2000）/ 上次看的（1000）→ 匹配档次（每档 100）→ 大类顺序（每类 20）→ 匹配度（-1.5…8）+ 自己排的顺序（0…1）。
+    /// 页面一次刷新里会读好几遍，结果没变就用缓存
     var ranked: [Ranked] {
-        let list = candidates
         let order = kindOrder
         let preferred = SourceMemory.shared.preferred(for: subject.id)
         let record = WatchLibrary.shared.record(subject.id)
+        let key = RankKey(
+            version: version, order: order, preferred: preferred,
+            record: record.map { "\($0.ruleName)|\($0.cmsAPI)|\($0.vodID)|\($0.sourceURL)" } ?? ""
+        )
+        if let cache = rankedCache, cache.key == key { return cache.value }
+        let value = computeRanked(order: order, preferred: preferred, record: record)
+        rankedCache = (key, value)
+        return value
+    }
+
+    private func computeRanked(order: [SourceKind], preferred: String?, record: WatchRecord?) -> [Ranked] {
+        let list = candidates
+        let targets = SourceScore.targets(keyword, subject)
         var found: [(index: Int, candidate: Candidate, hit: Hit)] = []
         for (index, candidate) in list.enumerated() {
             if case .found(let hit) = results[candidate.id] { found.append((index, candidate, hit)) }
@@ -193,11 +219,11 @@ final class SourceSearch: ObservableObject {
             if isLastWatched(entry.candidate, record: record) { value += 1000 }
             value += 100 * Double(SourceScore.level(
                 name: hit.name, year: hit.year, episodeCount: hit.episodeCount, maxEpisodes: maxEpisodes,
-                keyword: keyword, subject: subject
+                targets: targets, subject: subject
             ))
             let rank = order.firstIndex(of: entry.candidate.kind) ?? order.count
             value += 20 * Double(order.count - rank)
-            value += SourceScore.match(name: hit.name, year: hit.year, episodeCount: hit.episodeCount, keyword: keyword, subject: subject)
+            value += SourceScore.match(name: hit.name, year: hit.year, episodeCount: hit.episodeCount, targets: targets, subject: subject)
             value += SourceScore.priority(index: entry.index, total: list.count)
             return Ranked(candidate: entry.candidate, hit: hit, value: value)
         }
@@ -283,6 +309,7 @@ final class SourceSearch: ObservableObject {
             searchedKeyword = keyword
             results = [:]
             timings = [:]
+            inbox = [:]
             inFlight = []
             problemsExpanded = nil
             reportCopied = false
@@ -311,8 +338,24 @@ final class SourceSearch: ObservableObject {
     private func finish(_ id: String, _ result: Result, keyword word: String) {
         guard word == searchedKeyword else { return }
         inFlight.remove(id)
-        results[id] = result
+        inbox[id] = result
         timings[id] = Date().timeIntervalSince(started)
+        guard !flushScheduled else { return }
+        flushScheduled = true
+        Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            self?.flush()
+        }
+    }
+
+    /// 把攒下的结果一次交给页面：只刷新一次、只重排一次
+    private func flush() {
+        flushScheduled = false
+        guard !inbox.isEmpty else { return }
+        var merged = results
+        for (id, result) in inbox { merged[id] = result }
+        inbox = [:]
+        results = merged
         autoSelect()
         // 搜完记住这次的顺序，下次打开先按它排
         if !isSearching {
@@ -375,9 +418,10 @@ final class SourceSearch: ObservableObject {
 
     /// Kazumi 规则：挑匹配度最高的一条，取它的选集
     nonisolated static func ruleHit(_ rule: Rule, items: [SearchItem], keyword: String, subject: BangumiSubject) async -> Result {
+        let targets = SourceScore.targets(keyword, subject)
         let scored = items.enumerated().map { entry in
             (item: entry.element, offset: entry.offset,
-             score: SourceScore.match(name: entry.element.name, year: "", episodeCount: 0, keyword: keyword, subject: subject))
+             score: SourceScore.match(name: entry.element.name, year: "", episodeCount: 0, targets: targets, subject: subject))
         }
         guard let best = scored.max(by: { a, b in a.score != b.score ? a.score < b.score : a.offset > b.offset })?.item else {
             return .empty
@@ -394,10 +438,11 @@ final class SourceSearch: ObservableObject {
 
     /// 采集站：挑匹配度最高的一条（片名、年份、集数），一样高的取靠前的
     nonisolated static func best(_ items: [CMSItem], keyword: String, subject: BangumiSubject) -> CMSItem? {
+        let targets = SourceScore.targets(keyword, subject)
         let scored = items.enumerated().map { entry in
             (item: entry.element, offset: entry.offset,
              score: SourceScore.match(name: entry.element.name, year: entry.element.year,
-                                      episodeCount: entry.element.episodeCount, keyword: keyword, subject: subject))
+                                      episodeCount: entry.element.episodeCount, targets: targets, subject: subject))
         }
         return scored.max(by: { a, b in a.score != b.score ? a.score < b.score : a.offset > b.offset })?.item
     }

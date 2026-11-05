@@ -52,21 +52,31 @@ enum SourceKindOrder {
 
 /// 片源和作品的匹配度（影视详情和番剧详情共用）
 enum SourceScore {
-    /// 搜索词和作品的各种叫法（规整过的）
-    private static func targets(_ keyword: String, _ subject: BangumiSubject) -> Set<String> {
+    /// 搜索词和作品的各种叫法（规整过的）。排一批结果时先算一次，传给下面的函数
+    static func targets(_ keyword: String, _ subject: BangumiSubject) -> Set<String> {
         Set(([keyword] + subject.searchKeywords).map(CMSClient.normalizeTitle).filter { !$0.isEmpty })
+    }
+
+    /// 片名对得上的程度：一致 2、包含 1、对不上 0
+    private static func titleMatch(_ name: String, _ targets: Set<String>) -> Int {
+        let title = CMSClient.normalizeTitle(name)
+        if targets.contains(title) { return 2 }
+        if !title.isEmpty, targets.contains(where: { title.contains($0) || $0.contains(title) }) { return 1 }
+        return 0
+    }
+
+    static func match(name: String, year: String, episodeCount: Int, keyword: String, subject: BangumiSubject) -> Double {
+        match(name: name, year: year, episodeCount: episodeCount, targets: targets(keyword, subject), subject: subject)
     }
 
     /// 一条搜索结果的匹配度：片名一致 4 分、片名包含 1.5 分；年份一致 +2、差一年 +0.5、对不上 -1.5；
     /// 集数和作品的集数比，齐全最多 +2
-    static func match(name: String, year: String, episodeCount: Int, keyword: String, subject: BangumiSubject) -> Double {
+    static func match(name: String, year: String, episodeCount: Int, targets: Set<String>, subject: BangumiSubject) -> Double {
         var value = 0.0
-        let title = CMSClient.normalizeTitle(name)
-        let targets = targets(keyword, subject)
-        if targets.contains(title) {
-            value += 4
-        } else if !title.isEmpty, targets.contains(where: { title.contains($0) || $0.contains(title) }) {
-            value += 1.5
+        switch titleMatch(name, targets) {
+        case 2: value += 4
+        case 1: value += 1.5
+        default: break
         }
         if let wanted = Int(subject.airDate.prefix(4)), let found = Int(year.prefix(4)) {
             let diff = abs(wanted - found)
@@ -80,15 +90,8 @@ enum SourceScore {
 
     /// 匹配档次：片名一致 2、片名包含 1、对不上 0；年份差两年以上、集数不到找到的最全那个的一半，各降一档。
     /// 同一档里才轮到片源大类的优先级，免得优先的大类里一个对不上的结果排到最前
-    static func level(name: String, year: String, episodeCount: Int, maxEpisodes: Int, keyword: String, subject: BangumiSubject) -> Int {
-        let title = CMSClient.normalizeTitle(name)
-        let targets = targets(keyword, subject)
-        var value = 0
-        if targets.contains(title) {
-            value = 2
-        } else if !title.isEmpty, targets.contains(where: { title.contains($0) || $0.contains(title) }) {
-            value = 1
-        }
+    static func level(name: String, year: String, episodeCount: Int, maxEpisodes: Int, targets: Set<String>, subject: BangumiSubject) -> Int {
+        var value = titleMatch(name, targets)
         if let wanted = Int(subject.airDate.prefix(4)), let found = Int(year.prefix(4)), abs(wanted - found) > 1 {
             value -= 1
         }

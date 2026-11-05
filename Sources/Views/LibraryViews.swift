@@ -84,6 +84,8 @@ private struct VideoSearchView: View {
         var items: [CMSItem]
         /// 提供这个结果的片源里，优先级最高的那个的位置
         var priority: Int
+        /// 片名和搜索词完全一致（建组时算好，排序时不用反复规整片名）
+        var exact = false
 
         var id: String { key }
         var first: CMSItem { items[0] }
@@ -110,6 +112,14 @@ private struct VideoSearchView: View {
     @State private var pending = 0
     @State private var searchedQuery = ""
     @State private var searchTask: Task<Void, Never>?
+    /// 陆续返回的结果先放这里，攒 0.25 秒合并、排序、刷新一次（几十个片源逐个刷新时滑动会卡）
+    @State private var inbox = SearchInbox()
+
+    final class SearchInbox {
+        var batches: [(Int, [CMSItem])] = []
+        var scheduled = false
+        var generation = 0
+    }
 
     private let grid = [GridItem(.adaptive(minimum: 104, maximum: 160), spacing: 14)]
 
@@ -156,6 +166,10 @@ private struct VideoSearchView: View {
         searchTask?.cancel()
         searchedQuery = word
         groups = []
+        inbox.batches = []
+        inbox.scheduled = false
+        inbox.generation += 1
+        let generation = inbox.generation
         let sources = ruleStore.enabledCMS + uz.vodSources + cat.vodSources
         pending = sources.count
         searchTask = Task {
@@ -171,35 +185,50 @@ private struct VideoSearchView: View {
                         return (index, (try? await CMSSearchCache.shared.search(source, keyword: word)) ?? [])
                     }
                 }
-                for await (priority, items) in taskGroup {
+                for await batch in taskGroup {
                     guard !Task.isCancelled else { return }
-                    merge(items, priority: priority, keyword: word)
-                    pending -= 1
+                    inbox.batches.append(batch)
+                    guard !inbox.scheduled else { continue }
+                    inbox.scheduled = true
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 250_000_000)
+                        flush(keyword: word, generation: generation)
+                    }
                 }
             }
         }
     }
 
-    private func merge(_ items: [CMSItem], priority: Int, keyword: String) {
-        for item in items {
-            let key = CMSClient.normalizeTitle(item.name) + "|" + item.year
-            if let index = groups.firstIndex(where: { $0.key == key }) {
-                groups[index].items.append(item)
-                groups[index].priority = min(groups[index].priority, priority)
-            } else {
-                groups.append(ResultGroup(key: key, items: [item], priority: priority))
+    private func flush(keyword: String, generation: Int) {
+        inbox.scheduled = false
+        guard generation == inbox.generation, !inbox.batches.isEmpty else { return }
+        let batches = inbox.batches
+        inbox.batches = []
+        let target = CMSClient.normalizeTitle(keyword)
+        var list = groups
+        var index = Dictionary(list.enumerated().map { ($1.key, $0) }, uniquingKeysWith: { first, _ in first })
+        for (priority, items) in batches {
+            for item in items {
+                let title = CMSClient.normalizeTitle(item.name)
+                let key = title + "|" + item.year
+                if let position = index[key] {
+                    list[position].items.append(item)
+                    list[position].priority = min(list[position].priority, priority)
+                } else {
+                    index[key] = list.count
+                    list.append(ResultGroup(key: key, items: [item], priority: priority, exact: title == target))
+                }
             }
         }
         // 片名和搜索词完全一致的排前面，再按片源优先级、片源数量
-        let target = CMSClient.normalizeTitle(keyword)
-        groups.sort { a, b in
-            let ea = CMSClient.normalizeTitle(a.first.name) == target
-            let eb = CMSClient.normalizeTitle(b.first.name) == target
-            if ea != eb { return ea }
+        list.sort { a, b in
+            if a.exact != b.exact { return a.exact }
             if a.priority != b.priority { return a.priority < b.priority }
             return a.items.count > b.items.count
         }
-        PosterTints.shared.prefetch(groups.prefix(30).map(\.subject))
+        groups = list
+        pending = max(pending - batches.count, 0)
+        PosterTints.shared.prefetch(list.prefix(30).map(\.subject))
     }
 }
 
