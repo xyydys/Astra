@@ -16,11 +16,13 @@ final class NetdiskProxy: @unchecked Sendable {
 
     enum ProxyError: LocalizedError {
         case noRange
+        case rejected(Int)
         case unavailable(String)
 
         var errorDescription: String? {
             switch self {
             case .noRange: return "网盘地址不支持分段下载"
+            case .rejected(let status): return "网盘拒绝了请求（HTTP \(status)\(status == 412 || status == 403 ? "，多半是请求头 / 登录信息对不上" : "")）"
             case .unavailable(let text): return text
             }
         }
@@ -78,6 +80,11 @@ final class NetdiskProxy: @unchecked Sendable {
         for (key, value) in headers { probe.setValue(value, forHTTPHeaderField: key) }
         probe.setValue("bytes=0-0", forHTTPHeaderField: "Range")
         let (_, response) = try await sessions[0].data(for: probe)
+        // 4xx / 5xx 时把状态码带出去，排查时一眼看出是网盘拒绝还是不支持分段
+        if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
+            note("试探 \(target.host ?? "")：HTTP \(http.statusCode)")
+            throw ProxyError.rejected(http.statusCode)
+        }
         guard let http = response as? HTTPURLResponse, http.statusCode == 206,
               let range = http.value(forHTTPHeaderField: "Content-Range"),
               let total = range.split(separator: "/").last.flatMap({ Int64($0) }), total > 0 else {

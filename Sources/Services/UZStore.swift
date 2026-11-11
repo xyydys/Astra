@@ -974,6 +974,12 @@ final class UZStore: ObservableObject {
             info?.mimeType = mimeType
             runtime.note("网盘工具返回：\(info.map { "\($0.alternates.count + 1) 个地址\($0.onlyOriginal ? "（只有原画）" : "")" } ?? "没有地址") \(RuleValue.string(object["error"]))")
             if var info, !info.url.isEmpty {
+                if panType == "夸克" {
+                    // 夸克的下载地址是用夸克电脑客户端的 UA 取的，下载时 UA 对不上会被拒（HTTP 412）。
+                    // 网盘工具给夸克的 UA 留空（让播放器用默认值），这里补上同一个 UA
+                    info.headers = Self.withQuarkAgent(info.headers)
+                    info.alternates = info.alternates.map { ($0.url, Self.withQuarkAgent($0.headers)) }
+                }
                 if panType == "百度" {
                     // 百度直链：只带网盘客户端的 UA（不带 Referer），先把跳转解析出来再播（猫影视源包的做法）
                     let agent = info.headers.first { $0.key.lowercased() == "user-agent" }?.value ?? BaiduLink.userAgent
@@ -991,6 +997,10 @@ final class UZStore: ObservableObject {
                 let transcoded = Self.json(try await runtime.transcode(tag: pan.id, item: item))
                 runtime.note("转码返回：\(RuleValue.string(transcoded["error"]).isEmpty ? "\((transcoded["urls"] as? [Any])?.count ?? 0) 个清晰度" : RuleValue.string(transcoded["error"]))")
                 if var result = try? Self.playInfo(transcoded, headerKey: "playHeaders"), !result.url.isEmpty {
+                    if panType == "夸克" {
+                        result.headers = Self.withQuarkAgent(result.headers)
+                        result.alternates = result.alternates.map { ($0.url, Self.withQuarkAgent($0.headers)) }
+                    }
                     result.fileName = fileName
                     result.mimeType = mimeType
                     return result
@@ -1052,6 +1062,17 @@ final class UZStore: ObservableObject {
             url: first.url, headers: first.headers, alternates: candidates.dropFirst().map { ($0.url, $0.headers) },
             onlyOriginal: candidates.allSatisfy(\.original)
         )
+    }
+
+    /// 夸克电脑客户端的 UA：网盘工具调夸克接口（取下载地址）用的就是它
+    nonisolated static let quarkClientUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) quark-cloud-drive/2.5.20 Chrome/100.0.4896.160 Electron/18.3.5.4-b478491100 Safari/537.36 Channel/pckk_other_ch"
+
+    /// 没带 UA 的夸克请求头补上客户端 UA（带了的不动）
+    nonisolated static func withQuarkAgent(_ headers: [String: String]) -> [String: String] {
+        guard !headers.keys.contains(where: { $0.lowercased() == "user-agent" }) else { return headers }
+        var result = headers
+        result["User-Agent"] = quarkClientUA
+        return result
     }
 
     private nonisolated static func headers(_ value: Any?) -> [String: String] {
