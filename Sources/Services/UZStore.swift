@@ -979,6 +979,23 @@ final class UZStore: ObservableObject {
                     // 网盘工具给夸克的 UA 留空（让播放器用默认值），这里补上同一个 UA
                     info.headers = Self.withQuarkAgent(info.headers)
                     info.alternates = info.alternates.map { ($0.url, Self.withQuarkAgent($0.headers)) }
+                    // 网盘工具先取「不转存」的分享直链；夸克常常拒绝这种直链（HTTP 412），
+                    // 先试一下，被拒就转存到自己网盘再取原画和转码清晰度（以前能播的方式）
+                    if let status = await Self.probeStatus(info.url, headers: info.headers), status >= 400 {
+                        runtime.note("夸克分享直链被拒（HTTP \(status)），改成转存到自己网盘后播放")
+                        let saved = Self.json(try await runtime.transcode(tag: pan.id, item: item))
+                        let count = (saved["urls"] as? [Any])?.count ?? 0
+                        runtime.note("转存后：\(RuleValue.string(saved["error"]).isEmpty ? "\(count) 个地址" : RuleValue.string(saved["error"]))")
+                        if var result = try? Self.playInfo(saved, headerKey: "playHeaders"), !result.url.isEmpty {
+                            result.headers = Self.withQuarkAgent(result.headers)
+                            result.alternates = result.alternates.map { ($0.url, Self.withQuarkAgent($0.headers)) }
+                            result.fileName = fileName
+                            result.mimeType = mimeType
+                            return result
+                        }
+                        let error = RuleValue.string(saved["error"])
+                        throw UZError.message("夸克拒绝了分享直链（HTTP \(status)），转存到自己网盘也没成功\(error.isEmpty ? "" : "：" + error)")
+                    }
                 }
                 if panType == "百度" {
                     // 百度直链：只带网盘客户端的 UA（不带 Referer），先把跳转解析出来再播（猫影视源包的做法）
@@ -1062,6 +1079,25 @@ final class UZStore: ObservableObject {
             url: first.url, headers: first.headers, alternates: candidates.dropFirst().map { ($0.url, $0.headers) },
             onlyOriginal: candidates.allSatisfy(\.original)
         )
+    }
+
+    private nonisolated static let probeSession: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.httpCookieAcceptPolicy = .never
+        config.urlCache = nil
+        return URLSession(configuration: config)
+    }()
+
+    /// 用播放时的请求头试一下网盘地址（只要 1 个字节，拿到状态码就断开），网络出错时返回 nil
+    nonisolated static func probeStatus(_ url: String, headers: [String: String]) async -> Int? {
+        guard let target = URL.lenient(url) else { return nil }
+        var request = URLRequest(url: target, timeoutInterval: 10)
+        for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+        request.setValue("bytes=0-0", forHTTPHeaderField: "Range")
+        guard let result = try? await probeSession.bytes(for: request) else { return nil }
+        result.0.task.cancel()
+        return (result.1 as? HTTPURLResponse)?.statusCode
     }
 
     /// 夸克电脑客户端的 UA：网盘工具调夸克接口（取下载地址）用的就是它

@@ -79,7 +79,9 @@ final class NetdiskProxy: @unchecked Sendable {
         var probe = URLRequest(url: target, timeoutInterval: 15)
         for (key, value) in headers { probe.setValue(value, forHTTPHeaderField: key) }
         probe.setValue("bytes=0-0", forHTTPHeaderField: "Range")
-        let (_, response) = try await sessions[0].data(for: probe)
+        // 只读响应头：服务器不认 Range 时会把整个文件发过来，不能用 data(for:) 全下载
+        let (bytes, response) = try await sessions[0].bytes(for: probe)
+        bytes.task.cancel()
         // 4xx / 5xx 时把状态码带出去，排查时一眼看出是网盘拒绝还是不支持分段
         if let http = response as? HTTPURLResponse, http.statusCode >= 400 {
             note("试探 \(target.host ?? "")：HTTP \(http.statusCode)")

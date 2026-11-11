@@ -571,7 +571,8 @@ enum UZPrelude {
       g.kIsDesktop = false; g.kIsAndroid = false; g.kIsIOS = true; g.kIsWindows = false;
       g.kIsMacOS = false; g.kIsTV = false; g.kLocale = 'zh-CN'; g.kAppVersion = 1680; g.kIsDebug = false;
 
-      // 夸克 / UC 转存后取网盘转码的清晰度（用网盘工具里 QuarkUC 的 save / getLiveTranscoding）
+      // 夸克 / UC 转存到自己网盘后取播放地址：有 getVideoPlayUrl 时取原画 + 网盘转码的清晰度，
+      // 没有时只取转码（用网盘工具里 QuarkUC 的 save / getVideoPlayUrl / getLiveTranscoding）
       var transcode = async function (item) {
         var pan = this;
         var handlers = (pan && pan.panToolsHandlers) || [];
@@ -588,7 +589,9 @@ enum UZPrelude {
         if (!saved) return { url: '', urls: [], error: '转存失败，可能空间不足或登录失效' };
         handler.saveFileIdCaches = {};
         handler.saveFileIdCaches[d.fileId] = saved;
-        var urls = await handler.getLiveTranscoding({ fileId: d.fileId });
+        var urls = typeof handler.getVideoPlayUrl === 'function'
+          ? await handler.getVideoPlayUrl({ fileId: d.fileId })
+          : await handler.getLiveTranscoding({ fileId: d.fileId });
         urls.sort(function (a, b) { return (b.priority || 0) - (a.priority || 0); });
         return { url: urls.length ? urls[0].url : '', urls: urls, playHeaders: handler.playHeaders, error: urls.length ? '' : '没有取到转码地址' };
       };
