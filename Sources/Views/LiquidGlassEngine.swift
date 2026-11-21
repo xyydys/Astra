@@ -124,6 +124,8 @@ final class AstraGlassMaterialPool {
 
     private static let backgroundSelector = Selector(("_background"))
     private static let effectWithGlassSelector = Selector(("effectWithGlass:"))
+    private static let copyWithZoneSelector = Selector(("copyWithZone:"))
+    private static let setInteractiveSelector = Selector(("setInteractive:"))
     private static let addressRegex = try? NSRegularExpression(pattern: "0x[0-9a-fA-F]+")
 
     private typealias ObjectGetterIMP = @convention(c) (AnyObject, Selector) -> Unmanaged<AnyObject>?
@@ -250,8 +252,10 @@ final class AstraGlassMaterialPool {
             let copied = Self.copyGlass(source)
             let imp = unsafeBitCast(method_getImplementation(method), to: EffectWithGlassIMP.self)
             if let effect = imp(UIGlassEffect.self, Self.effectWithGlassSelector, copied)?.takeUnretainedValue() as? UIVisualEffect {
-                if let glassEffect = effect as? UIGlassEffect {
-                    glassEffect.isInteractive = interactive
+                if interactive,
+                   let glassEffect = effect as? UIGlassEffect,
+                   glassEffect.responds(to: Self.setInteractiveSelector) {
+                    glassEffect.isInteractive = true
                 }
                 return effect
             }
@@ -294,11 +298,13 @@ final class AstraGlassMaterialPool {
         return raw
     }
 
+    /// 参考 xyydy ALBGlassCopy：必须检查 `copyWithZone:`（所有 NSObject 都响应 `copy`，但 `_UIViewGlass` 未实现 `NSCopying`）
     private static func copyGlass(_ glass: AnyObject) -> AnyObject {
-        guard let object = glass as? NSObject,
-              object.responds(to: #selector(NSObject.copy))
+        guard let copying = glass as? NSCopying,
+              let object = glass as? NSObject,
+              object.responds(to: copyWithZoneSelector)
         else { return glass }
-        return object.copy() as AnyObject
+        return copying.copy(with: nil) as AnyObject
     }
 
     private static func glassSignature(_ glass: AnyObject) -> String {
