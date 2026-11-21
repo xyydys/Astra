@@ -110,10 +110,9 @@ struct MPVControls: View {
             if mpv.isBuffering, !hasActiveCenterHUD {
                 ZStack {
                     if !visible || isLocked {
-                        Circle()
-                            .fill(.black.opacity(0.42))
-                            .background(.ultraThinMaterial, in: Circle())
+                        Color.clear
                             .frame(width: isFullscreen ? 64 : 52, height: isFullscreen ? 64 : 52)
+                            .playerGlass(prominent: true, in: Circle())
                     }
                     ProgressView()
                         .tint(.white)
@@ -126,7 +125,7 @@ struct MPVControls: View {
             if mpv.showStats, let stats = mpv.stats {
                 statsPanel(stats)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.top, isFullscreen ? 58 : 8)
+                    .padding(.top, isFullscreen ? 60 : 8)
                     .padding(.leading, isFullscreen ? 14 : 10)
                     .allowsHitTesting(false)
             }
@@ -175,16 +174,11 @@ struct MPVControls: View {
 
             // 双击播放 / 暂停反馈
             if let pulse = doubleTapPulse, !visible, !hasActiveCenterHUD {
-                Circle()
-                    .fill(.black.opacity(0.45))
-                    .background(.ultraThinMaterial, in: Circle())
-                    .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 0.5))
+                Image(systemName: pulse.paused ? "pause.fill" : "play.fill")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.white)
                     .frame(width: 60, height: 60)
-                    .overlay {
-                        Image(systemName: pulse.paused ? "pause.fill" : "play.fill")
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundStyle(.white)
-                    }
+                    .playerGlass(prominent: true, in: Circle())
                     .transition(.scale(scale: 0.82).combined(with: .opacity))
                     .allowsHitTesting(false)
             }
@@ -221,11 +215,11 @@ struct MPVControls: View {
     private var scrim: some View {
         LinearGradient(
             stops: [
-                .init(color: .black.opacity(0.64), location: 0.0),
-                .init(color: .black.opacity(0.16), location: 0.24),
-                .init(color: .black.opacity(0.14), location: 0.50),
-                .init(color: .black.opacity(0.20), location: 0.75),
-                .init(color: .black.opacity(0.76), location: 1.0),
+                .init(color: .black.opacity(0.58), location: 0.0),
+                .init(color: .black.opacity(0.14), location: 0.24),
+                .init(color: .black.opacity(0.10), location: 0.50),
+                .init(color: .black.opacity(0.18), location: 0.75),
+                .init(color: .black.opacity(0.68), location: 1.0),
             ],
             startPoint: .top,
             endPoint: .bottom
@@ -235,42 +229,44 @@ struct MPVControls: View {
     // MARK: 顶栏（全屏）
 
     private var topBar: some View {
-        HStack(spacing: 12) {
-            Button(action: exitFullscreen) {
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(width: 36, height: 36)
-                    .background(frostedCircle)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(PlayerPressStyle())
-            .accessibilityLabel("退出全屏")
-
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .lineLimit(1)
-                .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
-
-            Spacer(minLength: 8)
-
-            Button {
-                Haptics.tap()
-                hideTask?.cancel()
-                withAnimation(.easeOut(duration: 0.18)) {
-                    isLocked = true
-                    visible = false
-                    lockBadgeVisible = true
+        GlassGroup(spacing: 12) {
+            HStack(spacing: 12) {
+                Button(action: exitFullscreen) {
+                    Image(systemName: "chevron.backward")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 38, height: 38)
+                        .contentShape(Circle())
                 }
-                scheduleLockBadgeHide()
-            } label: {
-                Image(systemName: "lock.open")
-                    .font(.system(size: 15, weight: .semibold))
-                    .frame(width: 36, height: 36)
-                    .background(frostedCircle)
-                    .contentShape(Circle())
+                .playerButtonStyle()
+                .playerGlass(interactive: true, in: Circle())
+                .accessibilityLabel("退出全屏")
+
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                    .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+
+                Spacer(minLength: 8)
+
+                Button {
+                    Haptics.tap()
+                    hideTask?.cancel()
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        isLocked = true
+                        visible = false
+                        lockBadgeVisible = true
+                    }
+                    scheduleLockBadgeHide()
+                } label: {
+                    Image(systemName: "lock.open")
+                        .font(.system(size: 15, weight: .semibold))
+                        .frame(width: 38, height: 38)
+                        .contentShape(Circle())
+                }
+                .playerButtonStyle()
+                .playerGlass(interactive: true, in: Circle())
+                .accessibilityLabel("锁定屏幕")
             }
-            .buttonStyle(PlayerPressStyle())
-            .accessibilityLabel("锁定屏幕")
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
@@ -279,36 +275,38 @@ struct MPVControls: View {
     // MARK: 中央控制
 
     private var centerButtons: some View {
-        HStack(spacing: isFullscreen ? 54 : 36) {
-            centerCircleButton(
-                "gobackward.10",
-                iconSize: isFullscreen ? 22 : 18,
-                diameter: isFullscreen ? 50 : 44,
-                label: "后退 10 秒"
-            ) {
-                mpv.seek(by: -10)
-            }
-
-            if mpv.isBuffering, scrub == nil, gestureSeekTarget == nil {
-                Color.clear.frame(width: isFullscreen ? 66 : 56, height: isFullscreen ? 66 : 56)
-            } else {
+        GlassGroup(spacing: isFullscreen ? 48 : 32) {
+            HStack(spacing: isFullscreen ? 54 : 36) {
                 centerCircleButton(
-                    mpv.isPaused ? "play.fill" : "pause.fill",
-                    iconSize: isFullscreen ? 29 : 24,
-                    diameter: isFullscreen ? 66 : 56,
-                    label: mpv.isPaused ? "播放" : "暂停"
+                    "gobackward.10",
+                    iconSize: isFullscreen ? 22 : 18,
+                    diameter: isFullscreen ? 52 : 44,
+                    label: "后退 10 秒"
                 ) {
-                    mpv.togglePause()
+                    mpv.seek(by: -10)
                 }
-            }
 
-            centerCircleButton(
-                "goforward.10",
-                iconSize: isFullscreen ? 22 : 18,
-                diameter: isFullscreen ? 50 : 44,
-                label: "前进 10 秒"
-            ) {
-                mpv.seek(by: 10)
+                if mpv.isBuffering, scrub == nil, gestureSeekTarget == nil {
+                    Color.clear.frame(width: isFullscreen ? 68 : 56, height: isFullscreen ? 68 : 56)
+                } else {
+                    centerCircleButton(
+                        mpv.isPaused ? "play.fill" : "pause.fill",
+                        iconSize: isFullscreen ? 29 : 24,
+                        diameter: isFullscreen ? 68 : 56,
+                        label: mpv.isPaused ? "播放" : "暂停"
+                    ) {
+                        mpv.togglePause()
+                    }
+                }
+
+                centerCircleButton(
+                    "goforward.10",
+                    iconSize: isFullscreen ? 22 : 18,
+                    diameter: isFullscreen ? 52 : 44,
+                    label: "前进 10 秒"
+                ) {
+                    mpv.seek(by: 10)
+                }
             }
         }
     }
@@ -329,38 +327,61 @@ struct MPVControls: View {
                 .font(.system(size: iconSize, weight: .semibold))
                 .symbolReplaceTransition()
                 .frame(width: diameter, height: diameter)
-                .background(frostedCircle)
                 .contentShape(Circle())
         }
-        .buttonStyle(PlayerPressStyle())
+        .playerButtonStyle()
+        .playerGlass(interactive: true, in: Circle())
         .accessibilityLabel(label)
     }
 
     // MARK: 底栏
 
     private var bottomBar: some View {
-        VStack(spacing: isFullscreen ? 8 : 3) {
-            // 进度条行
+        VStack(spacing: isFullscreen ? 8 : 4) {
+            // 进度条行：iOS 26 保留原生 Slider（点按拖拽自动切换液态玻璃水滴）；低系统用带缓冲条的自定义进度条
             HStack(spacing: 10) {
                 Text(Self.time(displayedPosition))
                     .font(.caption.weight(.medium).monospacedDigit())
                     .frame(minWidth: 42, alignment: .leading)
 
-                MPVProgressBar(
-                    position: displayedPosition,
-                    buffered: mpv.cachedUntil,
-                    duration: mpv.duration,
-                    isScrubbing: scrub != nil,
-                    onScrubChanged: { target in
-                        hideTask?.cancel()
-                        scrub = target
-                    },
-                    onScrubEnded: { target in
-                        mpv.seek(to: target)
-                        scrub = nil
-                        scheduleHide()
-                    }
-                )
+                if #available(iOS 26, *) {
+                    let upper = max(mpv.duration, 1)
+                    Slider(
+                        value: Binding(
+                            get: { min(max(displayedPosition, 0), upper) },
+                            set: { scrub = $0 }
+                        ),
+                        in: 0...upper,
+                        onEditingChanged: { editing in
+                            if editing {
+                                hideTask?.cancel()
+                                if scrub == nil { scrub = mpv.position }
+                            } else if let target = scrub {
+                                mpv.seek(to: target)
+                                scrub = nil
+                                scheduleHide()
+                            }
+                        }
+                    )
+                    .tint(.white)
+                    .disabled(mpv.duration <= 0)
+                } else {
+                    MPVProgressBar(
+                        position: displayedPosition,
+                        buffered: mpv.cachedUntil,
+                        duration: mpv.duration,
+                        isScrubbing: scrub != nil,
+                        onScrubChanged: { target in
+                            hideTask?.cancel()
+                            scrub = target
+                        },
+                        onScrubEnded: { target in
+                            mpv.seek(to: target)
+                            scrub = nil
+                            scheduleHide()
+                        }
+                    )
+                }
 
                 Text(Self.time(mpv.duration))
                     .font(.caption.weight(.medium).monospacedDigit())
@@ -369,64 +390,66 @@ struct MPVControls: View {
             }
 
             // 工具按钮行
-            HStack(spacing: isFullscreen ? 10 : 8) {
-                if isFullscreen {
-                    Button {
-                        Haptics.tap()
-                        mpv.togglePause()
-                        scheduleHide()
-                    } label: {
-                        Image(systemName: mpv.isPaused ? "play.fill" : "pause.fill")
-                            .font(.system(size: 14, weight: .semibold))
-                            .frame(width: 34, height: 34)
-                            .background(frostedCircle)
-                            .contentShape(Circle())
-                    }
-                    .buttonStyle(PlayerPressStyle())
-                    .accessibilityLabel(mpv.isPaused ? "播放" : "暂停")
-
-                    if let onNextEpisode {
+            GlassGroup(spacing: isFullscreen ? 10 : 8) {
+                HStack(spacing: isFullscreen ? 10 : 8) {
+                    if isFullscreen {
                         Button {
                             Haptics.tap()
-                            onNextEpisode()
+                            mpv.togglePause()
                             scheduleHide()
                         } label: {
-                            HStack(spacing: 5) {
-                                Image(systemName: "forward.end.fill")
-                                    .font(.system(size: 12, weight: .semibold))
-                                Text("下一集")
-                                    .font(.caption.weight(.semibold))
-                            }
-                            .padding(.horizontal, 12)
-                            .frame(height: 34)
-                            .background(frostedCapsule)
-                            .contentShape(Capsule())
+                            Image(systemName: mpv.isPaused ? "play.fill" : "pause.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 36, height: 36)
+                                .contentShape(Circle())
                         }
-                        .buttonStyle(PlayerPressStyle())
-                        .accessibilityLabel("播放下一集")
+                        .playerButtonStyle()
+                        .playerGlass(interactive: true, in: Circle())
+                        .accessibilityLabel(mpv.isPaused ? "播放" : "暂停")
+
+                        if let onNextEpisode {
+                            Button {
+                                Haptics.tap()
+                                onNextEpisode()
+                                scheduleHide()
+                            } label: {
+                                HStack(spacing: 5) {
+                                    Image(systemName: "forward.end.fill")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    Text("下一集")
+                                        .font(.caption.weight(.semibold))
+                                }
+                                .padding(.horizontal, 13)
+                                .frame(height: 36)
+                                .contentShape(Capsule())
+                            }
+                            .playerButtonStyle()
+                            .playerGlass(interactive: true, in: Capsule())
+                            .accessibilityLabel("播放下一集")
+                        }
                     }
-                }
 
-                Spacer(minLength: 0)
+                    Spacer(minLength: 0)
 
-                speedMenu
-                optionsMenu
+                    speedMenu
+                    optionsMenu
 
-                Button {
-                    if isFullscreen {
-                        exitFullscreen()
-                    } else {
-                        toggleFullscreen()
+                    Button {
+                        if isFullscreen {
+                            exitFullscreen()
+                        } else {
+                            toggleFullscreen()
+                        }
+                    } label: {
+                        Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
+                            .frame(width: isFullscreen ? 36 : 32, height: isFullscreen ? 36 : 32)
+                            .contentShape(Circle())
                     }
-                } label: {
-                    Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
-                        .frame(width: isFullscreen ? 34 : 30, height: isFullscreen ? 34 : 30)
-                        .background(frostedCircle)
-                        .contentShape(Circle())
+                    .playerButtonStyle()
+                    .playerGlass(interactive: true, in: Circle())
+                    .accessibilityLabel(isFullscreen ? "退出全屏" : "全屏")
                 }
-                .buttonStyle(PlayerPressStyle())
-                .accessibilityLabel(isFullscreen ? "退出全屏" : "全屏")
             }
         }
         .padding(.horizontal, isFullscreen ? 14 : 12)
@@ -484,11 +507,12 @@ struct MPVControls: View {
                     .font(.caption.weight(.semibold).monospacedDigit())
             }
             .foregroundStyle(isCustomSpeed ? Color.accentColor : Color.white)
-            .padding(.horizontal, isFullscreen ? 11 : 9)
-            .frame(height: isFullscreen ? 34 : 30)
-            .background(frostedCapsule)
+            .padding(.horizontal, isFullscreen ? 12 : 10)
+            .frame(height: isFullscreen ? 36 : 32)
             .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .playerGlass(interactive: true, in: Capsule())
         .accessibilityLabel("倍速与默认倍速，当前 \(Self.speedLabel(mpv.speed))")
     }
 
@@ -535,10 +559,12 @@ struct MPVControls: View {
         } label: {
             Image(systemName: "captions.bubble")
                 .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
-                .frame(width: isFullscreen ? 34 : 30, height: isFullscreen ? 34 : 30)
-                .background(frostedCircle)
+                .foregroundStyle(.white)
+                .frame(width: isFullscreen ? 36 : 32, height: isFullscreen ? 36 : 32)
                 .contentShape(Circle())
         }
+        .buttonStyle(.plain)
+        .playerGlass(interactive: true, in: Circle())
         .accessibilityLabel("音轨、字幕和播放信息")
     }
 
@@ -563,7 +589,7 @@ struct MPVControls: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 8)
-        .background(hudPillBackground)
+        .playerGlass(prominent: true, in: Capsule())
     }
 
     private func seekPreviewHUD(target: Double, delta: Double?) -> some View {
@@ -601,16 +627,7 @@ struct MPVControls: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 14)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.black.opacity(0.64))
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(.white.opacity(0.14), lineWidth: 0.5)
-                )
-        )
-        .shadow(color: .black.opacity(0.32), radius: 14, y: 6)
+        .playerGlass(prominent: true, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
     private func meterOverlay(_ meter: MeterHUD) -> some View {
@@ -653,7 +670,7 @@ struct MPVControls: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 11)
-        .background(hudPillBackground)
+        .playerGlass(prominent: true, in: Capsule())
     }
 
     private var unlockOverlay: some View {
@@ -676,10 +693,10 @@ struct MPVControls: View {
             .foregroundStyle(.white)
             .padding(.horizontal, 14)
             .frame(height: 38)
-            .background(hudPillBackground)
             .contentShape(Capsule())
         }
-        .buttonStyle(PlayerPressStyle())
+        .playerButtonStyle()
+        .playerGlass(interactive: true, prominent: true, in: Capsule())
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(.leading, 18)
         .accessibilityLabel("解除屏幕锁定")
@@ -696,41 +713,9 @@ struct MPVControls: View {
         }
         .font(.caption2.monospacedDigit())
         .foregroundStyle(.white)
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 11)
         .padding(.vertical, 8)
-        .background(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.black.opacity(0.60))
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .stroke(.white.opacity(0.14), lineWidth: 0.5)
-                )
-        )
-    }
-
-    // MARK: 视觉样式
-
-    private var frostedCircle: some View {
-        Circle()
-            .fill(.black.opacity(0.34))
-            .background(.ultraThinMaterial, in: Circle())
-            .overlay(Circle().stroke(.white.opacity(0.18), lineWidth: 0.5))
-    }
-
-    private var frostedCapsule: some View {
-        Capsule()
-            .fill(.black.opacity(0.34))
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().stroke(.white.opacity(0.18), lineWidth: 0.5))
-    }
-
-    private var hudPillBackground: some View {
-        Capsule()
-            .fill(.black.opacity(0.64))
-            .background(.ultraThinMaterial, in: Capsule())
-            .overlay(Capsule().stroke(.white.opacity(0.14), lineWidth: 0.5))
-            .shadow(color: .black.opacity(0.30), radius: 12, y: 4)
+        .playerGlass(prominent: true, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     @ViewBuilder
@@ -891,11 +876,39 @@ private extension View {
             self
         }
     }
+
+    /// 播放器悬浮控件玻璃材质：
+    /// - iOS 26+ 用系统常规液态玻璃（.regular，不用 .clear 刺眼光边，自动跟随系统「透明 / 色调」设置）
+    /// - iOS 15–18 用深色磨砂材质 + 细微高光描边
+    @ViewBuilder
+    func playerGlass<S: InsettableShape>(interactive: Bool = false, prominent: Bool = false, in shape: S) -> some View {
+        if #available(iOS 26, *) {
+            glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+        } else {
+            background {
+                shape
+                    .fill(.black.opacity(prominent ? 0.64 : 0.34))
+                    .background(.ultraThinMaterial, in: shape)
+                    .overlay(shape.stroke(.white.opacity(prominent ? 0.14 : 0.18), lineWidth: 0.5))
+                    .shadow(color: prominent ? .black.opacity(0.30) : .clear, radius: prominent ? 12 : 0, y: prominent ? 4 : 0)
+            }
+        }
+    }
+
+    /// iOS 26 液态玻璃自带交互缩放与光效；低系统补充轻按缩放反馈
+    @ViewBuilder
+    func playerButtonStyle() -> some View {
+        if #available(iOS 26, *) {
+            buttonStyle(.plain)
+        } else {
+            buttonStyle(PlayerPressStyle())
+        }
+    }
 }
 
-// MARK: - 自定义进度条
+// MARK: - 自定义进度条（iOS 26 以下使用）
 
-/// 替代系统默认 Slider（iOS 26 上默认滑块很大且不显示缓冲进度）
+/// iOS 26 以下替代系统默认 Slider，支持显示缓冲进度与拖拽放大
 private struct MPVProgressBar: View {
     let position: Double
     let buffered: Double
@@ -1300,105 +1313,130 @@ private final class MPVFullscreenHostingController<Content: View>: UIHostingCont
     }
 }
 
-/// 桥接 PlayerModel.isMPVFullscreen 与 UIKit 全屏弹出 / 收起
-struct MPVFullscreenPresenter: UIViewControllerRepresentable {
-    @ObservedObject var model: PlayerModel
+/// 直接管理全屏 UIKit 控制器的弹出与收起：不经过后台 SwiftUI representable 的 diff 更新，
+/// 彻底避免全屏覆盖后退出按钮无法收起或提前抢走画面导致全屏黑屏
+@MainActor
+final class MPVFullscreenManager {
+    static let shared = MPVFullscreenManager()
 
-    func makeCoordinator() -> Coordinator { Coordinator(model: model) }
+    private weak var presented: MPVFullscreenHostingController<MPVFullscreenPlayer>?
+    private weak var ownerModel: PlayerModel?
+    private var isTransitioning = false
 
-    func makeUIViewController(context: Context) -> UIViewController {
-        let controller = UIViewController()
-        controller.view.backgroundColor = .clear
-        controller.view.isUserInteractionEnabled = false
-        return controller
-    }
+    private init() {}
 
-    func updateUIViewController(_ host: UIViewController, context: Context) {
-        let coordinator = context.coordinator
-        coordinator.model = model
-        coordinator.wantPresented = model.isMPVFullscreen
-        DispatchQueue.main.async {
-            coordinator.sync(from: host)
+    func present(model: PlayerModel) {
+        if presented != nil, ownerModel === model { return }
+        if presented != nil { dismissImmediate() }
+        guard let presenter = Self.topPresenter() else {
+            Diag.log("全屏", "找不到可弹出的顶层控制器")
+            model.finishMPVFullscreenExit()
+            return
         }
-    }
-
-    static func dismantleUIViewController(_ uiViewController: UIViewController, coordinator: Coordinator) {
-        coordinator.forceDismiss()
-    }
-
-    @MainActor
-    final class Coordinator {
-        var model: PlayerModel
-        var wantPresented = false
-        private var presented: MPVFullscreenHostingController<MPVFullscreenPlayer>?
-
-        init(model: PlayerModel) {
-            self.model = model
-        }
-
-        func sync(from host: UIViewController) {
-            if wantPresented {
-                guard presented == nil else { return }
-                guard let presenter = Self.topPresenter(from: host) else { return }
-                if let existing = presenter.presentedViewController, existing.isBeingDismissed {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self, weak host] in
-                        guard let self, let host, self.wantPresented else { return }
-                        self.sync(from: host)
-                    }
-                    return
-                }
-                let wantsLandscape = UIDevice.current.userInterfaceIdiom == .phone && model.mpv.videoAspect >= 1
-                let mode: ScreenOrientation.Mode = wantsLandscape ? .landscape : .portrait
-                let controller = MPVFullscreenHostingController(rootView: MPVFullscreenPlayer(model: model))
-                controller.allowedOrientations = wantsLandscape ? .landscape : .portrait
-                controller.modalPresentationStyle = .fullScreen
-                controller.modalPresentationCapturesStatusBarAppearance = true
-                controller.overrideUserInterfaceStyle = .dark
-                controller.view.backgroundColor = .black
-                controller.onUnexpectedDismiss = { [weak self] in
-                    guard let self else { return }
-                    self.presented = nil
-                    self.wantPresented = false
-                    self.model.setMPVFullscreen(false)
-                    ScreenOrientation.set(.portrait)
-                }
-                presented = controller
-                ScreenOrientation.prepare(mode)
-                presenter.present(controller, animated: false) {
-                    ScreenOrientation.set(mode)
-                }
-            } else {
-                dismissIfNeeded()
+        if let existing = presenter.presentedViewController, existing.isBeingDismissed {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self, weak model] in
+                guard let self, let model, model.isMPVFullscreen else { return }
+                self.present(model: model)
             }
+            return
         }
 
-        func forceDismiss() {
-            wantPresented = false
-            dismissIfNeeded()
+        let wantsLandscape = UIDevice.current.userInterfaceIdiom == .phone && model.mpv.videoAspect >= 1
+        let mode: ScreenOrientation.Mode = wantsLandscape ? .landscape : .portrait
+        let controller = MPVFullscreenHostingController(rootView: MPVFullscreenPlayer(model: model))
+        controller.allowedOrientations = wantsLandscape ? .landscape : .portrait
+        controller.modalPresentationStyle = .fullScreen
+        controller.modalPresentationCapturesStatusBarAppearance = true
+        controller.overrideUserInterfaceStyle = .dark
+        controller.view.backgroundColor = .black
+        controller.onUnexpectedDismiss = { [weak self, weak model] in
+            guard let self else { return }
+            self.presented = nil
+            self.ownerModel = nil
+            self.isTransitioning = false
+            model?.finishMPVFullscreenExit()
+            ScreenOrientation.set(.portrait)
         }
 
-        private func dismissIfNeeded() {
-            guard let controller = presented else { return }
-            presented = nil
-            controller.onUnexpectedDismiss = nil
-            controller.allowedOrientations = .portrait
-            ScreenOrientation.prepare(.portrait)
-            if let presenting = controller.presentingViewController {
-                presenting.dismiss(animated: false) {
-                    ScreenOrientation.set(.portrait)
-                }
-            } else {
+        presented = controller
+        ownerModel = model
+        isTransitioning = true
+        ScreenOrientation.prepare(mode)
+        presenter.present(controller, animated: false) { [weak self, weak model] in
+            self?.isTransitioning = false
+            guard controller.presentingViewController != nil else {
+                self?.presented = nil
+                self?.ownerModel = nil
+                model?.finishMPVFullscreenExit()
                 ScreenOrientation.set(.portrait)
+                return
             }
+            ScreenOrientation.set(mode)
+        }
+    }
+
+    func dismiss(model: PlayerModel) {
+        guard ownerModel === model || ownerModel == nil else {
+            model.finishMPVFullscreenExit()
+            return
+        }
+        guard let controller = presented else {
+            ownerModel = nil
+            model.finishMPVFullscreenExit()
+            ScreenOrientation.set(.portrait)
+            return
+        }
+        guard !isTransitioning else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak model] in
+                guard let self, let model else { return }
+                self.dismiss(model: model)
+            }
+            return
         }
 
-        private static func topPresenter(from host: UIViewController) -> UIViewController? {
-            guard var top = host.view.window?.rootViewController else { return nil }
-            while let next = top.presentedViewController, !next.isBeingDismissed {
-                top = next
-            }
-            return top
+        presented = nil
+        ownerModel = nil
+        controller.onUnexpectedDismiss = nil
+        controller.allowedOrientations = .portrait
+        ScreenOrientation.prepare(.portrait)
+
+        let finish: () -> Void = { [weak self, weak model] in
+            self?.isTransitioning = false
+            model?.finishMPVFullscreenExit()
+            ScreenOrientation.set(.portrait)
         }
+
+        if let presenting = controller.presentingViewController {
+            isTransitioning = true
+            presenting.dismiss(animated: false, completion: finish)
+        } else {
+            finish()
+        }
+    }
+
+    private func dismissImmediate() {
+        guard let controller = presented else { return }
+        presented = nil
+        let previous = ownerModel
+        ownerModel = nil
+        isTransitioning = false
+        controller.onUnexpectedDismiss = nil
+        controller.allowedOrientations = .portrait
+        ScreenOrientation.prepare(.portrait)
+        controller.presentingViewController?.dismiss(animated: false)
+        previous?.finishMPVFullscreenExit()
+        ScreenOrientation.set(.portrait)
+    }
+
+    private static func topPresenter() -> UIViewController? {
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        let scene = scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
+        let window = scene?.windows.first(where: \.isKeyWindow) ?? scene?.windows.first
+        guard var top = window?.rootViewController else { return nil }
+        while let next = top.presentedViewController, !next.isBeingDismissed {
+            top = next
+        }
+        return top
     }
 }
 

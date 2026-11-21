@@ -63,11 +63,6 @@ private struct PlayerContent: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
-        .background {
-            MPVFullscreenPresenter(model: model)
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-        }
     }
 
     // MARK: 视频区域

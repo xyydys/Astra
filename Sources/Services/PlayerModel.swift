@@ -436,8 +436,20 @@ final class PlayerModel: ObservableObject {
     }
 
     func setMPVFullscreen(_ on: Bool) {
-        guard on != isMPVFullscreen else { return }
-        isMPVFullscreen = on
+        if on {
+            guard !isMPVFullscreen else { return }
+            isMPVFullscreen = true
+            MPVFullscreenManager.shared.present(model: self)
+        } else {
+            guard isMPVFullscreen else { return }
+            MPVFullscreenManager.shared.dismiss(model: self)
+        }
+    }
+
+    func finishMPVFullscreenExit() {
+        if isMPVFullscreen {
+            isMPVFullscreen = false
+        }
     }
 
     func setSystemFullscreen(_ on: Bool) {
@@ -497,6 +509,9 @@ final class PlayerModel: ObservableObject {
         player.pause()
         player.replaceCurrentItem(with: nil)
         mpv.destroy()
+        if isMPVFullscreen {
+            MPVFullscreenManager.shared.dismiss(model: self)
+        }
         isMPVFullscreen = false
         isFullscreen = false
         ScreenOrientation.set(.portrait)
