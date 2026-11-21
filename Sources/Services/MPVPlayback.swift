@@ -48,7 +48,10 @@ final class MPVPlayback: ObservableObject {
     @Published private(set) var isPaused = false
     @Published private(set) var isBuffering = true
     @Published private(set) var isLoaded = false
-    @Published private(set) var speed: Double = 1
+    @Published private(set) var speed: Double = AppSettings.defaultPlaybackSpeed
+    /// 长按临时倍速中（松手后恢复到 speedBeforeBoost）
+    @Published private(set) var isSpeedBoosting = false
+    @Published private(set) var boostSpeed: Double = 2
     /// 画面宽高比（全屏时决定要不要转横屏）
     @Published private(set) var videoAspect: Double = 16.0 / 9.0
     @Published private(set) var audioTracks: [Track] = []
@@ -74,6 +77,10 @@ final class MPVPlayback: ObservableObject {
     private var resumeAfterBackground = false
     private var observers: [NSObjectProtocol] = []
     private var statsTimer: Timer?
+    private var speedBeforeBoost: Double?
+    private var isActivePlayback = false
+    private var inBackground = false
+    private var keepingScreenAwake = false
 
     init() {
         let center = NotificationCenter.default
@@ -83,6 +90,9 @@ final class MPVPlayback: ObservableObject {
         observers.append(center.addObserver(forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.enterForeground() }
         })
+        observers.append(center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.becameActive() }
+        })
     }
 
     /// mpv 的警告和错误（复制日志时带上）
@@ -91,6 +101,7 @@ final class MPVPlayback: ObservableObject {
     // MARK: 控制
 
     func load(url: String, headers: [String: String], start: Double) {
+        endSpeedBoost()
         if core == nil {
             let sink: @Sendable (MPVUpdate) -> Void = { [weak self] update in
                 guard let owner = self else { return }
@@ -116,10 +127,16 @@ final class MPVPlayback: ObservableObject {
         subtitleTracks = []
         subtitleOff = true
         progressTick = -1
+        isActivePlayback = true
+        updateIdleTimer()
+        core?.set("speed", String(format: "%.2f", speed))
         core?.load(url: url, headers: headers, start: start)
     }
 
     func stop() {
+        endSpeedBoost()
+        isActivePlayback = false
+        updateIdleTimer()
         guard let core else { return }
         core.command(["stop"])
         isLoaded = false
@@ -128,8 +145,10 @@ final class MPVPlayback: ObservableObject {
     func togglePause() { setPaused(!isPaused) }
 
     func setPaused(_ paused: Bool) {
+        if paused { endSpeedBoost() }
         isPaused = paused
         core?.set("pause", paused ? "yes" : "no")
+        updateIdleTimer()
     }
 
     func seek(to seconds: Double) {
@@ -145,18 +164,60 @@ final class MPVPlayback: ObservableObject {
     func selectSubtitle(_ id: Int?) { core?.set("sid", id.map(String.init) ?? "no") }
 
     func setSpeed(_ value: Double) {
-        speed = value
-        core?.set("speed", String(format: "%.2f", value))
+        let clamped = min(max(value, 0.25), 4.0)
+        speed = clamped
+        if isSpeedBoosting {
+            speedBeforeBoost = clamped
+        } else {
+            core?.set("speed", String(format: "%.2f", clamped))
+        }
+    }
+
+    /// 长按屏幕临时倍速：低于 2x 时加速到 2x，已经 2x 及以上时加速到 3x
+    func beginSpeedBoost() {
+        guard !isPaused, !isSpeedBoosting else { return }
+        let target: Double = speed >= 2.0 ? 3.0 : 2.0
+        speedBeforeBoost = speed
+        boostSpeed = target
+        isSpeedBoosting = true
+        core?.set("speed", String(format: "%.2f", target))
+    }
+
+    /// 松手后恢复长按前的播放倍速
+    func endSpeedBoost() {
+        guard isSpeedBoosting else { return }
+        isSpeedBoosting = false
+        let restore = speedBeforeBoost ?? AppSettings.defaultPlaybackSpeed
+        speedBeforeBoost = nil
+        speed = restore
+        core?.set("speed", String(format: "%.2f", restore))
     }
 
     /// 离开播放页时调用，之后不能再用
     func destroy() {
+        endSpeedBoost()
+        isActivePlayback = false
+        updateIdleTimer()
         stopStats()
         finalLogs = core?.logSnapshot ?? finalLogs
         core?.destroy()
         core = nil
         for observer in observers { NotificationCenter.default.removeObserver(observer) }
         observers = []
+    }
+
+    // MARK: 屏幕常亮
+
+    /// mpv 通过 Metal 图层直接画画面，不会自动触发 AVPlayer 的防熄屏机制；
+    /// 播放中主动保持屏幕常亮，暂停 / 结束 / 退后台 / 离开页面时恢复系统息屏
+    private func updateIdleTimer(forceReassert: Bool = false) {
+        let shouldKeepAwake = isActivePlayback && !isPaused && !inBackground
+        if shouldKeepAwake != keepingScreenAwake {
+            keepingScreenAwake = shouldKeepAwake
+            UIApplication.shared.isIdleTimerDisabled = shouldKeepAwake
+        } else if forceReassert, keepingScreenAwake {
+            UIApplication.shared.isIdleTimerDisabled = true
+        }
     }
 
     // MARK: 播放信息
@@ -190,6 +251,9 @@ final class MPVPlayback: ObservableObject {
 
     /// 后台不能用 GPU 画画面：关掉视频轨，回到前台再打开（不然回来是黑屏）
     private func enterBackground() {
+        inBackground = true
+        endSpeedBoost()
+        updateIdleTimer()
         guard let core else { return }
         resumeAfterBackground = isLoaded && !isPaused
         if resumeAfterBackground { setPaused(true) }
@@ -197,10 +261,20 @@ final class MPVPlayback: ObservableObject {
     }
 
     private func enterForeground() {
-        guard let core else { return }
+        inBackground = false
+        guard let core else {
+            updateIdleTimer()
+            return
+        }
         core.set("vid", "auto")
         if resumeAfterBackground { setPaused(false) }
         resumeAfterBackground = false
+        updateIdleTimer(forceReassert: true)
+    }
+
+    private func becameActive() {
+        inBackground = false
+        updateIdleTimer(forceReassert: true)
     }
 
     // MARK: 状态
@@ -225,15 +299,18 @@ final class MPVPlayback: ObservableObject {
         case .cache(let value):
             cachedUntil = value
         case .paused(let value):
+            if value { endSpeedBoost() }
             isPaused = value
+            updateIdleTimer()
         case .waitingForCache(let value):
             waitingForCache = value
         case .speed(let value):
-            speed = value
+            if !isSpeedBoosting { speed = value }
         case .aspect(let value):
             if value > 0 { videoAspect = value }
         case .loaded:
             isLoaded = true
+            updateIdleTimer()
         case .playbackRestart:
             waitingForPlayback = false
         case .seeking:
@@ -243,8 +320,14 @@ final class MPVPlayback: ObservableObject {
             subtitleTracks = subtitles
             subtitleOff = off
         case .ended:
+            endSpeedBoost()
+            isActivePlayback = false
+            updateIdleTimer()
             onEnd?()
         case .failed(let message):
+            endSpeedBoost()
+            isActivePlayback = false
+            updateIdleTimer()
             onFailure?(message)
         }
         let buffering = waitingForPlayback || waitingForCache

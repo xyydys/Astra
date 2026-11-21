@@ -6,10 +6,13 @@ struct SettingsView: View {
     @ObservedObject private var cat = CatStore.shared
     @AppStorage(AppSettings.hlsAdFilterKey) private var hlsAdFilter = true
     @AppStorage(AppSettings.filterAdultKey) private var filterAdult = true
+    @AppStorage(AppSettings.defaultPlaybackSpeedKey) private var defaultPlaybackSpeed = 1.0
     @State private var appIcon = AppIconOption.current
     @AppStorage(AppAccent.key) private var accentHex = ""
     @AppStorage(ContentModeMenu.nativeKey) private var nativeModeMenu = false
     @AppStorage(SourceKindOrder.key) private var kindOrderRaw = ""
+
+    private static let defaultSpeedOptions: [Double] = [0.75, 1.0, 1.25, 1.5, 1.75, 2.0]
 
     private var version: String {
         let v = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
@@ -100,6 +103,14 @@ struct SettingsView: View {
             MusicSettingsSection()
 
             Section {
+                Picker(selection: $defaultPlaybackSpeed) {
+                    ForEach(Self.defaultSpeedOptions, id: \.self) { rate in
+                        Text(rate == 1 ? "正常（1x）" : String(format: "%gx", rate)).tag(rate)
+                    }
+                } label: {
+                    Label("mpv 默认倍速", systemImage: "speedometer")
+                }
+                .selectionFeedback(trigger: defaultPlaybackSpeed)
                 Toggle(isOn: $hlsAdFilter) {
                     Label("跳过视频内广告", systemImage: "forward.frame")
                 }
@@ -107,7 +118,7 @@ struct SettingsView: View {
             } header: {
                 Text("播放")
             } footer: {
-                Text("识别并去掉 m3u8 播放列表里插入的广告片段（片头 / 中插）。万一导致某个视频放不了，会自动改用原始播放列表重试。")
+                Text("mpv 播放器的默认倍速也可以在播放页悬浮控制栏里随时修改。跳过广告会识别并去掉 m3u8 播放列表里插入的广告片段（片头 / 中插），万一导致某个视频放不了会自动改用原始播放列表重试。")
             }
 
             Section {

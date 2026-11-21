@@ -438,7 +438,12 @@ final class PlayerModel: ObservableObject {
     func setMPVFullscreen(_ on: Bool) {
         guard on != isMPVFullscreen else { return }
         isMPVFullscreen = on
-        ScreenOrientation.rotate(landscape: on && mpv.videoAspect >= 1)
+    }
+
+    func setSystemFullscreen(_ on: Bool) {
+        guard on != isFullscreen else { return }
+        isFullscreen = on
+        ScreenOrientation.set(on ? .flexible : .portrait)
     }
 
     private func handle(status: AVPlayerItem.Status, error: String?) {
@@ -493,6 +498,8 @@ final class PlayerModel: ObservableObject {
         player.replaceCurrentItem(with: nil)
         mpv.destroy()
         isMPVFullscreen = false
+        isFullscreen = false
+        ScreenOrientation.set(.portrait)
         statusObservation = nil
         if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
         endObserver = nil

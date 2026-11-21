@@ -545,6 +545,7 @@ enum AppSettings {
     static let filterAdultKey = "filterAdultContent"
     static let hlsAdFilterKey = "hlsAdFilter"
     static let contentModeKey = "contentMode"
+    static let defaultPlaybackSpeedKey = "mpvDefaultSpeed"
 
     static var filterAdult: Bool {
         UserDefaults.standard.object(forKey: filterAdultKey) as? Bool ?? true
@@ -552,5 +553,11 @@ enum AppSettings {
 
     static var hlsAdFilter: Bool {
         UserDefaults.standard.object(forKey: hlsAdFilterKey) as? Bool ?? true
+    }
+
+    static var defaultPlaybackSpeed: Double {
+        let value = UserDefaults.standard.double(forKey: defaultPlaybackSpeedKey)
+        guard value >= 0.5, value <= 3.0 else { return 1.0 }
+        return value
     }
 }

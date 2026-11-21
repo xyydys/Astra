@@ -2,8 +2,18 @@ import SwiftUI
 import UIKit
 import AVFoundation
 
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        ScreenOrientation.supportedOrientations(for: window)
+    }
+}
+
 @main
 struct AstraApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var ruleStore = RuleStore()
     @AppStorage(AppAccent.key) private var accentHex = ""
 

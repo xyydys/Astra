@@ -63,11 +63,10 @@ private struct PlayerContent: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
         }
-        .fullScreenCover(isPresented: Binding(
-            get: { model.isMPVFullscreen },
-            set: { if !$0 { model.setMPVFullscreen(false) } }
-        )) {
-            MPVFullscreenPlayer(model: model)
+        .background {
+            MPVFullscreenPresenter(model: model)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
         }
     }
 
@@ -85,7 +84,7 @@ private struct PlayerContent: View {
                 } else {
                     VideoPlayerView(
                         player: model.player,
-                        onFullscreenChange: { model.isFullscreen = $0 },
+                        onFullscreenChange: { model.setSystemFullscreen($0) },
                         onPictureInPictureChange: { model.isPictureInPicture = $0 }
                     )
                 }
