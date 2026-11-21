@@ -145,51 +145,10 @@ struct RootView: View {
         }
     }
 
-    /// 音乐首页是深色的，底栏也要深色；其他页面跟随系统。
-    /// 直接改 UIKit 底栏的深浅：用 SwiftUI 的 toolbarColorScheme 切换标签时生效很慢，
-    /// 经常停在别的页面了底栏还是上一页的颜色
+    /// 参照 xyydy 底栏做法：不把整窗锁成深色，而是把底栏控制器与底栏本体按页面切换深浅，
+    /// 同时保持各标签页内容跟随系统，彻底避免从音乐首页切到浅色标签时底栏卡在深色。
     private func updateTabBarStyle() {
-        // 只在音乐首页把整个窗口锁成深色，其他时候窗口跟随系统，只有这一种切换。
-        // （只改底栏不行：日志显示底栏的深浅早就设对了，但 iOS 26 的玻璃底栏按背后页面内容取色，
-        // 从深色页面切走后要过一会儿才跟上。整个窗口一起切，底栏和页面同时变）
-        let style: UIUserInterfaceStyle = tab == .home && mode == .music ? .dark : .unspecified
-        DiagnosticLog.context = "tab=\(tab) mode=\(mode.rawValue)"
-        var found = false
-        for scene in UIApplication.shared.connectedScenes {
-            for window in (scene as? UIWindowScene)?.windows ?? [] where window.rootViewController != nil {
-                found = true
-                let before = window.overrideUserInterfaceStyle
-                if before != style { window.overrideUserInterfaceStyle = style }
-                if let bar = Self.tabBarController(in: window.rootViewController)?.tabBar {
-                    // 上个版本单独给底栏设过，清掉，跟着窗口走
-                    if bar.overrideUserInterfaceStyle != .unspecified { bar.overrideUserInterfaceStyle = .unspecified }
-                    Diag.log("底栏", "tab=\(tab) mode=\(mode.rawValue) 窗口设为 \(Self.name(style))（之前 \(Self.name(before))）")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        Diag.log("底栏", "0.3 秒后：窗口=\(Self.name(window.traitCollection.userInterfaceStyle)) 底栏=\(Self.name(bar.traitCollection.userInterfaceStyle))")
-                    }
-                }
-            }
-        }
-        if !found {
-            Diag.log("底栏", "没找到窗口（tab=\(tab) mode=\(mode.rawValue)）")
-        }
-    }
-
-    private static func name(_ style: UIUserInterfaceStyle) -> String {
-        switch style {
-        case .dark: return "深色"
-        case .light: return "浅色"
-        default: return "跟随"
-        }
-    }
-
-    private static func tabBarController(in root: UIViewController?) -> UITabBarController? {
-        guard let root else { return nil }
-        if let controller = root as? UITabBarController { return controller }
-        for child in root.children {
-            if let found = tabBarController(in: child) { return found }
-        }
-        return nil
+        AstraChromeCoordinator.shared.updateRoot(tab: tab, mode: mode)
     }
 
     private func restore(_ item: IncomingBackup) {
@@ -253,12 +212,14 @@ struct RootView: View {
                 case .music: MusicHomeView()
                 }
             }
+            .homeRootBarChrome()
             .overlay(alignment: .topLeading) {
                 ContentModeMenu()
                     .padding(.leading, 16)
                     .padding(.top, 4)
             }
         }
+        .environment(\.astraGlassTone, .dark)
     }
 
     private var favoritesTab: some View {
@@ -269,6 +230,7 @@ struct RootView: View {
             default: FavoritesView()
             }
         }
+        .environment(\.astraGlassTone, .system)
     }
 
     private var historyTab: some View {
@@ -279,12 +241,14 @@ struct RootView: View {
             default: HistoryView()
             }
         }
+        .environment(\.astraGlassTone, .system)
     }
 
     private var settingsTab: some View {
         NavigationStackCompat {
             SettingsView()
         }
+        .environment(\.astraGlassTone, .system)
     }
 
     private var searchTab: some View {
@@ -294,6 +258,7 @@ struct RootView: View {
         .environment(\.exitSearchTab) {
             if tab == .search { tab = tabBeforeSearch }
         }
+        .environment(\.astraGlassTone, .system)
     }
 }
 
@@ -323,7 +288,32 @@ struct ContentModeMenu: View {
 
     var body: some View {
         Group {
-            if native {
+            if #available(iOS 26, *) {
+                BarGlassPillMenuButton(
+                    title: mode.title,
+                    systemImage: mode.icon,
+                    showsChevron: true,
+                    fontSize: 15,
+                    iconSize: 14,
+                    height: 40,
+                    tone: .dark,
+                    accessibilityLabel: "切换内容：当前\(mode.title)"
+                ) {
+                    [
+                        UIMenu.picker(
+                            options: ContentMode.allCases.map {
+                                MenuOption(
+                                    value: $0,
+                                    title: $0.title,
+                                    subtitle: native ? $0.subtitle : nil,
+                                    systemImage: $0.icon
+                                )
+                            },
+                            selected: mode
+                        ) { select($0) }
+                    ]
+                }
+            } else if native {
                 MenuButton(title: mode.title, systemImage: mode.icon, menuKey: mode) {
                     UIMenu.picker(
                         options: ContentMode.allCases.map { MenuOption(value: $0, title: $0.title, subtitle: $0.subtitle, systemImage: $0.icon) },

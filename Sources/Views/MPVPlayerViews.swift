@@ -40,6 +40,7 @@ struct MPVControls: View {
     let toggleFullscreen: () -> Void
 
     @AppStorage(AppSettings.defaultPlaybackSpeedKey) private var defaultSpeed: Double = 1.0
+    @AppStorage(AppAccent.key) private var accentHex = ""
 
     @State private var visible = true
     @State private var isLocked = false
@@ -184,6 +185,7 @@ struct MPVControls: View {
             }
         }
         .environment(\.colorScheme, .dark)
+        .environment(\.astraGlassTone, .dark)
         .animation(.easeOut(duration: 0.18), value: visible)
         .animation(.easeOut(duration: 0.16), value: isLocked)
         .animation(.easeOut(duration: 0.16), value: lockBadgeVisible)
@@ -231,15 +233,26 @@ struct MPVControls: View {
     private var topBar: some View {
         GlassGroup(spacing: 12) {
             HStack(spacing: 12) {
-                Button(action: exitFullscreen) {
-                    Image(systemName: "chevron.backward")
-                        .font(.system(size: 16, weight: .semibold))
-                        .frame(width: 38, height: 38)
-                        .contentShape(Circle())
+                if #available(iOS 26, *) {
+                    BarGlassIconButton(
+                        systemImage: "chevron.backward",
+                        pointSize: 16,
+                        diameter: 38,
+                        tone: .dark,
+                        accessibilityLabel: "退出全屏",
+                        action: exitFullscreen
+                    )
+                } else {
+                    Button(action: exitFullscreen) {
+                        Image(systemName: "chevron.backward")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 38, height: 38)
+                            .contentShape(Circle())
+                    }
+                    .playerButtonStyle()
+                    .playerGlass(interactive: true, in: Circle())
+                    .accessibilityLabel("退出全屏")
                 }
-                .playerButtonStyle()
-                .playerGlass(interactive: true, in: Circle())
-                .accessibilityLabel("退出全屏")
 
                 Text(title)
                     .font(.subheadline.weight(.semibold))
@@ -248,28 +261,42 @@ struct MPVControls: View {
 
                 Spacer(minLength: 8)
 
-                Button {
-                    Haptics.tap()
-                    hideTask?.cancel()
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        isLocked = true
-                        visible = false
-                        lockBadgeVisible = true
+                if #available(iOS 26, *) {
+                    BarGlassIconButton(
+                        systemImage: "lock.open",
+                        pointSize: 15,
+                        diameter: 38,
+                        tone: .dark,
+                        accessibilityLabel: "锁定屏幕"
+                    ) {
+                        lockScreen()
                     }
-                    scheduleLockBadgeHide()
-                } label: {
-                    Image(systemName: "lock.open")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 38, height: 38)
-                        .contentShape(Circle())
+                } else {
+                    Button(action: lockScreen) {
+                        Image(systemName: "lock.open")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(width: 38, height: 38)
+                            .contentShape(Circle())
+                    }
+                    .playerButtonStyle()
+                    .playerGlass(interactive: true, in: Circle())
+                    .accessibilityLabel("锁定屏幕")
                 }
-                .playerButtonStyle()
-                .playerGlass(interactive: true, in: Circle())
-                .accessibilityLabel("锁定屏幕")
             }
         }
         .padding(.horizontal, 14)
         .padding(.top, 10)
+    }
+
+    private func lockScreen() {
+        Haptics.tap()
+        hideTask?.cancel()
+        withAnimation(.easeOut(duration: 0.18)) {
+            isLocked = true
+            visible = false
+            lockBadgeVisible = true
+        }
+        scheduleLockBadgeHide()
     }
 
     // MARK: 中央控制
@@ -311,6 +338,7 @@ struct MPVControls: View {
         }
     }
 
+    @ViewBuilder
     private func centerCircleButton(
         _ icon: String,
         iconSize: CGFloat,
@@ -318,20 +346,34 @@ struct MPVControls: View {
         label: String,
         action: @escaping () -> Void
     ) -> some View {
-        Button {
-            Haptics.tap()
-            action()
-            scheduleHide()
-        } label: {
-            Image(systemName: icon)
-                .font(.system(size: iconSize, weight: .semibold))
-                .symbolReplaceTransition()
-                .frame(width: diameter, height: diameter)
-                .contentShape(Circle())
+        if #available(iOS 26, *) {
+            BarGlassIconButton(
+                systemImage: icon,
+                pointSize: iconSize,
+                diameter: diameter,
+                tone: .dark,
+                accessibilityLabel: label
+            ) {
+                Haptics.tap()
+                action()
+                scheduleHide()
+            }
+        } else {
+            Button {
+                Haptics.tap()
+                action()
+                scheduleHide()
+            } label: {
+                Image(systemName: icon)
+                    .font(.system(size: iconSize, weight: .semibold))
+                    .symbolReplaceTransition()
+                    .frame(width: diameter, height: diameter)
+                    .contentShape(Circle())
+            }
+            .playerButtonStyle()
+            .playerGlass(interactive: true, in: Circle())
+            .accessibilityLabel(label)
         }
-        .playerButtonStyle()
-        .playerGlass(interactive: true, in: Circle())
-        .accessibilityLabel(label)
     }
 
     // MARK: 底栏
@@ -393,39 +435,69 @@ struct MPVControls: View {
             GlassGroup(spacing: isFullscreen ? 10 : 8) {
                 HStack(spacing: isFullscreen ? 10 : 8) {
                     if isFullscreen {
-                        Button {
-                            Haptics.tap()
-                            mpv.togglePause()
-                            scheduleHide()
-                        } label: {
-                            Image(systemName: mpv.isPaused ? "play.fill" : "pause.fill")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 36, height: 36)
-                                .contentShape(Circle())
-                        }
-                        .playerButtonStyle()
-                        .playerGlass(interactive: true, in: Circle())
-                        .accessibilityLabel(mpv.isPaused ? "播放" : "暂停")
-
-                        if let onNextEpisode {
+                        if #available(iOS 26, *) {
+                            BarGlassIconButton(
+                                systemImage: mpv.isPaused ? "play.fill" : "pause.fill",
+                                pointSize: 14,
+                                diameter: 36,
+                                tone: .dark,
+                                accessibilityLabel: mpv.isPaused ? "播放" : "暂停"
+                            ) {
+                                Haptics.tap()
+                                mpv.togglePause()
+                                scheduleHide()
+                            }
+                        } else {
                             Button {
                                 Haptics.tap()
-                                onNextEpisode()
+                                mpv.togglePause()
                                 scheduleHide()
                             } label: {
-                                HStack(spacing: 5) {
-                                    Image(systemName: "forward.end.fill")
-                                        .font(.system(size: 12, weight: .semibold))
-                                    Text("下一集")
-                                        .font(.caption.weight(.semibold))
-                                }
-                                .padding(.horizontal, 13)
-                                .frame(height: 36)
-                                .contentShape(Capsule())
+                                Image(systemName: mpv.isPaused ? "play.fill" : "pause.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(width: 36, height: 36)
+                                    .contentShape(Circle())
                             }
                             .playerButtonStyle()
-                            .playerGlass(interactive: true, in: Capsule())
-                            .accessibilityLabel("播放下一集")
+                            .playerGlass(interactive: true, in: Circle())
+                            .accessibilityLabel(mpv.isPaused ? "播放" : "暂停")
+                        }
+
+                        if let onNextEpisode {
+                            if #available(iOS 26, *) {
+                                BarGlassPillButton(
+                                    title: "下一集",
+                                    systemImage: "forward.end.fill",
+                                    fontSize: 12,
+                                    iconSize: 12,
+                                    height: 36,
+                                    tone: .dark,
+                                    accessibilityLabel: "播放下一集"
+                                ) {
+                                    Haptics.tap()
+                                    onNextEpisode()
+                                    scheduleHide()
+                                }
+                            } else {
+                                Button {
+                                    Haptics.tap()
+                                    onNextEpisode()
+                                    scheduleHide()
+                                } label: {
+                                    HStack(spacing: 5) {
+                                        Image(systemName: "forward.end.fill")
+                                            .font(.system(size: 12, weight: .semibold))
+                                        Text("下一集")
+                                            .font(.caption.weight(.semibold))
+                                    }
+                                    .padding(.horizontal, 13)
+                                    .frame(height: 36)
+                                    .contentShape(Capsule())
+                                }
+                                .playerButtonStyle()
+                                .playerGlass(interactive: true, in: Capsule())
+                                .accessibilityLabel("播放下一集")
+                            }
                         }
                     }
 
@@ -434,21 +506,37 @@ struct MPVControls: View {
                     speedMenu
                     optionsMenu
 
-                    Button {
-                        if isFullscreen {
-                            exitFullscreen()
-                        } else {
-                            toggleFullscreen()
+                    if #available(iOS 26, *) {
+                        BarGlassIconButton(
+                            systemImage: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                            pointSize: isFullscreen ? 14 : 13,
+                            diameter: isFullscreen ? 36 : 32,
+                            tone: .dark,
+                            accessibilityLabel: isFullscreen ? "退出全屏" : "全屏"
+                        ) {
+                            if isFullscreen {
+                                exitFullscreen()
+                            } else {
+                                toggleFullscreen()
+                            }
                         }
-                    } label: {
-                        Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
-                            .frame(width: isFullscreen ? 36 : 32, height: isFullscreen ? 36 : 32)
-                            .contentShape(Circle())
+                    } else {
+                        Button {
+                            if isFullscreen {
+                                exitFullscreen()
+                            } else {
+                                toggleFullscreen()
+                            }
+                        } label: {
+                            Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
+                                .frame(width: isFullscreen ? 36 : 32, height: isFullscreen ? 36 : 32)
+                                .contentShape(Circle())
+                        }
+                        .playerButtonStyle()
+                        .playerGlass(interactive: true, in: Circle())
+                        .accessibilityLabel(isFullscreen ? "退出全屏" : "全屏")
                     }
-                    .playerButtonStyle()
-                    .playerGlass(interactive: true, in: Circle())
-                    .accessibilityLabel(isFullscreen ? "退出全屏" : "全屏")
                 }
             }
         }
@@ -458,114 +546,228 @@ struct MPVControls: View {
 
     // MARK: 倍速与默认倍速菜单
 
+    @ViewBuilder
     private var speedMenu: some View {
         let isCustomSpeed = abs(mpv.speed - 1.0) >= 0.01
         let chipText = isCustomSpeed ? Self.speedLabel(mpv.speed) : "倍速"
 
-        return Menu {
-            Section("当前倍速") {
-                ForEach(Self.speeds, id: \.self) { rate in
-                    Button {
-                        mpv.setSpeed(rate)
-                        scheduleHide()
-                    } label: {
-                        checkLabel(rate == 1 ? "正常（1x）" : Self.speedLabel(rate), abs(mpv.speed - rate) < 0.01)
-                    }
-                }
+        if #available(iOS 26, *) {
+            BarGlassPillMenuButton(
+                title: chipText,
+                systemImage: "speedometer",
+                showsChevron: false,
+                fontSize: 12,
+                iconSize: isFullscreen ? 12 : 11,
+                height: isFullscreen ? 36 : 32,
+                tint: isCustomSpeed ? AppAccent.uiColor(accentHex) : nil,
+                tone: .dark,
+                monospacedDigits: true,
+                accessibilityLabel: "倍速与默认倍速，当前 \(Self.speedLabel(mpv.speed))"
+            ) {
+                buildSpeedMenuElements()
             }
-
-            Section {
-                Menu {
-                    ForEach(Self.defaultSpeedOptions, id: \.self) { rate in
+        } else {
+            Menu {
+                Section("当前倍速") {
+                    ForEach(Self.speeds, id: \.self) { rate in
                         Button {
-                            defaultSpeed = rate
                             mpv.setSpeed(rate)
                             scheduleHide()
                         } label: {
-                            checkLabel(rate == 1 ? "正常（1x）" : Self.speedLabel(rate), abs(defaultSpeed - rate) < 0.01)
+                            checkLabel(rate == 1 ? "正常（1x）" : Self.speedLabel(rate), abs(mpv.speed - rate) < 0.01)
                         }
                     }
-                } label: {
-                    Label("默认倍速 · \(Self.speedLabel(defaultSpeed))", systemImage: "speedometer")
                 }
 
-                if abs(mpv.speed - defaultSpeed) >= 0.01,
-                   Self.defaultSpeedOptions.contains(where: { abs($0 - mpv.speed) < 0.01 }) {
-                    Button {
-                        defaultSpeed = mpv.speed
-                        scheduleHide()
+                Section {
+                    Menu {
+                        ForEach(Self.defaultSpeedOptions, id: \.self) { rate in
+                            Button {
+                                defaultSpeed = rate
+                                mpv.setSpeed(rate)
+                                scheduleHide()
+                            } label: {
+                                checkLabel(rate == 1 ? "正常（1x）" : Self.speedLabel(rate), abs(defaultSpeed - rate) < 0.01)
+                            }
+                        }
                     } label: {
-                        Label("将 \(Self.speedLabel(mpv.speed)) 设为默认倍速", systemImage: "pin")
+                        Label("默认倍速 · \(Self.speedLabel(defaultSpeed))", systemImage: "speedometer")
+                    }
+
+                    if abs(mpv.speed - defaultSpeed) >= 0.01,
+                       Self.defaultSpeedOptions.contains(where: { abs($0 - mpv.speed) < 0.01 }) {
+                        Button {
+                            defaultSpeed = mpv.speed
+                            scheduleHide()
+                        } label: {
+                            Label("将 \(Self.speedLabel(mpv.speed)) 设为默认倍速", systemImage: "pin")
+                        }
                     }
                 }
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: "speedometer")
+                        .font(.system(size: isFullscreen ? 12 : 11, weight: .semibold))
+                    Text(chipText)
+                        .font(.caption.weight(.semibold).monospacedDigit())
+                }
+                .foregroundStyle(isCustomSpeed ? Color.accentColor : Color.white)
+                .padding(.horizontal, isFullscreen ? 12 : 10)
+                .frame(height: isFullscreen ? 36 : 32)
+                .contentShape(Capsule())
             }
-        } label: {
-            HStack(spacing: 4) {
-                Image(systemName: "speedometer")
-                    .font(.system(size: isFullscreen ? 12 : 11, weight: .semibold))
-                Text(chipText)
-                    .font(.caption.weight(.semibold).monospacedDigit())
-            }
-            .foregroundStyle(isCustomSpeed ? Color.accentColor : Color.white)
-            .padding(.horizontal, isFullscreen ? 12 : 10)
-            .frame(height: isFullscreen ? 36 : 32)
-            .contentShape(Capsule())
+            .buttonStyle(.plain)
+            .playerGlass(interactive: true, in: Capsule())
+            .accessibilityLabel("倍速与默认倍速，当前 \(Self.speedLabel(mpv.speed))")
         }
-        .buttonStyle(.plain)
-        .playerGlass(interactive: true, in: Capsule())
-        .accessibilityLabel("倍速与默认倍速，当前 \(Self.speedLabel(mpv.speed))")
+    }
+
+    private func buildSpeedMenuElements() -> [UIMenuElement] {
+        let currentActions = Self.speeds.map { rate in
+            UIAction(
+                title: rate == 1 ? "正常（1x）" : Self.speedLabel(rate),
+                state: abs(mpv.speed - rate) < 0.01 ? .on : .off
+            ) { _ in
+                mpv.setSpeed(rate)
+                scheduleHide()
+            }
+        }
+        let currentSection = UIMenu(title: "当前倍速", options: .displayInline, children: currentActions)
+
+        let defaultSubActions = Self.defaultSpeedOptions.map { rate in
+            UIAction(
+                title: rate == 1 ? "正常（1x）" : Self.speedLabel(rate),
+                state: abs(defaultSpeed - rate) < 0.01 ? .on : .off
+            ) { _ in
+                defaultSpeed = rate
+                mpv.setSpeed(rate)
+                scheduleHide()
+            }
+        }
+        var footerItems: [UIMenuElement] = [
+            UIMenu(
+                title: "默认倍速 · \(Self.speedLabel(defaultSpeed))",
+                image: UIImage(systemName: "speedometer"),
+                children: defaultSubActions
+            )
+        ]
+        if abs(mpv.speed - defaultSpeed) >= 0.01,
+           Self.defaultSpeedOptions.contains(where: { abs($0 - mpv.speed) < 0.01 }) {
+            let currentRate = mpv.speed
+            footerItems.append(
+                UIAction(
+                    title: "将 \(Self.speedLabel(currentRate)) 设为默认倍速",
+                    image: UIImage(systemName: "pin")
+                ) { _ in
+                    defaultSpeed = currentRate
+                    scheduleHide()
+                }
+            )
+        }
+        let footerSection = UIMenu(options: .displayInline, children: footerItems)
+        return [currentSection, footerSection]
     }
 
     // MARK: 音轨 / 字幕 / 信息菜单
 
+    @ViewBuilder
     private var optionsMenu: some View {
-        Menu {
-            if !mpv.audioTracks.isEmpty {
-                Section("音轨") {
-                    ForEach(mpv.audioTracks) { track in
+        if #available(iOS 26, *) {
+            BarGlassIconMenuButton(
+                systemImage: "captions.bubble",
+                pointSize: isFullscreen ? 14 : 13,
+                diameter: isFullscreen ? 36 : 32,
+                tone: .dark,
+                accessibilityLabel: "音轨、字幕和播放信息"
+            ) {
+                buildOptionsMenuElements()
+            }
+        } else {
+            Menu {
+                if !mpv.audioTracks.isEmpty {
+                    Section("音轨") {
+                        ForEach(mpv.audioTracks) { track in
+                            Button {
+                                mpv.selectAudio(track.id)
+                                scheduleHide()
+                            } label: {
+                                checkLabel(track.title, track.selected)
+                            }
+                        }
+                    }
+                }
+                Section("字幕") {
+                    Button {
+                        mpv.selectSubtitle(nil)
+                        scheduleHide()
+                    } label: {
+                        checkLabel("关闭字幕", mpv.subtitleOff)
+                    }
+                    ForEach(mpv.subtitleTracks) { track in
                         Button {
-                            mpv.selectAudio(track.id)
+                            mpv.selectSubtitle(track.id)
                             scheduleHide()
                         } label: {
                             checkLabel(track.title, track.selected)
                         }
                     }
                 }
-            }
-            Section("字幕") {
-                Button {
-                    mpv.selectSubtitle(nil)
-                    scheduleHide()
-                } label: {
-                    checkLabel("关闭字幕", mpv.subtitleOff)
-                }
-                ForEach(mpv.subtitleTracks) { track in
+                Section {
                     Button {
-                        mpv.selectSubtitle(track.id)
+                        mpv.showStats.toggle()
                         scheduleHide()
                     } label: {
-                        checkLabel(track.title, track.selected)
+                        checkLabel("播放信息（网速、码率、解码）", mpv.showStats)
                     }
                 }
+            } label: {
+                Image(systemName: "captions.bubble")
+                    .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: isFullscreen ? 36 : 32, height: isFullscreen ? 36 : 32)
+                    .contentShape(Circle())
             }
-            Section {
-                Button {
-                    mpv.showStats.toggle()
+            .buttonStyle(.plain)
+            .playerGlass(interactive: true, in: Circle())
+            .accessibilityLabel("音轨、字幕和播放信息")
+        }
+    }
+
+    private func buildOptionsMenuElements() -> [UIMenuElement] {
+        var sections: [UIMenuElement] = []
+        if !mpv.audioTracks.isEmpty {
+            let audioActions = mpv.audioTracks.map { track in
+                UIAction(title: track.title, state: track.selected ? .on : .off) { _ in
+                    mpv.selectAudio(track.id)
                     scheduleHide()
-                } label: {
-                    checkLabel("播放信息（网速、码率、解码）", mpv.showStats)
                 }
             }
-        } label: {
-            Image(systemName: "captions.bubble")
-                .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: isFullscreen ? 36 : 32, height: isFullscreen ? 36 : 32)
-                .contentShape(Circle())
+            sections.append(UIMenu(title: "音轨", options: .displayInline, children: audioActions))
         }
-        .buttonStyle(.plain)
-        .playerGlass(interactive: true, in: Circle())
-        .accessibilityLabel("音轨、字幕和播放信息")
+
+        var subtitleActions: [UIAction] = [
+            UIAction(title: "关闭字幕", state: mpv.subtitleOff ? .on : .off) { _ in
+                mpv.selectSubtitle(nil)
+                scheduleHide()
+            }
+        ]
+        subtitleActions.append(contentsOf: mpv.subtitleTracks.map { track in
+            UIAction(title: track.title, state: track.selected ? .on : .off) { _ in
+                mpv.selectSubtitle(track.id)
+                scheduleHide()
+            }
+        })
+        sections.append(UIMenu(title: "字幕", options: .displayInline, children: subtitleActions))
+
+        let statsAction = UIAction(
+            title: "播放信息（网速、码率、解码）",
+            state: mpv.showStats ? .on : .off
+        ) { _ in
+            mpv.showStats.toggle()
+            scheduleHide()
+        }
+        sections.append(UIMenu(options: .displayInline, children: [statsAction]))
+        return sections
     }
 
     // MARK: 悬浮提示 HUD
@@ -674,32 +876,50 @@ struct MPVControls: View {
     }
 
     private var unlockOverlay: some View {
-        Button {
-            Haptics.tap()
-            lockHideTask?.cancel()
-            withAnimation(.easeOut(duration: 0.18)) {
-                isLocked = false
-                lockBadgeVisible = false
-                visible = true
+        Group {
+            if #available(iOS 26, *) {
+                BarGlassPillButton(
+                    title: "点按解锁",
+                    systemImage: "lock.fill",
+                    fontSize: 12,
+                    iconSize: 13,
+                    height: 38,
+                    tone: .dark,
+                    accessibilityLabel: "解除屏幕锁定"
+                ) {
+                    unlockScreen()
+                }
+            } else {
+                Button(action: unlockScreen) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("点按解锁")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 38)
+                    .contentShape(Capsule())
+                }
+                .playerButtonStyle()
+                .playerGlass(interactive: true, prominent: true, in: Capsule())
+                .accessibilityLabel("解除屏幕锁定")
             }
-            scheduleHide()
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 13, weight: .semibold))
-                Text("点按解锁")
-                    .font(.caption.weight(.semibold))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .frame(height: 38)
-            .contentShape(Capsule())
         }
-        .playerButtonStyle()
-        .playerGlass(interactive: true, prominent: true, in: Capsule())
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .padding(.leading, 18)
-        .accessibilityLabel("解除屏幕锁定")
+    }
+
+    private func unlockScreen() {
+        Haptics.tap()
+        lockHideTask?.cancel()
+        withAnimation(.easeOut(duration: 0.18)) {
+            isLocked = false
+            lockBadgeVisible = false
+            visible = true
+        }
+        scheduleHide()
     }
 
     private func statsPanel(_ stats: MPVStats) -> some View {
@@ -878,12 +1098,13 @@ private extension View {
     }
 
     /// 播放器悬浮控件玻璃材质：
-    /// - iOS 26+ 用系统常规液态玻璃（.regular，不用 .clear 刺眼光边，自动跟随系统「透明 / 色调」设置）
+    /// - iOS 26+ 用与底栏同源的实体液态玻璃（深色通透起点，自动跟随系统「透明 / 色调」设置）
     /// - iOS 15–18 用深色磨砂材质 + 细微高光描边
     @ViewBuilder
     func playerGlass<S: InsettableShape>(interactive: Bool = false, prominent: Bool = false, in shape: S) -> some View {
         if #available(iOS 26, *) {
-            glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
+            glass(interactive: interactive, in: shape)
+                .environment(\.astraGlassTone, .dark)
         } else {
             background {
                 shape

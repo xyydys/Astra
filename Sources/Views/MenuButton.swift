@@ -9,6 +9,9 @@ import UIKit
 struct MenuButton: UIViewRepresentable {
     let title: String
     let systemImage: String
+    var showsChevron: Bool = true
+    var fontSize: CGFloat? = nil
+    var tint: UIColor? = nil
     /// 菜单内容的版本（选中项等），变了才重建菜单
     let menuKey: AnyHashable
     let menu: () -> UIMenu
@@ -36,18 +39,23 @@ struct MenuButton: UIViewRepresentable {
     }
 
     private func apply(to button: UIButton) {
-        let font = UIFont.preferredFont(forTextStyle: .subheadline).withWeight(.semibold)
+        let font = fontSize.map { UIFont.systemFont(ofSize: $0, weight: .semibold) }
+            ?? UIFont.preferredFont(forTextStyle: .subheadline).withWeight(.semibold)
         var config = UIButton.Configuration.plain()
         config.contentInsets = NSDirectionalEdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14)
-        config.baseForegroundColor = .label
-        config.image = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(font: font))
-        config.imagePadding = 6
+        config.baseForegroundColor = tint ?? .label
+        if !systemImage.isEmpty {
+            config.image = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(font: font))
+            config.imagePadding = 6
+        }
 
-        let text = NSMutableAttributedString(string: title + " ", attributes: [.font: font])
-        let chevronFont = UIFont.systemFont(ofSize: font.pointSize * 0.62, weight: .bold)
-        if let chevron = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(font: chevronFont)) {
-            let attachment = NSTextAttachment(image: chevron.withRenderingMode(.alwaysTemplate))
-            text.append(NSAttributedString(attachment: attachment))
+        let text = NSMutableAttributedString(string: showsChevron ? (title + " ") : title, attributes: [.font: font])
+        if showsChevron {
+            let chevronFont = UIFont.systemFont(ofSize: font.pointSize * 0.62, weight: .bold)
+            if let chevron = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(font: chevronFont)) {
+                let attachment = NSTextAttachment(image: chevron.withRenderingMode(.alwaysTemplate))
+                text.append(NSAttributedString(attachment: attachment))
+            }
         }
         config.attributedTitle = AttributedString(text)
         button.configuration = config

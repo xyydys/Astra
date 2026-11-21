@@ -636,5 +636,6 @@ struct CaptchaView: View {
                 }
                 .onAppear { model.load(target.url) }
         }
+        .environment(\.astraGlassTone, .system)
     }
 }

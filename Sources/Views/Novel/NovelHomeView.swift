@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 小说首页：继续阅读、书架、最近读过、发现（书源自带的分类）
 struct NovelHomeView: View {
@@ -61,6 +62,7 @@ struct NovelHomeView: View {
                 .animation(.easeInOut(duration: 0.4), value: heroTint)
         }
         .environment(\.colorScheme, heroTint?.colorScheme ?? systemScheme)
+        .environment(\.astraGlassTone, heroTint?.glassTone ?? .dark)
         .navigationBarHiddenCompat()
         .task { await store.load() }
         .task(id: hero?.subjectID) {
@@ -276,19 +278,23 @@ struct NovelExploreSection: View {
                     Text("发现")
                         .font(.title2.weight(.bold))
                     Spacer()
-                    Menu {
-                        Picker("书源", selection: Binding(get: { selected?.id ?? "" }, set: { sourceID = $0 })) {
-                            ForEach(sources) { source in
-                                Text(source.bookSourceName).tag(source.id)
-                            }
-                        }
-                    } label: {
-                        Label(selected?.bookSourceName ?? "书源", systemImage: "chevron.up.chevron.down")
-                            .font(.subheadline)
-                            .lineLimit(1)
+                    BarGlassPillMenuButton(
+                        title: selected?.bookSourceName ?? "书源",
+                        systemImage: "chevron.up.chevron.down",
+                        showsChevron: false,
+                        fontSize: 14,
+                        iconSize: 13,
+                        height: 34,
+                        menuTitle: "书源",
+                        accessibilityLabel: "切换书源：\(selected?.bookSourceName ?? "书源")"
+                    ) {
+                        [
+                            UIMenu.picker(
+                                options: sources.map { MenuOption(value: $0.id, title: $0.bookSourceName) },
+                                selected: selected?.id ?? ""
+                            ) { sourceID = $0 }
+                        ]
                     }
-                    .glassButtonStyle()
-                    .controlSize(.small)
                 }
                 .padding(.horizontal)
 

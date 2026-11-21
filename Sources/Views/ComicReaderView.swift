@@ -94,6 +94,7 @@ struct ComicReaderView: View {
         .statusBarHidden(!showBars)
         .homeIndicatorHiddenCompat(!showBars)
         .environment(\.colorScheme, .dark)
+        .environment(\.astraGlassTone, .dark)
         .task(id: chapterIndex) { await loadChapter() }
         .onChangeCompat(of: currentPage) { _, page in
             saveProgress(page)
@@ -172,16 +173,17 @@ struct ComicReaderView: View {
 
     private var topBar: some View {
         HStack(spacing: 12) {
-            Button {
+            BarGlassIconButton(
+                systemImage: "xmark",
+                pointSize: 16,
+                weight: .semibold,
+                diameter: 40,
+                tone: .dark,
+                accessibilityLabel: "关闭"
+            ) {
                 saveProgress(currentPage)
                 dismiss()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.headline)
-                    .frame(width: 36, height: 36)
             }
-            .glassButtonStyle()
-            .circleButtonShape()
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(request.subject.title)
@@ -194,19 +196,24 @@ struct ComicReaderView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Menu {
-                Picker("阅读方式", selection: $mode) {
-                    ForEach(ComicReadingMode.allCases) { item in
-                        Label(item.title, systemImage: item.icon).tag(item)
-                    }
-                }
-            } label: {
-                Image(systemName: mode.icon)
-                    .font(.headline)
-                    .frame(width: 36, height: 36)
+            BarGlassIconMenuButton(
+                systemImage: mode.icon,
+                pointSize: 16,
+                weight: .semibold,
+                diameter: 40,
+                tone: .dark,
+                menuTitle: "阅读方式",
+                accessibilityLabel: "阅读方式：\(mode.title)"
+            ) {
+                [
+                    UIMenu.picker(
+                        options: ComicReadingMode.allCases.map {
+                            MenuOption(value: $0, title: $0.title, systemImage: $0.icon)
+                        },
+                        selected: mode
+                    ) { mode = $0 }
+                ]
             }
-            .glassButtonStyle()
-            .circleButtonShape()
         }
         .padding(.horizontal)
         .padding(.top, 6)

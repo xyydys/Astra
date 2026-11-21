@@ -403,6 +403,7 @@ struct NovelReaderView: View {
                 .sheetDetents([.height(430), .large])
                 // 面板跟着阅读主题的深浅走（夜读时面板也是深色），不跟系统
                 .readerColorScheme(model.theme.colorScheme)
+                .environment(\.astraGlassTone, model.theme.isDark ? .dark : .light)
         }
         .sheet(isPresented: $showTOC) {
             NovelTOCSheet(chapters: model.chapters, current: model.position.chapter) { index in
@@ -411,6 +412,7 @@ struct NovelReaderView: View {
                 model.jump(to: index)
             }
             .readerColorScheme(model.theme.colorScheme)
+            .environment(\.astraGlassTone, model.theme.isDark ? .dark : .light)
         }
         .onChangeCompat(of: store.settings.volumeKeys, initial: true) { _, enabled in updateVolumeKeys(enabled) }
         .onAppear {
@@ -453,20 +455,21 @@ struct NovelReaderView: View {
             bottomBar
         }
         .environment(\.colorScheme, model.theme.colorScheme)
+        .environment(\.astraGlassTone, model.theme.glassTone)
     }
 
     private var topBar: some View {
         HStack(spacing: 12) {
-            Button {
+            BarGlassIconButton(
+                systemImage: "chevron.backward",
+                pointSize: 20,
+                weight: .semibold,
+                diameter: titleHeight,
+                tone: model.theme.glassTone,
+                accessibilityLabel: "返回"
+            ) {
                 dismiss()
-            } label: {
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 20, weight: .semibold))
-                    .frame(width: titleHeight, height: titleHeight)
-                    .contentShape(Circle())
             }
-            .buttonStyle(.plain)
-            .glass(interactive: true, in: Circle())
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(model.book.name)
@@ -483,23 +486,30 @@ struct NovelReaderView: View {
             .glass(in: Capsule())
             .readHeight { titleHeight = $0 }
 
-            Menu {
-                Button("刷新本章", icon: "arrow.clockwise") {
-                    model.reloadCurrent()
-                    model.showsMenu = false
+            BarGlassIconMenuButton(
+                systemImage: "ellipsis",
+                pointSize: 20,
+                weight: .semibold,
+                diameter: titleHeight,
+                tone: model.theme.glassTone,
+                accessibilityLabel: "更多选项"
+            ) {
+                var items: [UIMenuElement] = [
+                    UIAction(title: "刷新本章", image: UIImage(systemName: "arrow.clockwise")) { _ in
+                        model.reloadCurrent()
+                        model.showsMenu = false
+                    }
+                ]
+                if let chapter = model.currentChapter,
+                   let url = URL.lenient(EngineURL.splitOption(chapter.absoluteURL).url) {
+                    items.append(UIAction(title: "打开原网页", image: UIImage(systemName: "safari")) { _ in
+                        openURL(url)
+                    })
                 }
-                if let chapter = model.currentChapter, let url = URL.lenient(EngineURL.splitOption(chapter.absoluteURL).url) {
-                    Button("打开原网页", icon: "safari") { openURL(url) }
-                }
-                Text("书源：\(model.book.originName)")
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 20, weight: .semibold))
-                    .frame(width: titleHeight, height: titleHeight)
-                    .contentShape(Circle())
+                let originInfo = UIAction(title: "书源：\(model.book.originName)", attributes: .disabled) { _ in }
+                items.append(UIMenu(options: .displayInline, children: [originInfo]))
+                return items
             }
-            .buttonStyle(.plain)
-            .glass(interactive: true, in: Circle())
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)

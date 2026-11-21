@@ -63,6 +63,8 @@ struct ComicDetailView: View {
                 .ignoresSafeArea()
         }
         .environment(\.colorScheme, tint?.colorScheme ?? systemScheme)
+        .environment(\.astraGlassTone, tint?.glassTone ?? .dark)
+        .immersiveBarChrome(glassTone: tint?.glassTone ?? .dark)
         .navigationTitle(subject.title)
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitleHidden()

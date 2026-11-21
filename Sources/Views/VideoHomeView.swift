@@ -164,6 +164,7 @@ struct VideoHomeView: View {
     /// 用 @State 持有、不订阅：滑动时只有背景层（HomeBackground）重绘，整页不跟着每帧刷新
     @State private var scroll = HeroScrollState()
     @State private var contentScheme: ColorScheme?
+    @State private var glassTone: AstraGlassTone?
     @EnvironmentObject private var ruleStore: RuleStore
     @ObservedObject private var uz = UZStore.shared
     @ObservedObject private var cat = CatStore.shared
@@ -173,6 +174,10 @@ struct VideoHomeView: View {
 
     private var firstHeroScheme: ColorScheme? {
         model.hero.first.flatMap { PosterTints.shared.tint(for: $0.id)?.colorScheme }
+    }
+
+    private var firstHeroGlassTone: AstraGlassTone {
+        model.hero.first.flatMap { PosterTints.shared.tint(for: $0.id)?.glassTone } ?? .dark
     }
 
     var body: some View {
@@ -202,9 +207,15 @@ struct VideoHomeView: View {
             .padding(.bottom, 24)
         }
         .background {
-            HomeBackground(hero: model.hero, scroll: scroll) { contentScheme = $0 }
+            HomeBackground(
+                hero: model.hero,
+                scroll: scroll,
+                onSchemeChange: { contentScheme = $0 },
+                onGlassToneChange: { glassTone = $0 }
+            )
         }
         .environment(\.colorScheme, contentScheme ?? firstHeroScheme ?? systemScheme)
+        .environment(\.astraGlassTone, glassTone ?? firstHeroGlassTone)
         .ignoresSafeArea(edges: .top)
         .navigationBarHiddenCompat()
         .refreshable { await model.load(force: true) }

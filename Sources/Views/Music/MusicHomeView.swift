@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// 音乐首页：上方整块是 Folia 歌词动画，下方是进度条和切歌。收藏 / 播放历史在底栏对应的标签里。
 ///
@@ -55,6 +56,7 @@ struct MusicHomeView: View {
         }
         .sheet(isPresented: $showQueue) {
             MusicQueueSheet()
+                .environment(\.astraGlassTone, .system)
         }
         .onAppear { Diag.log("音乐", "音乐首页出现") }
         .onDisappear { Diag.log("音乐", "音乐首页消失") }
@@ -200,18 +202,17 @@ private struct MusicControls: View {
                     Image(systemName: "backward.fill").font(.title2).frame(width: 54, height: 54)
                 }
                 Spacer()
-                Button { player.togglePlay() } label: {
-                    ZStack {
-                        if player.isLoading {
-                            ProgressView().controlSize(.large)
-                        } else {
-                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 30))
-                                .symbolReplaceTransition()
-                        }
-                    }
-                    .frame(width: 72, height: 72)
-                    .glass(interactive: true, in: Circle())
+                BarGlassIconButton(
+                    systemImage: player.isPlaying ? "pause.fill" : "play.fill",
+                    pointSize: 30,
+                    weight: .semibold,
+                    diameter: 72,
+                    tone: .dark,
+                    isLoading: player.isLoading,
+                    isDisabled: player.current == nil,
+                    accessibilityLabel: player.isPlaying ? "暂停" : "播放"
+                ) {
+                    player.togglePlay()
                 }
                 Spacer()
                 Button { player.next() } label: {
@@ -240,7 +241,8 @@ private struct MusicControls: View {
 
 // MARK: 特效切换（右上角，和左上角的模式切换一样是原生下拉菜单）
 
-/// 用 UIKit 的菜单：播放时页面在不停刷新，SwiftUI 的 Menu 展开后会失灵（见 MenuButton）
+/// iOS 26 用真导航栏玻璃按钮（UINavigationBar + UIBarButtonItem(menu:)），展开菜单与按钮深浅完美互通；
+/// 播放时菜单独立于 SwiftUI 刷新，点按和滑选始终稳定
 private struct FoliaEffectMenu: View {
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
@@ -249,10 +251,16 @@ private struct FoliaEffectMenu: View {
     private var background: FoliaBackground { FoliaBackground(rawValue: backgroundRaw) ?? .latent }
 
     var body: some View {
-        MenuButton(
+        BarGlassPillMenuButton(
             title: mode.name,
             systemImage: "wand.and.sparkles",
-            menuKey: [modeRaw, backgroundRaw]
+            showsChevron: true,
+            fontSize: 15,
+            iconSize: 14,
+            height: 40,
+            tone: .dark,
+            menuTitle: "歌词特效",
+            accessibilityLabel: "切换歌词特效：当前\(mode.name)"
         ) {
             func option(_ mode: FoliaMode) -> MenuOption<String> {
                 MenuOption(value: mode.rawValue, title: mode.name, systemImage: mode.icon)
@@ -277,11 +285,8 @@ private struct FoliaEffectMenu: View {
                     selected: backgroundRaw
                 ) { backgroundRaw = $0 })
             }
-            return UIMenu(title: "歌词特效", children: children)
+            return children
         }
-        .fixedSize()
-        .glass(in: Capsule())
-        .accessibilityLabel("切换歌词特效：当前\(mode.name)")
     }
 }
 

@@ -145,6 +145,8 @@ struct NovelDetailView: View {
             (tint?.color ?? Color(uiColor: .systemBackground)).ignoresSafeArea()
         }
         .environment(\.colorScheme, tint?.colorScheme ?? systemScheme)
+        .environment(\.astraGlassTone, tint?.glassTone ?? .dark)
+        .immersiveBarChrome(glassTone: tint?.glassTone ?? .dark)
         .navigationTitle(book?.name ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitleHidden()
@@ -160,6 +162,7 @@ struct NovelDetailView: View {
                 showTOC = false
                 open(chapter: index, offset: 0)
             }
+            .environment(\.astraGlassTone, .system)
         }
         .sheet(isPresented: $showSources) {
             if let book {
@@ -167,6 +170,7 @@ struct NovelDetailView: View {
                     showSources = false
                     switchSource(picked)
                 }
+                .environment(\.astraGlassTone, .system)
             }
         }
     }

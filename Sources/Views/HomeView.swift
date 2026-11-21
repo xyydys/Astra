@@ -125,6 +125,8 @@ struct HomeView: View {
     @State private var scroll = HeroScrollState()
     /// 背景偏亮 / 偏暗时切换文字配色，只在跨过阈值时才变
     @State private var contentScheme: ColorScheme?
+    /// 玻璃的深浅倾向（极高阈值：极浅海报才切浅色玻璃）
+    @State private var glassTone: AstraGlassTone?
     @EnvironmentObject private var ruleStore: RuleStore
     @Environment(\.colorScheme) private var systemScheme
 
@@ -133,6 +135,10 @@ struct HomeView: View {
     /// 背景层回报配色之前（第一帧），先按第一张海报的颜色决定文字配色
     private var firstHeroScheme: ColorScheme? {
         model.hero.first.flatMap { PosterTints.shared.tint(for: $0.id)?.colorScheme }
+    }
+
+    private var firstHeroGlassTone: AstraGlassTone {
+        model.hero.first.flatMap { PosterTints.shared.tint(for: $0.id)?.glassTone } ?? .dark
     }
 
     var body: some View {
@@ -188,9 +194,15 @@ struct HomeView: View {
             .padding(.bottom, 24)
         }
         .background {
-            HomeBackground(hero: model.hero, scroll: scroll) { contentScheme = $0 }
+            HomeBackground(
+                hero: model.hero,
+                scroll: scroll,
+                onSchemeChange: { contentScheme = $0 },
+                onGlassToneChange: { glassTone = $0 }
+            )
         }
         .environment(\.colorScheme, contentScheme ?? firstHeroScheme ?? systemScheme)
+        .environment(\.astraGlassTone, glassTone ?? firstHeroGlassTone)
         .ignoresSafeArea(edges: .top)
         .navigationBarHiddenCompat()
         .refreshable { await model.load(force: true) }
@@ -205,6 +217,7 @@ struct HomeBackground: View {
     @ObservedObject var scroll: HeroScrollState
     @ObservedObject private var tints = PosterTints.shared
     let onSchemeChange: (ColorScheme?) -> Void
+    var onGlassToneChange: ((AstraGlassTone) -> Void)? = nil
 
     private var tint: PosterTint? {
         let tints = HeroCarousel.pages(of: hero).map { self.tints.tint(for: $0.id) }
@@ -227,6 +240,9 @@ struct HomeBackground: View {
             .ignoresSafeArea()
             .onChangeCompat(of: tint?.colorScheme, initial: true) { _, scheme in
                 onSchemeChange(scheme)
+            }
+            .onChangeCompat(of: tint?.glassTone, initial: true) { _, tone in
+                onGlassToneChange?(tone ?? .dark)
             }
     }
 }

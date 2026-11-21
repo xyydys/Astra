@@ -27,9 +27,19 @@ struct PosterTint: Equatable, Codable, Sendable {
         self.blue = blue
     }
 
+    /// 相对亮度（0 黑 – 1 白）
+    var luminance: Double {
+        0.2126 * red + 0.7152 * green + 0.0722 * blue
+    }
+
     /// 背景偏亮时用浅色模式（深色文字），否则用深色模式（白色文字）
     var colorScheme: ColorScheme {
-        0.2126 * red + 0.7152 * green + 0.0722 * blue > 0.6 ? .light : .dark
+        luminance > 0.6 ? .light : .dark
+    }
+
+    /// 液态玻璃的高阈值深浅倾向：参照 xyydy，只有在极浅背景（> 0.80 亮度）上才切浅色玻璃，其余保持深色通透
+    var glassTone: AstraGlassTone {
+        luminance > 0.80 ? .light : .dark
     }
 
     private static let sRGB = CGColorSpace(name: CGColorSpace.sRGB)!

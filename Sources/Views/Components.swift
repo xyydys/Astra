@@ -116,6 +116,7 @@ struct PosterCard: View {
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .glass(in: Capsule())
+                            .environment(\.astraGlassTone, .dark)
                             .padding(6)
                     }
                 }
