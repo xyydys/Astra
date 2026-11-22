@@ -58,7 +58,10 @@ struct MusicHomeView: View {
         .sheet(isPresented: $showQueue) {
             MusicQueueSheet()
         }
-        .onAppear { Diag.log("音乐", "音乐首页出现") }
+        .onAppear {
+            Diag.log("音乐", "音乐首页出现")
+            AstraChromeCoordinator.shared.notifyMusicHomeAppeared()
+        }
         .onDisappear { Diag.log("音乐", "音乐首页消失") }
     }
 }

@@ -1394,12 +1394,15 @@ struct AstraBarMatchedGlassBackground: UIViewRepresentable {
     }
 }
 
-// MARK: - 底栏协调器（xyydy 做法：只切底栏控制器与滚动边，不锁整窗）
+// MARK: - 底栏协调器（xyydy 做法：音乐首页窗口与底栏同切深色 + 非首页标签预锁系统浅色 + 暗色底边与亮度直达）
 
-/// 统一管理 iOS 26 浮动底栏（UITabBarController / UITabBar / 浮动胶囊容器）的深浅：
-/// - 绝不锁 `window.overrideUserInterfaceStyle`（避免把收藏/历史/我的先染成黑底，导致浅色模式切页底栏卡深色）
-/// - 首页根页面（番剧 / 影视 / 漫画 / 小说 / 音乐）：底栏与对应滚动边设为 `.dark`（高阈值深色通透）
-/// - 其他标签页与二级页面（收藏 / 历史 / 我的 / 搜索 / 推入的详情与列表页）：立刻切回具体的系统浅色或深色
+/// 统一管理 iOS 26 浮动底栏（UITabBarController / UITabBar / _UITabBarPlatterView）的深浅：
+/// - 音乐首页根页面：参照 Astra `716ae4b` 与 xyydy `Tweak.x:13561-13586`，同时将 `window`、`UITabBarController`、
+///   `homeTab` 宿主控制器、底栏及全部浮动胶囊容器设为 `.dark`，并绑定不隐藏 `bottomEdgeEffect` 的暗色代理滚动边、
+///   向底栏 `GlassGroupLayerView` / `ScrollEdgeEffectView` 直接送入暗色亮度读数（`0.02`），彻底消除浅色模式下底栏胶囊卡在浅色白玻璃的问题。
+/// - 非首页标签（收藏 / 历史 / 我的 / 搜索）：全程预先固定为系统真实深浅（浅色模式下恒为 `.light`），
+///   即便在音乐首页 `window` 为 `.dark` 期间也不会在后台被染黑；配合 UIKit `selectedViewController` KVO 与切页亮度直达（`0.95`），
+///   切到其他标签或二级页面同一帧无动画切回浅色玻璃，绝不卡在深色。
 @MainActor
 final class AstraChromeCoordinator {
     static let shared = AstraChromeCoordinator()
@@ -1407,8 +1410,33 @@ final class AstraChromeCoordinator {
     private var currentTab: AppTab = .home
     private var currentMode: ContentMode = .anime
     private var isHomeRootVisible = true
+    private var lastWasMusicHomeRoot = false
     private weak var styledHomeScrollView: UIScrollView?
+    private weak var musicEdgeScrollView: UIScrollView?
+    private var musicEdgeAncestors: [WeakVC] = []
     private var scheduledSyncToken: Int = 0
+    private var tabObservations: [ObjectIdentifier: [NSKeyValueObservation]] = [:]
+
+    private struct WeakVC {
+        weak var value: UIViewController?
+    }
+
+    private static let materialLumaSelector = Selector(("_materialDidReceiveLuma:"))
+    private typealias MaterialLumaIMP = @convention(c) (AnyObject, Selector, Double) -> Void
+
+    private static let backdropLumaSelector = Selector(("backdropLayer:didChangeLuma:"))
+    private typealias BackdropLumaIMP = @convention(c) (AnyObject, Selector, AnyObject, Double) -> Void
+
+    private static let isMaterialLumaSupported: Bool = {
+        guard let method = class_getInstanceMethod(UIView.self, materialLumaSelector),
+              method_getNumberOfArguments(method) == 3 else { return false }
+        guard let ret = method_copyReturnType(method) else { return false }
+        defer { free(ret) }
+        guard String(cString: ret) == "v" else { return false }
+        guard let arg2 = method_copyArgumentType(method, 2) else { return false }
+        defer { free(arg2) }
+        return String(cString: arg2) == "d"
+    }()
 
     private init() {}
 
@@ -1420,10 +1448,35 @@ final class AstraChromeCoordinator {
     }
 
     func setHomeRootVisible(_ visible: Bool) {
-        guard isHomeRootVisible != visible else { return }
+        let changed = isHomeRootVisible != visible
         isHomeRootVisible = visible
-        syncNow(reason: visible ? "home-root-appear" : "home-root-disappear")
+        if changed || visible {
+            syncNow(reason: visible ? "home-root-appear" : "home-root-disappear")
+            scheduleFollowUpSyncs()
+        }
+    }
+
+    func notifyMusicHomeAppeared() {
+        syncNow(reason: "music-home-appear")
         scheduleFollowUpSyncs()
+    }
+
+    func registerMusicEdgeScrollView(_ scrollView: UIScrollView?, ancestors: [UIViewController]) {
+        if let scrollView {
+            musicEdgeScrollView = scrollView
+            musicEdgeAncestors = ancestors.map { WeakVC(value: $0) }
+            syncNow(reason: "music-edge-bind")
+            scheduleFollowUpSyncs()
+        } else {
+            let oldScroll = musicEdgeScrollView
+            for entry in musicEdgeAncestors {
+                if let vc = entry.value, vc.contentScrollView(for: .bottom) === oldScroll {
+                    vc.setContentScrollView(nil, for: .bottom)
+                }
+            }
+            musicEdgeScrollView = nil
+            musicEdgeAncestors.removeAll()
+        }
     }
 
     func recaptureBarMaterials() {
@@ -1438,12 +1491,30 @@ final class AstraChromeCoordinator {
     private func scheduleFollowUpSyncs() {
         scheduledSyncToken += 1
         let token = scheduledSyncToken
-        for delay in [0.05, 0.25] {
+        // 覆盖 withAnimation(.smoothCompat)（约 0.5s 弹簧过渡）全程及旧视图移除后的稳定帧
+        for delay in [0.05, 0.18, 0.38, 0.65] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
                 guard let self, self.scheduledSyncToken == token else { return }
                 self.syncNow(reason: "settle+\(delay)s")
             }
         }
+    }
+
+    private func installTabObservationsIfNeeded(on tabController: UITabBarController) {
+        let key = ObjectIdentifier(tabController)
+        guard tabObservations[key] == nil else { return }
+        let selectedVCObs = tabController.observe(\.selectedViewController, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in
+                self?.syncNow(reason: "uikit-selectedVC")
+                self?.scheduleFollowUpSyncs()
+            }
+        }
+        let selectedItemObs = tabController.tabBar.observe(\.selectedItem, options: [.new]) { [weak self] _, _ in
+            Task { @MainActor in
+                self?.syncNow(reason: "uikit-selectedItem")
+            }
+        }
+        tabObservations[key] = [selectedVCObs, selectedItemObs]
     }
 
     func syncNow(reason: String) {
@@ -1453,7 +1524,6 @@ final class AstraChromeCoordinator {
 
         for window in windows {
             let systemStyle = Self.concreteSystemStyle(for: window)
-            let desiredBarStyle = resolvedBarStyle(systemStyle: systemStyle)
 
             guard let tabController = Self.findTabBarController(in: window.rootViewController) else {
                 if window.overrideUserInterfaceStyle != .unspecified {
@@ -1462,51 +1532,96 @@ final class AstraChromeCoordinator {
                 continue
             }
 
+            installTabObservationsIfNeeded(on: tabController)
+
+            let allVCs = tabController.viewControllers ?? []
+            let homeVC = allVCs.first
+            let uikitSelectedIsHome: Bool = {
+                guard let selected = tabController.selectedViewController, let homeVC else { return true }
+                return selected === homeVC
+            }()
+
+            let effectiveIsHomeTab = (currentTab == .home) && uikitSelectedIsHome
+            let wantsDarkHomeBar = effectiveIsHomeTab && isHomeRootVisible
+            let isMusicHomeRoot = wantsDarkHomeBar && (currentMode == .music)
+
+            let desiredBarStyle: UIUserInterfaceStyle = wantsDarkHomeBar ? .dark : systemStyle
+            let desiredWindowStyle: UIUserInterfaceStyle = isMusicHomeRoot ? .dark : .unspecified
+            let transitioningToMusicHome = isMusicHomeRoot && !lastWasMusicHomeRoot
+            let transitioningFromMusicHome = !isMusicHomeRoot && lastWasMusicHomeRoot
             let beforeBar = tabController.tabBar.overrideUserInterfaceStyle
+            let styleChanged = (beforeBar != desiredBarStyle) || transitioningToMusicHome || transitioningFromMusicHome
+            lastWasMusicHomeRoot = isMusicHomeRoot
+
             UIView.performWithoutAnimation {
-                // 1. 窗口永远保持跟随系统，绝不把整窗锁深色
-                if window.overrideUserInterfaceStyle != .unspecified {
-                    window.overrideUserInterfaceStyle = .unspecified
+                // 1. 音乐首页根页面把窗口设为 .dark（与 Astra 716ae4b / xyydy Tweak.x:13584 一致），
+                //    确保 iOS 26 _UITabBarPlatterView 宿主窗口环境为深色；其余任何页面窗口立即恢复跟随系统
+                if window.overrideUserInterfaceStyle != desiredWindowStyle {
+                    window.overrideUserInterfaceStyle = desiredWindowStyle
                 }
 
-                // 2. 所有标签页内容控制器明确保持系统深浅，隔离底栏控制器的深色设置
-                var contentVCs: [UIViewController] = tabController.viewControllers ?? []
-                if let selected = tabController.selectedViewController,
-                   !contentVCs.contains(where: { $0 === selected }) {
-                    contentVCs.append(selected)
-                }
-                for child in contentVCs {
-                    if child.overrideUserInterfaceStyle != systemStyle {
-                        child.overrideUserInterfaceStyle = systemStyle
-                    }
-                    if let childView = child.viewIfLoaded, childView.overrideUserInterfaceStyle != systemStyle {
-                        childView.overrideUserInterfaceStyle = systemStyle
-                    }
+                // 2. 非首页标签（收藏 / 历史 / 我的 / 搜索）全程固定为系统真实深浅（浅色模式下为 .light），
+                //    防止音乐首页窗口设为 .dark 时后台标签被染成深色导致切页瞬间底栏采样到暗底
+                for child in allVCs.dropFirst() {
+                    Self.applyStyleToControllerTree(child, style: systemStyle)
                 }
 
-                // 3. 首页沉浸态时，把首页主垂直滚动视图的滚动边也设为深色（跳过 WKWebView 内部滚动视图；
-                //    音乐首页没有原生列表滚动，由 MusicBottomEdgeBridge 提供透明暗色底边 ScrollView）
-                let wantsDarkHomeEdge = currentTab == .home && isHomeRootVisible
-                if wantsDarkHomeEdge,
-                   let selectedView = tabController.selectedViewController?.viewIfLoaded,
-                   let homeScroll = Self.findPrimaryVerticalScrollView(in: selectedView) {
-                    if let prev = styledHomeScrollView, prev !== homeScroll, prev.overrideUserInterfaceStyle != .unspecified {
-                        prev.overrideUserInterfaceStyle = .unspecified
+                // 3. 首页标签（allVCs[0]）与滚动边深浅控制：
+                //    - 音乐首页根页面：绝不把 homeVC 强制为 .light，而是将 homeVC、其内部 WebView/ScrollView
+                //      及透明底边代理 ScrollView 全部设为 .dark 并绑定到 contentScrollView(for: .bottom)
+                //    - 其他首页根页面（番剧 / 影视 / 漫画 / 小说）：页面内容保持系统深浅，主垂直滚动视图的滚动边设为 .dark
+                //    - 离开首页根页面：全部恢复系统深浅
+                if let homeVC {
+                    if isMusicHomeRoot {
+                        Self.applyStyleToControllerTree(homeVC, style: .dark)
+                        if let prev = styledHomeScrollView, prev !== musicEdgeScrollView,
+                           prev.overrideUserInterfaceStyle != .unspecified {
+                            prev.overrideUserInterfaceStyle = .unspecified
+                        }
+                        styledHomeScrollView = nil
+                        if let rootView = homeVC.viewIfLoaded {
+                            Self.applyStyleToAllScrollAndWebViews(in: rootView, style: .dark)
+                        }
+                        if #available(iOS 26.0, *), let edgeScroll = musicEdgeScrollView {
+                            Self.bindMusicBottomEdge(edgeScroll, to: homeVC, ancestors: musicEdgeAncestors.compactMap(\.value))
+                        }
+                    } else if wantsDarkHomeBar {
+                        Self.applyStyleToControllerTree(homeVC, style: systemStyle)
+                        Self.unbindMusicBottomEdgeIfNeeded(from: homeVC, edgeScroll: musicEdgeScrollView)
+                        if let rootView = homeVC.viewIfLoaded,
+                           let homeScroll = Self.findPrimaryVerticalScrollView(in: rootView) {
+                            if let prev = styledHomeScrollView, prev !== homeScroll,
+                               prev.overrideUserInterfaceStyle != .unspecified {
+                                prev.overrideUserInterfaceStyle = .unspecified
+                            }
+                            styledHomeScrollView = homeScroll
+                            if homeScroll.overrideUserInterfaceStyle != .dark {
+                                homeScroll.overrideUserInterfaceStyle = .dark
+                            }
+                        }
+                    } else {
+                        Self.applyStyleToControllerTree(homeVC, style: systemStyle)
+                        Self.unbindMusicBottomEdgeIfNeeded(from: homeVC, edgeScroll: musicEdgeScrollView)
+                        if let prev = styledHomeScrollView {
+                            if prev.overrideUserInterfaceStyle != .unspecified {
+                                prev.overrideUserInterfaceStyle = .unspecified
+                            }
+                            styledHomeScrollView = nil
+                        }
+                        if let rootView = homeVC.viewIfLoaded {
+                            Self.applyStyleToAllScrollAndWebViews(in: rootView, style: .unspecified)
+                        }
                     }
-                    styledHomeScrollView = homeScroll
-                    if homeScroll.overrideUserInterfaceStyle != .dark {
-                        homeScroll.overrideUserInterfaceStyle = .dark
-                    }
-                } else if let prev = styledHomeScrollView {
-                    if prev.overrideUserInterfaceStyle != .unspecified {
-                        prev.overrideUserInterfaceStyle = .unspecified
-                    }
-                    styledHomeScrollView = nil
                 }
 
                 // 4. 按 xyydy（Tweak.x:13564-13566 / AwemeAlbumMorphBar.swift:251-253）做法：
-                //    同时切 UITabBarController、其根视图、UITabBar 及浮动胶囊/搜索圆球宿主视图，
-                //    同一帧无动画刷新 traits
+                //    同步切换 UITabBarController、其根视图、UITabBar 及全部浮动胶囊宿主视图。
+                //    在浅色模式下切入音乐首页时（从同样是 .dark 底栏的其他首页切过来），
+                //    先做一次无动画 .unspecified -> .dark 脉冲刷新，强制 _UITabBarPlatterView 重建材质状态。
+                let needsTraitPulse = (isMusicHomeRoot || transitioningFromMusicHome) && systemStyle == .light
+                if needsTraitPulse && styleChanged {
+                    tabController.tabBar.overrideUserInterfaceStyle = .unspecified
+                }
                 if tabController.overrideUserInterfaceStyle != desiredBarStyle {
                     tabController.overrideUserInterfaceStyle = desiredBarStyle
                 }
@@ -1516,11 +1631,35 @@ final class AstraChromeCoordinator {
                 if tabController.tabBar.overrideUserInterfaceStyle != desiredBarStyle {
                     tabController.tabBar.overrideUserInterfaceStyle = desiredBarStyle
                 }
-                Self.applyToFloatingTabBarChrome(in: tabController, style: desiredBarStyle)
+                Self.applyToFloatingTabBarChrome(
+                    in: tabController,
+                    style: desiredBarStyle,
+                    forcePulse: needsTraitPulse
+                )
 
                 if #available(iOS 17.0, *) {
+                    window.updateTraitsIfNeeded()
                     tabController.view.updateTraitsIfNeeded()
                     tabController.tabBar.updateTraitsIfNeeded()
+                }
+
+                // 5. iOS 26 底栏胶囊玻璃（GlassGroupLayerView / UISDFBackdropView / PocketBlur）亮度直达：
+                //    音乐首页静止时不滚动，前序浅色页面留下的高亮度读数会让 _UITabBarPlatterView 滞留在浅色玻璃；
+                //    直接向底栏玻璃层与底边口袋送入目标亮度（深色 0.02 / 浅色 0.95），同一帧立即切换玻璃形态。
+                if #available(iOS 26.0, *) {
+                    if isMusicHomeRoot {
+                        Self.nudgeTabBarPlatterLuma(
+                            in: tabController,
+                            edgeScroll: musicEdgeScrollView,
+                            luma: 0.02
+                        )
+                    } else if (!wantsDarkHomeBar && systemStyle == .light) || styleChanged {
+                        Self.nudgeTabBarPlatterLuma(
+                            in: tabController,
+                            edgeScroll: nil,
+                            luma: desiredBarStyle == .dark ? 0.02 : 0.95
+                        )
+                    }
                 }
             }
 
@@ -1528,22 +1667,94 @@ final class AstraChromeCoordinator {
                 AstraGlassMaterialPool.shared.captureFromTabBar(tabController.tabBar, root: tabController.view)
             }
 
-            if beforeBar != desiredBarStyle {
+            if styleChanged {
                 Diag.log(
                     "底栏",
-                    "\(reason) 底栏 \(Self.styleName(beforeBar)) → \(Self.styleName(desiredBarStyle))（系统 \(Self.styleName(systemStyle))）"
+                    "\(reason) 底栏 \(Self.styleName(beforeBar)) → \(Self.styleName(desiredBarStyle))（系统 \(Self.styleName(systemStyle))，音乐根=\(isMusicHomeRoot)）"
                 )
             }
         }
     }
 
-    private func resolvedBarStyle(systemStyle: UIUserInterfaceStyle) -> UIUserInterfaceStyle {
-        // 首页全部 5 个模式（番剧 / 影视 / 漫画 / 小说 / 音乐）均为沉浸内容页，按 xyydy 固定深色起步
-        if currentTab == .home && isHomeRootVisible {
-            return .dark
+    private static func applyStyleToControllerTree(_ controller: UIViewController, style: UIUserInterfaceStyle) {
+        if controller.overrideUserInterfaceStyle != style {
+            controller.overrideUserInterfaceStyle = style
         }
-        // 收藏 / 历史 / 我的 / 搜索 / 二级页面：立刻切回系统实际深浅（浅色模式下为 .light，绝不卡深色）
-        return systemStyle
+        if let view = controller.viewIfLoaded, view.overrideUserInterfaceStyle != style {
+            view.overrideUserInterfaceStyle = style
+        }
+        if let nav = controller as? UINavigationController {
+            for child in nav.viewControllers {
+                if child.overrideUserInterfaceStyle != style {
+                    child.overrideUserInterfaceStyle = style
+                }
+                if let childView = child.viewIfLoaded, childView.overrideUserInterfaceStyle != style {
+                    childView.overrideUserInterfaceStyle = style
+                }
+            }
+        }
+        if #available(iOS 17.0, *) {
+            controller.viewIfLoaded?.updateTraitsIfNeeded()
+        }
+    }
+
+    private static func applyStyleToAllScrollAndWebViews(in root: UIView, style: UIUserInterfaceStyle) {
+        var queue: [UIView] = [root]
+        var index = 0
+        while index < queue.count && index < 256 {
+            let view = queue[index]
+            index += 1
+            let name = NSStringFromClass(type(of: view))
+            if view is UIScrollView || name.contains("WKWebView") || name.contains("WKScrollView") {
+                if view.overrideUserInterfaceStyle != style {
+                    view.overrideUserInterfaceStyle = style
+                }
+                if #available(iOS 17.0, *) {
+                    view.updateTraitsIfNeeded()
+                }
+            }
+            queue.append(contentsOf: view.subviews)
+        }
+    }
+
+    @available(iOS 26.0, *)
+    private static func bindMusicBottomEdge(
+        _ edgeScroll: UIScrollView,
+        to homeVC: UIViewController,
+        ancestors: [UIViewController]
+    ) {
+        edgeScroll.overrideUserInterfaceStyle = .dark
+        edgeScroll.topEdgeEffect.isHidden = true
+        edgeScroll.leftEdgeEffect.isHidden = true
+        edgeScroll.rightEdgeEffect.isHidden = true
+        // 关键：保留 bottomEdgeEffect 为开启（isHidden = false），让底栏的 ScrollEdgeEffectView 生效
+        edgeScroll.bottomEdgeEffect.isHidden = false
+
+        for vc in ancestors {
+            if vc.contentScrollView(for: .bottom) !== edgeScroll {
+                vc.setContentScrollView(edgeScroll, for: .bottom)
+            }
+        }
+        if let nav = homeVC as? UINavigationController, let top = nav.topViewController {
+            if top.contentScrollView(for: .bottom) !== edgeScroll {
+                top.setContentScrollView(edgeScroll, for: .bottom)
+            }
+        }
+        if homeVC.contentScrollView(for: .bottom) !== edgeScroll {
+            homeVC.setContentScrollView(edgeScroll, for: .bottom)
+        }
+    }
+
+    private static func unbindMusicBottomEdgeIfNeeded(from homeVC: UIViewController, edgeScroll: UIScrollView?) {
+        guard let edgeScroll else { return }
+        if homeVC.contentScrollView(for: .bottom) === edgeScroll {
+            homeVC.setContentScrollView(nil, for: .bottom)
+        }
+        if let nav = homeVC as? UINavigationController {
+            for vc in nav.viewControllers where vc.contentScrollView(for: .bottom) === edgeScroll {
+                vc.setContentScrollView(nil, for: .bottom)
+            }
+        }
     }
 
     private func appWindows() -> [UIWindow] {
@@ -1594,23 +1805,35 @@ final class AstraChromeCoordinator {
         return nil
     }
 
-    /// 参照 xyydy ALB5BottomGeometry.m，BFS 遍历底栏宿主树（跳过内容容器与 ScrollView），
-    /// 同时同步主胶囊与右侧搜索圆球（TabBarPlatterView / TabBarAuxiliaryView）
-    private static func applyToFloatingTabBarChrome(in controller: UITabBarController, style: UIUserInterfaceStyle) {
+    /// 参照 xyydy ALB5BottomGeometry.m，BFS 遍历底栏宿主树（只跳过内容容器与 UITransitionView，不跳过 LayoutContainer），
+    /// 同时同步主胶囊与右侧搜索圆球（_UITabBarPlatterView / _UITabBarAuxiliaryView / GlassGroupLayerView）
+    private static func applyToFloatingTabBarChrome(
+        in controller: UITabBarController,
+        style: UIUserInterfaceStyle,
+        forcePulse: Bool
+    ) {
         let contentViews = Set((controller.viewControllers ?? []).compactMap { $0.viewIfLoaded }.map(ObjectIdentifier.init))
         var queue: [UIView] = controller.view.subviews
         var index = 0
-        while index < queue.count && index < 192 {
+        while index < queue.count && index < 256 {
             let view = queue[index]
             index += 1
             if contentViews.contains(ObjectIdentifier(view)) || view is UIScrollView { continue }
             let name = NSStringFromClass(type(of: view))
-            if name.contains("TransitionView") || name.contains("LayoutContainer") { continue }
+            if name.contains("TransitionView") { continue }
             if view === controller.tabBar
                 || name.contains("TabBar")
                 || name.contains("Platter")
                 || name.contains("Floating")
-                || name.contains("Auxiliary") {
+                || name.contains("Auxiliary")
+                || name.contains("Pocket")
+                || name.contains("GlassGroup") {
+                if forcePulse && view.overrideUserInterfaceStyle == style {
+                    view.overrideUserInterfaceStyle = .unspecified
+                    if #available(iOS 17.0, *) {
+                        view.updateTraitsIfNeeded()
+                    }
+                }
                 if view.overrideUserInterfaceStyle != style {
                     view.overrideUserInterfaceStyle = style
                 }
@@ -1620,6 +1843,62 @@ final class AstraChromeCoordinator {
             }
             queue.append(contentsOf: view.subviews)
         }
+    }
+
+    /// 参照 xyydy HANDOFF.md 3.11.24–3.11.26：
+    /// 直接向底栏 `_UITabBarPlatterView` 内部的 `GlassGroupLayerView` / `UISDFBackdropView`
+    /// 调用 `_materialDidReceiveLuma:`，并向底边 `ScrollEdgeEffectView` 的 `PocketBlur` / `BackdropView`
+    /// 调用 `backdropLayer:didChangeLuma:`，在无动画块中立刻把胶囊材质切换到目标深浅亮度。
+    @available(iOS 26.0, *)
+    private static func nudgeTabBarPlatterLuma(
+        in controller: UITabBarController,
+        edgeScroll: UIScrollView?,
+        luma: Double
+    ) {
+        let contentViews = Set((controller.viewControllers ?? []).compactMap { $0.viewIfLoaded }.map(ObjectIdentifier.init))
+        var queue: [UIView] = controller.view.subviews
+        if let edgeScroll {
+            queue.append(edgeScroll)
+        }
+        var index = 0
+        while index < queue.count && index < 320 {
+            let view = queue[index]
+            index += 1
+            if contentViews.contains(ObjectIdentifier(view)) { continue }
+            let name = NSStringFromClass(type(of: view))
+            if name.contains("TransitionView") { continue }
+
+            if isMaterialLumaSupported,
+               (name.contains("GlassGroupLayerView") || name.contains("UISDFBackdropView")),
+               view.responds(to: materialLumaSelector),
+               let method = class_getInstanceMethod(type(of: view), materialLumaSelector) {
+                let imp = unsafeBitCast(method_getImplementation(method), to: MaterialLumaIMP.self)
+                imp(view, materialLumaSelector, luma)
+            }
+
+            if name.contains("PocketBlur") || name.contains("BackdropView") {
+                sendBackdropLumaIfSupported(to: view, luma: luma)
+            }
+
+            queue.append(contentsOf: view.subviews)
+        }
+    }
+
+    private static func sendBackdropLumaIfSupported(to view: UIView, luma: Double) {
+        guard view.responds(to: backdropLumaSelector),
+              let method = class_getInstanceMethod(type(of: view), backdropLumaSelector),
+              method_getNumberOfArguments(method) == 4 else { return }
+        guard let ret = method_copyReturnType(method) else { return }
+        defer { free(ret) }
+        guard String(cString: ret) == "v" else { return }
+        guard let arg2 = method_copyArgumentType(method, 2) else { return }
+        defer { free(arg2) }
+        guard String(cString: arg2) == "@" else { return }
+        guard let arg3 = method_copyArgumentType(method, 3) else { return }
+        defer { free(arg3) }
+        guard String(cString: arg3) == "d" else { return }
+        let imp = unsafeBitCast(method_getImplementation(method), to: BackdropLumaIMP.self)
+        imp(view, backdropLumaSelector, view.layer, luma)
     }
 
     private static func styleName(_ style: UIUserInterfaceStyle) -> String {
@@ -1644,9 +1923,8 @@ extension View {
     }
 
     /// 音乐首页使用（参照 xyydy AwemeAlbumMorphBar 的透明代理滚动视图）：
-    /// 音乐首页本身没有延伸到底栏下方的 ScrollView，补一条不可交互、暗色、隐藏边缘模糊的
-    /// contentScrollView(for: .bottom)，让 iOS 26 底栏获得与其他首页一致的通透浮动液态玻璃，
-    /// 避免浅色模式下在“浅色底栏 / 压暗底栏 / 透明玻璃”之间来回打架。
+    /// 音乐首页本身没有延伸到底栏下方的原生列表 ScrollView，补一条不可交互、暗色、且开启 `bottomEdgeEffect`
+    /// 的 `contentScrollView(for: .bottom)`，让 iOS 26 底栏稳定处于高阈值深色通透液态玻璃。
     @ViewBuilder
     func musicBottomScrollEdge() -> some View {
         if #available(iOS 26.0, *) {
@@ -1692,17 +1970,38 @@ private struct HomeRootChromeBridge: UIViewControllerRepresentable {
 @available(iOS 26.0, *)
 private struct MusicBottomEdgeBridge: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> EdgeController { EdgeController() }
-    func updateUIViewController(_ controller: EdgeController, context: Context) {}
+    func updateUIViewController(_ controller: EdgeController, context: Context) {
+        controller.rebindIfVisible()
+    }
 
     final class EdgeController: UIViewController {
-        private let edgeScroll = AstraGlassEdge.makeEdgeScrollView(style: .dark)
-        private weak var boundParent: UIViewController?
+        private let edgeScroll: UIScrollView = {
+            let scroll = UIScrollView(frame: .zero)
+            scroll.backgroundColor = .clear
+            scroll.isOpaque = false
+            scroll.isUserInteractionEnabled = false
+            scroll.isScrollEnabled = false
+            scroll.scrollsToTop = false
+            scroll.alwaysBounceVertical = true
+            scroll.showsVerticalScrollIndicator = false
+            scroll.showsHorizontalScrollIndicator = false
+            scroll.contentInsetAdjustmentBehavior = .never
+            scroll.isAccessibilityElement = false
+            scroll.accessibilityElementsHidden = true
+            scroll.overrideUserInterfaceStyle = .dark
+            scroll.topEdgeEffect.isHidden = true
+            scroll.leftEdgeEffect.isHidden = true
+            scroll.rightEdgeEffect.isHidden = true
+            scroll.bottomEdgeEffect.isHidden = false
+            return scroll
+        }()
 
         override func viewDidLoad() {
             super.viewDidLoad()
             view.backgroundColor = .clear
             view.isOpaque = false
             view.isUserInteractionEnabled = false
+            view.overrideUserInterfaceStyle = .dark
             edgeScroll.frame = view.bounds
             edgeScroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             view.addSubview(edgeScroll)
@@ -1739,22 +2038,43 @@ private struct MusicBottomEdgeBridge: UIViewControllerRepresentable {
             unbind()
         }
 
-        private func bind() {
-            AstraGlassEdge.hideAllEdgeEffects(of: edgeScroll)
-            edgeScroll.overrideUserInterfaceStyle = .dark
-            setContentScrollView(edgeScroll, for: .bottom)
-            if let host = parent {
-                boundParent = host
-                host.setContentScrollView(edgeScroll, for: .bottom)
+        func rebindIfVisible() {
+            guard viewIfLoaded?.window != nil else { return }
+            bind()
+        }
+
+        private func collectAncestors() -> [UIViewController] {
+            var list: [UIViewController] = [self]
+            var cursor = parent
+            var depth = 0
+            while let vc = cursor, depth < 8 {
+                if vc is UITabBarController { break }
+                list.append(vc)
+                if vc is UINavigationController { break }
+                cursor = vc.parent
+                depth += 1
             }
+            return list
+        }
+
+        private func bind() {
+            edgeScroll.overrideUserInterfaceStyle = .dark
+            edgeScroll.topEdgeEffect.isHidden = true
+            edgeScroll.leftEdgeEffect.isHidden = true
+            edgeScroll.rightEdgeEffect.isHidden = true
+            edgeScroll.bottomEdgeEffect.isHidden = false
+            let ancestors = collectAncestors()
+            for vc in ancestors {
+                if vc.contentScrollView(for: .bottom) !== edgeScroll {
+                    vc.setContentScrollView(edgeScroll, for: .bottom)
+                }
+            }
+            AstraChromeCoordinator.shared.registerMusicEdgeScrollView(edgeScroll, ancestors: ancestors)
         }
 
         private func unbind() {
             setContentScrollView(nil, for: .bottom)
-            if let host = boundParent ?? parent, host.contentScrollView(for: .bottom) === edgeScroll {
-                host.setContentScrollView(nil, for: .bottom)
-            }
-            boundParent = nil
+            AstraChromeCoordinator.shared.registerMusicEdgeScrollView(nil, ancestors: [])
         }
     }
 }
