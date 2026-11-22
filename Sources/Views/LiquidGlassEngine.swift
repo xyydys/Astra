@@ -1429,13 +1429,10 @@ final class AstraChromeCoordinator {
 
     private static let isMaterialLumaSupported: Bool = {
         guard let method = class_getInstanceMethod(UIView.self, materialLumaSelector),
-              method_getNumberOfArguments(method) == 3 else { return false }
-        guard let ret = method_copyReturnType(method) else { return false }
-        defer { free(ret) }
-        guard String(cString: ret) == "v" else { return false }
-        guard let arg2 = method_copyArgumentType(method, 2) else { return false }
-        defer { free(arg2) }
-        return String(cString: arg2) == "d"
+              method_getNumberOfArguments(method) == 3,
+              let encPtr = method_getTypeEncoding(method) else { return false }
+        let encoding = String(cString: encPtr)
+        return encoding.hasPrefix("v") && encoding.contains("d")
     }()
 
     private init() {}
@@ -1887,16 +1884,10 @@ final class AstraChromeCoordinator {
     private static func sendBackdropLumaIfSupported(to view: UIView, luma: Double) {
         guard view.responds(to: backdropLumaSelector),
               let method = class_getInstanceMethod(type(of: view), backdropLumaSelector),
-              method_getNumberOfArguments(method) == 4 else { return }
-        guard let ret = method_copyReturnType(method) else { return }
-        defer { free(ret) }
-        guard String(cString: ret) == "v" else { return }
-        guard let arg2 = method_copyArgumentType(method, 2) else { return }
-        defer { free(arg2) }
-        guard String(cString: arg2) == "@" else { return }
-        guard let arg3 = method_copyArgumentType(method, 3) else { return }
-        defer { free(arg3) }
-        guard String(cString: arg3) == "d" else { return }
+              method_getNumberOfArguments(method) == 4,
+              let encPtr = method_getTypeEncoding(method) else { return }
+        let encoding = String(cString: encPtr)
+        guard encoding.hasPrefix("v") && encoding.contains("d") else { return }
         let imp = unsafeBitCast(method_getImplementation(method), to: BackdropLumaIMP.self)
         imp(view, backdropLumaSelector, view.layer, luma)
     }
