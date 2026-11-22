@@ -219,7 +219,6 @@ struct RootView: View {
                     .padding(.top, 4)
             }
         }
-        .environment(\.astraGlassTone, .dark)
     }
 
     private var favoritesTab: some View {
@@ -230,7 +229,6 @@ struct RootView: View {
             default: FavoritesView()
             }
         }
-        .environment(\.astraGlassTone, .system)
     }
 
     private var historyTab: some View {
@@ -241,14 +239,12 @@ struct RootView: View {
             default: HistoryView()
             }
         }
-        .environment(\.astraGlassTone, .system)
     }
 
     private var settingsTab: some View {
         NavigationStackCompat {
             SettingsView()
         }
-        .environment(\.astraGlassTone, .system)
     }
 
     private var searchTab: some View {
@@ -258,7 +254,6 @@ struct RootView: View {
         .environment(\.exitSearchTab) {
             if tab == .search { tab = tabBeforeSearch }
         }
-        .environment(\.astraGlassTone, .system)
     }
 }
 
@@ -293,9 +288,10 @@ struct ContentModeMenu: View {
                     title: mode.title,
                     systemImage: mode.icon,
                     showsChevron: true,
-                    fontSize: 15,
-                    iconSize: 14,
-                    height: 40,
+                    fontSize: 14.5,
+                    iconSize: 13.5,
+                    height: 35,
+                    horizontalPadding: 14,
                     tone: .dark,
                     accessibilityLabel: "切换内容：当前\(mode.title)"
                 ) {

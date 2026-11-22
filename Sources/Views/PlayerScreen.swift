@@ -47,7 +47,6 @@ private struct PlayerContent: View {
     var body: some View {
         VStack(spacing: 0) {
             videoArea
-                .environment(\.astraGlassTone, .dark)
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     info
@@ -56,7 +55,6 @@ private struct PlayerContent: View {
                 }
                 .padding()
             }
-            .environment(\.astraGlassTone, .system)
         }
         .background(alignment: .topLeading) {
             HiddenWebViewHost(webView: model.sniffer.webView)

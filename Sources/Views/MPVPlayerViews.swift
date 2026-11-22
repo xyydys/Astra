@@ -185,7 +185,6 @@ struct MPVControls: View {
             }
         }
         .environment(\.colorScheme, .dark)
-        .environment(\.astraGlassTone, .dark)
         .animation(.easeOut(duration: 0.18), value: visible)
         .animation(.easeOut(duration: 0.16), value: isLocked)
         .animation(.easeOut(duration: 0.16), value: lockBadgeVisible)
@@ -471,6 +470,7 @@ struct MPVControls: View {
                                     fontSize: 12,
                                     iconSize: 12,
                                     height: 36,
+                                    horizontalPadding: 13,
                                     tone: .dark,
                                     accessibilityLabel: "播放下一集"
                                 ) {
@@ -559,6 +559,7 @@ struct MPVControls: View {
                 fontSize: 12,
                 iconSize: isFullscreen ? 12 : 11,
                 height: isFullscreen ? 36 : 32,
+                horizontalPadding: isFullscreen ? 12 : 10,
                 tint: isCustomSpeed ? AppAccent.uiColor(accentHex) : nil,
                 tone: .dark,
                 monospacedDigits: true,
@@ -884,6 +885,7 @@ struct MPVControls: View {
                     fontSize: 12,
                     iconSize: 13,
                     height: 38,
+                    horizontalPadding: 14,
                     tone: .dark,
                     accessibilityLabel: "解除屏幕锁定"
                 ) {
@@ -1098,13 +1100,19 @@ private extension View {
     }
 
     /// 播放器悬浮控件玻璃材质：
-    /// - iOS 26+ 用与底栏同源的实体液态玻璃（深色通透起点，自动跟随系统「透明 / 色调」设置）
+    /// - iOS 26+ 用与底栏同源的实体液态玻璃（深色通透起点 + 独立暗色滚动边，跟随系统「透明 / 色调」设置）
     /// - iOS 15–18 用深色磨砂材质 + 细微高光描边
     @ViewBuilder
     func playerGlass<S: InsettableShape>(interactive: Bool = false, prominent: Bool = false, in shape: S) -> some View {
         if #available(iOS 26, *) {
-            glass(interactive: interactive, in: shape)
-                .environment(\.astraGlassTone, .dark)
+            background {
+                AstraBarMatchedGlassBackground(
+                    interactive: interactive,
+                    corner: Self.playerGlassCorner(for: shape),
+                    tone: .dark
+                )
+            }
+            .contentShape(shape)
         } else {
             background {
                 shape
@@ -1114,6 +1122,16 @@ private extension View {
                     .shadow(color: prominent ? .black.opacity(0.30) : .clear, radius: prominent ? 12 : 0, y: prominent ? 4 : 0)
             }
         }
+    }
+
+    private static func playerGlassCorner<S: Shape>(for shape: S) -> AstraGlassCorner {
+        if let rounded = shape as? RoundedRectangle {
+            return .roundedRect(rounded.cornerSize.width)
+        }
+        if shape is Circle {
+            return .circle
+        }
+        return .capsule
     }
 
     /// iOS 26 液态玻璃自带交互缩放与光效；低系统补充轻按缩放反馈

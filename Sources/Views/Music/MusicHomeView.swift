@@ -43,6 +43,7 @@ struct MusicHomeView: View {
                 .padding(.trailing, 16)
                 .padding(.top, 4)
         }
+        .musicBottomScrollEdge()
         .environment(\.colorScheme, .dark)
         // 底栏的深浅由 RootView 直接设置（见 updateTabBarStyle）
         .navigationBarHiddenCompat()
@@ -56,7 +57,6 @@ struct MusicHomeView: View {
         }
         .sheet(isPresented: $showQueue) {
             MusicQueueSheet()
-                .environment(\.astraGlassTone, .system)
         }
         .onAppear { Diag.log("音乐", "音乐首页出现") }
         .onDisappear { Diag.log("音乐", "音乐首页消失") }
@@ -202,18 +202,20 @@ private struct MusicControls: View {
                     Image(systemName: "backward.fill").font(.title2).frame(width: 54, height: 54)
                 }
                 Spacer()
-                BarGlassIconButton(
-                    systemImage: player.isPlaying ? "pause.fill" : "play.fill",
-                    pointSize: 30,
-                    weight: .semibold,
-                    diameter: 72,
-                    tone: .dark,
-                    isLoading: player.isLoading,
-                    isDisabled: player.current == nil,
-                    accessibilityLabel: player.isPlaying ? "暂停" : "播放"
-                ) {
-                    player.togglePlay()
+                Button { player.togglePlay() } label: {
+                    ZStack {
+                        if player.isLoading {
+                            ProgressView().controlSize(.large)
+                        } else {
+                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 30))
+                                .symbolReplaceTransition()
+                        }
+                    }
+                    .frame(width: 72, height: 72)
+                    .contentShape(Circle())
                 }
+                .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
                 Spacer()
                 Button { player.next() } label: {
                     Image(systemName: "forward.fill").font(.title2).frame(width: 54, height: 54)
@@ -255,9 +257,10 @@ private struct FoliaEffectMenu: View {
             title: mode.name,
             systemImage: "wand.and.sparkles",
             showsChevron: true,
-            fontSize: 15,
-            iconSize: 14,
-            height: 40,
+            fontSize: 14.5,
+            iconSize: 13.5,
+            height: 35,
+            horizontalPadding: 14,
             tone: .dark,
             menuTitle: "歌词特效",
             accessibilityLabel: "切换歌词特效：当前\(mode.name)"

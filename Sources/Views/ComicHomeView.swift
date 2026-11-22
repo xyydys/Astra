@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// 禁漫的分类和排序
 enum JMCatalog {
@@ -201,7 +200,6 @@ struct ComicHomeView: View {
     /// 用 @State 持有、不订阅：滑动时只有背景层（HomeBackground）重绘，整页不跟着每帧刷新
     @State private var scroll = HeroScrollState()
     @State private var contentScheme: ColorScheme?
-    @State private var glassTone: AstraGlassTone?
     @StateObject private var browse = ComicListModel()
     @ObservedObject private var account = JMAccount.shared
     @State private var category = "0"
@@ -210,10 +208,6 @@ struct ComicHomeView: View {
 
     private var firstHeroScheme: ColorScheme? {
         model.hero.first.flatMap { PosterTints.shared.tint(for: $0.id)?.colorScheme }
-    }
-
-    private var firstHeroGlassTone: AstraGlassTone {
-        model.hero.first.flatMap { PosterTints.shared.tint(for: $0.id)?.glassTone } ?? .dark
     }
 
     var body: some View {
@@ -275,15 +269,9 @@ struct ComicHomeView: View {
             .padding(.bottom, 24)
         }
         .background {
-            HomeBackground(
-                hero: model.hero,
-                scroll: scroll,
-                onSchemeChange: { contentScheme = $0 },
-                onGlassToneChange: { glassTone = $0 }
-            )
+            HomeBackground(hero: model.hero, scroll: scroll) { contentScheme = $0 }
         }
         .environment(\.colorScheme, contentScheme ?? firstHeroScheme ?? systemScheme)
-        .environment(\.astraGlassTone, glassTone ?? firstHeroGlassTone)
         .ignoresSafeArea(edges: .top)
         .navigationBarHiddenCompat()
         .refreshable {
@@ -302,26 +290,21 @@ struct ComicHomeView: View {
                 Text("分类浏览")
                     .font(.title2.weight(.bold))
                 Spacer()
-                BarGlassPillMenuButton(
-                    title: JMCatalog.sortName(sort),
-                    systemImage: "arrow.up.arrow.down",
-                    showsChevron: false,
-                    fontSize: 14,
-                    iconSize: 13,
-                    height: 34,
-                    menuTitle: "排序",
-                    accessibilityLabel: "排序：\(JMCatalog.sortName(sort))"
-                ) {
-                    [
-                        UIMenu.picker(
-                            options: JMCatalog.sorts.map { MenuOption(value: $0.value, title: $0.name) },
-                            selected: sort
-                        ) { value in
-                            sort = value
-                            Task { await reloadBrowse() }
+                Menu {
+                    Picker("排序", selection: Binding(get: { sort }, set: { value in
+                        sort = value
+                        Task { await reloadBrowse() }
+                    })) {
+                        ForEach(JMCatalog.sorts, id: \.value) { item in
+                            Text(item.name).tag(item.value)
                         }
-                    ]
+                    }
+                } label: {
+                    Label(JMCatalog.sortName(sort), systemImage: "arrow.up.arrow.down")
+                        .font(.subheadline)
                 }
+                .glassButtonStyle()
+                .controlSize(.small)
             }
             .padding(.horizontal)
 
@@ -463,7 +446,6 @@ struct ComicTagResultsView: View {
                 }
             }
         }
-        .environment(\.astraGlassTone, .system)
         .task { if model.items.isEmpty { await reload() } }
     }
 

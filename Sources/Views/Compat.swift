@@ -7,21 +7,21 @@ import UIKit
 // MARK: - 液态玻璃
 
 extension View {
-    /// iOS 26 用与底栏同源的实体液态玻璃（自动跟随系统「透明 / 着色」且高阈值深色通透），旧系统用毛玻璃材质
+    /// iOS 26 是液态玻璃，旧系统用毛玻璃材质
     @ViewBuilder
     func glass<S: Shape>(interactive: Bool = false, in shape: S) -> some View {
         if #available(iOS 26, *) {
-            modifier(AstraGlassSurfaceModifier(interactive: interactive, shape: shape))
+            glassEffect(interactive ? .regular.interactive() : .regular, in: shape)
         } else {
             background(.ultraThinMaterial, in: shape)
         }
     }
 
-    /// 玻璃按钮；iOS 26 用底栏同源实体玻璃按钮样式，旧系统是带底色的胶囊按钮
+    /// 玻璃按钮；旧系统是带底色的胶囊按钮
     @ViewBuilder
     func glassButtonStyle() -> some View {
         if #available(iOS 26, *) {
-            buttonStyle(AstraBarMatchedGlassButtonStyle())
+            buttonStyle(.glass)
         } else {
             buttonStyle(.bordered).buttonBorderShape(.capsule)
         }
@@ -35,34 +35,6 @@ extension View {
         } else {
             buttonStyle(.borderedProminent).buttonBorderShape(.capsule)
         }
-    }
-}
-
-@available(iOS 26, *)
-private struct AstraGlassSurfaceModifier<S: Shape>: ViewModifier {
-    let interactive: Bool
-    let shape: S
-    @Environment(\.astraGlassTone) private var glassTone
-    @Environment(\.colorScheme) private var systemScheme
-
-    private var corner: AstraGlassCorner {
-        if let rounded = shape as? RoundedRectangle {
-            return .roundedRect(rounded.cornerSize.width)
-        }
-        if shape is Circle {
-            return .circle
-        }
-        return .capsule
-    }
-
-    func body(content: Content) -> some View {
-        let resolvedScheme = glassTone.resolvedColorScheme(system: systemScheme)
-        content
-            .environment(\.colorScheme, resolvedScheme)
-            .background {
-                AstraBarMatchedGlassBackground(interactive: interactive, corner: corner, tone: glassTone)
-            }
-            .contentShape(shape)
     }
 }
 

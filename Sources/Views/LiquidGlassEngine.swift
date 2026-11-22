@@ -6,8 +6,8 @@ import UIKit
 
 /// 液态玻璃的基准深浅倾向：
 /// - `dark`：以深色通透玻璃为起点（xyydy 顶栏/底栏同款的高阈值体验，只有背后极亮时才由系统翻浅）
-/// - `light`：极浅背景（如纯白/宣纸阅读主题或极亮海报）直接起步为浅色玻璃
-/// - `system`：常规系统列表/设置页，跟随系统浅色/深色模式
+/// - `light`：直接起步为浅色玻璃
+/// - `system`：跟随系统浅色/深色模式
 enum AstraGlassTone: Equatable, Hashable {
     case dark
     case light
@@ -20,25 +20,12 @@ enum AstraGlassTone: Equatable, Hashable {
         case .system: return system == .dark ? .dark : .light
         }
     }
-
-    func resolvedColorScheme(system: ColorScheme) -> ColorScheme {
-        switch self {
-        case .dark: return .dark
-        case .light: return .light
-        case .system: return system
-        }
-    }
 }
 
 enum AstraGlassCorner: Equatable {
     case capsule
     case circle
     case roundedRect(CGFloat)
-}
-
-extension EnvironmentValues {
-    /// 当前子树里液态玻璃的基准倾向；默认深色通透，常规浅色系统页显式设为 `.system`
-    @Entry var astraGlassTone: AstraGlassTone = .dark
 }
 
 // MARK: - iOS 26 滚动边登记（xyydy "登记不画"）
@@ -115,7 +102,7 @@ enum AstraGlassEdge {
 // MARK: - iOS 26 底栏/顶栏实体玻璃池（xyydy ALBFollowSourceGlass 同款）
 
 /// 从系统原生 UITabBar / UINavigationBar 的玻璃承载视图抓取实体化的 `_UIViewGlass`
-///（smoothness 6.0，真正跟随系统「透明 / 着色」档位），分发给全 App 的大卡片、面板与按钮玻璃。
+///（smoothness 6.0，真正跟随系统「透明 / 着色」档位），分发给播放器 HUD 等面板玻璃。
 @available(iOS 26.0, *)
 @MainActor
 final class AstraGlassMaterialPool {
@@ -360,6 +347,8 @@ private final class AstraItemOnlyNavigationBar: UINavigationBar {
 @available(iOS 26.0, *)
 private enum AstraBarGlassMeasure {
     static let nominalGlass: CGFloat = 44
+    /// UIKit 原生栏按钮胶囊在图片左右自带约 8.5pt 视觉内边距（按目标高度缩放后）
+    static let nativePillSideInset: CGFloat = 8.5
 
     static func controls(in root: UIView) -> [UIView] {
         var result: [UIView] = []
@@ -414,13 +403,15 @@ private enum AstraBarGlassMeasure {
         return (controlFrame.insetBy(dx: -outset, dy: -outset), true)
     }
 
-    /// 渲染 [图标] 文字 [小箭头] 胶囊模板图：由 UIKit 栏按钮按深浅自动着色（深色玻璃白字、翻浅时黑字）
+    /// 渲染 [图标] 文字 [小箭头] 胶囊模板图，左右补足到原版 SwiftUI 胶囊的舒展水平内边距；
+    /// 模板图由 UIKit 栏按钮按背后深浅自动着色（深色玻璃白字、极亮翻浅时黑字）。
     static func renderPillGlyph(
         symbol: String?,
         title: String,
         showsChevron: Bool,
         fontSize: CGFloat,
         iconPointSize: CGFloat,
+        horizontalPadding: CGFloat,
         layoutScale: CGFloat,
         renderScale: CGFloat,
         displayScale: CGFloat,
@@ -441,8 +432,10 @@ private enum AstraBarGlassMeasure {
         } else {
             font = baseFont
         }
-        let spacing = 5.0 / scale
-        let chevronSpacing = 4.5 / scale
+        let spacing = 6.0 / scale
+        let chevronSpacing = 5.0 / scale
+        // UIKit 自带约 8.5pt 左右留白；补足到原版胶囊的 horizontalPadding（如 14pt），还原修长胶囊比例
+        let extraSide = max(0, horizontalPadding - nativePillSideInset) / scale
 
         let leadingImage: UIImage? = symbol.flatMap { name in
             let config = UIImage.SymbolConfiguration(pointSize: iconPointSize / scale, weight: .semibold)
@@ -450,7 +443,7 @@ private enum AstraBarGlassMeasure {
                 .withTintColor(.black, renderingMode: .alwaysOriginal)
         }
         let chevronImage: UIImage? = showsChevron ? {
-            let config = UIImage.SymbolConfiguration(pointSize: (fontSize * 0.64) / scale, weight: .bold)
+            let config = UIImage.SymbolConfiguration(pointSize: (fontSize * 0.62) / scale, weight: .bold)
             return UIImage(systemName: "chevron.down", withConfiguration: config)?
                 .withTintColor(.black, renderingMode: .alwaysOriginal)
         }() : nil
@@ -467,26 +460,27 @@ private enum AstraBarGlassMeasure {
         let maxTextWidth = 200.0 / scale
         let textSize = CGSize(width: min(rawTextSize.width, maxTextWidth), height: rawTextSize.height)
 
-        var totalWidth: CGFloat = 0
+        var contentWidth: CGFloat = 0
         var maxHeight: CGFloat = textSize.height
         if let leadingImage {
-            totalWidth += leadingImage.size.width
+            contentWidth += leadingImage.size.width
             maxHeight = max(maxHeight, leadingImage.size.height)
-            if !title.isEmpty { totalWidth += spacing }
+            if !title.isEmpty { contentWidth += spacing }
         }
-        totalWidth += textSize.width
+        contentWidth += textSize.width
         if let chevronImage {
-            if totalWidth > 0 { totalWidth += chevronSpacing }
-            totalWidth += chevronImage.size.width
+            if contentWidth > 0 { contentWidth += chevronSpacing }
+            contentWidth += chevronImage.size.width
             maxHeight = max(maxHeight, chevronImage.size.height)
         }
 
-        let size = CGSize(width: max(1, ceil(totalWidth) + 2), height: max(1, ceil(maxHeight) + 2))
+        let sidePad = extraSide + 1
+        let size = CGSize(width: max(1, ceil(contentWidth + sidePad * 2)), height: max(1, ceil(maxHeight) + 2))
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
         format.scale = max(1, displayScale * render)
         let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            var x: CGFloat = 1
+            var x = sidePad
             let midY = size.height / 2
             if let leadingImage {
                 let y = midY - leadingImage.size.height / 2
@@ -500,7 +494,7 @@ private enum AstraBarGlassMeasure {
                 x += textSize.width
             }
             if let chevronImage {
-                if x > 1 { x += chevronSpacing }
+                if x > sidePad { x += chevronSpacing }
                 let y = midY - chevronImage.size.height / 2 + (0.5 / scale)
                 chevronImage.draw(at: CGPoint(x: x, y: y))
             }
@@ -509,20 +503,30 @@ private enum AstraBarGlassMeasure {
     }
 }
 
-/// 真正的 iOS 26 导航栏单项玻璃按钮容器：
+/// 真正的 iOS 26 导航栏单项玻璃按钮容器（移植自 xyydy `ALB3BarGlassButton`）：
 /// - 底层一条同 frame 的暗色透明 UIScrollView 滚动边（登记不画），赋予 xyydy 同款极高变浅阈值
 /// - 上层独立透明 UINavigationBar + 单个 UIBarButtonItem，渲染原生 `_UINavigationBarPlatterGlassView`
-///   （真正跟随系统「透明 / 着色」、原生液态按压拉伸，以及与按钮材质完美互通的原生 UIMenu 变形展开/收起）
+/// - 圆形按钮带 xyydy 同款 `shrink` 收敛循环，确保宽 SF Symbol 不会把正圆拉成椭圆
+/// - 胶囊按钮按目标高度与水平内边距精准还原原版修长比例
 @available(iOS 26.0, *)
 final class AstraBarGlassButtonView: UIView {
     enum Content: Equatable {
         case icon(systemName: String, pointSize: CGFloat, weight: UIImage.SymbolWeight, diameter: CGFloat)
-        case pill(symbol: String?, title: String, showsChevron: Bool, fontSize: CGFloat, iconSize: CGFloat, height: CGFloat, monospacedDigits: Bool)
+        case pill(
+            symbol: String?,
+            title: String,
+            showsChevron: Bool,
+            fontSize: CGFloat,
+            iconSize: CGFloat,
+            height: CGFloat,
+            horizontalPadding: CGFloat,
+            monospacedDigits: Bool
+        )
 
         var targetHeight: CGFloat {
             switch self {
             case .icon(_, _, _, let diameter): return diameter
-            case .pill(_, _, _, _, _, let height, _): return height
+            case .pill(_, _, _, _, _, let height, _, _): return height
             }
         }
 
@@ -564,6 +568,7 @@ final class AstraBarGlassButtonView: UIView {
     private var measuredGlass = CGRect.null
     private var measuredIsEstimated = true
     private var renderScale: CGFloat = 0
+    private var shrink: CGFloat = 1
     private var contentFrame = CGRect.zero
     private var reportedSize = CGSize(width: 44, height: 44)
     private weak var measuredControl: UIView?
@@ -695,6 +700,7 @@ final class AstraBarGlassButtonView: UIView {
         measuredKey = ""
         measuredGlass = .null
         measuredIsEstimated = true
+        shrink = 1
         setNeedsLayout()
     }
 
@@ -713,7 +719,7 @@ final class AstraBarGlassButtonView: UIView {
         switch content {
         case .icon(_, _, _, let diameter):
             return CGSize(width: diameter, height: diameter)
-        case .pill(let symbol, let title, let showsChevron, let fontSize, let iconSize, let height, let monospaced):
+        case .pill(let symbol, let title, let showsChevron, let fontSize, let iconSize, let height, let horizontalPadding, let monospaced):
             let scale = max(0.3, height / AstraBarGlassMeasure.nominalGlass)
             let glyph = AstraBarGlassMeasure.renderPillGlyph(
                 symbol: symbol,
@@ -721,13 +727,16 @@ final class AstraBarGlassButtonView: UIView {
                 showsChevron: showsChevron,
                 fontSize: fontSize,
                 iconPointSize: iconSize,
+                horizontalPadding: horizontalPadding,
                 layoutScale: scale,
                 renderScale: scale,
                 displayScale: traitCollection.displayScale > 0 ? traitCollection.displayScale : 3,
                 monospacedDigits: monospaced
             )
-            // UIKit 导航栏胶囊在图标左右各留约 13pt 视觉内边距（原生 44pt 高度下）
-            let rawWidth = max(AstraBarGlassMeasure.nominalGlass, glyph.size.width + 26)
+            let rawWidth = max(
+                AstraBarGlassMeasure.nominalGlass,
+                glyph.size.width + (AstraBarGlassMeasure.nativePillSideInset * 2) / scale
+            )
             return CGSize(width: ceil(rawWidth * scale), height: height)
         }
     }
@@ -846,33 +855,62 @@ final class AstraBarGlassButtonView: UIView {
         "\(content)|\(isLoadingState)|\(customTint?.description ?? "label")"
     }
 
+    /// 移植自 xyydy `ALB3BarGlassButton.measureGlass`：
+    /// 圆形图标按钮若被宽 SF Symbol（如快进 10 秒、字幕图标）撑成椭圆，自动收敛 `shrink` 直至还原正圆。
     private func measureGlass(reference: CGFloat) -> CGRect {
         let key = "\(contentSignature)|\(Int((reference * 1000).rounded()))|\(Int(bar.bounds.width))x\(Int(bar.bounds.height))|\(window == nil ? 0 : 1)"
         if key == measuredKey, !measuredGlass.isNull {
             return measuredGlass
         }
-        updateContent(reference: reference)
-        bar.setNeedsLayout()
-        bar.layoutIfNeeded()
+        shrink = 1
+        var result = CGRect.null
+        var bestShrink: CGFloat = 1
+        var isEstimated = true
+        let maxPasses = content.isCircle ? 6 : 1
 
-        guard let control = AstraBarGlassMeasure.controls(in: bar).first,
-              control.bounds.width > 0, control.bounds.height > 0
-        else {
-            return .null
+        for _ in 0..<maxPasses {
+            updateContent(reference: reference)
+            bar.setNeedsLayout()
+            bar.layoutIfNeeded()
+
+            guard let control = AstraBarGlassMeasure.controls(in: bar).first,
+                  control.bounds.width > 0, control.bounds.height > 0
+            else {
+                break
+            }
+            let found = AstraBarGlassMeasure.glassFrame(around: control, in: bar)
+            if !result.isNull && found.frame.width >= result.width - 0.25 {
+                break
+            }
+            result = found.frame
+            bestShrink = shrink
+            isEstimated = found.isEstimated
+            measuredControl = control
+            if !content.isCircle || isLoadingState || found.frame.width <= found.frame.height + 0.5 || shrink < 0.5 {
+                break
+            }
+            shrink *= max(0.75, min(0.97, found.frame.height / found.frame.width))
         }
-        let found = AstraBarGlassMeasure.glassFrame(around: control, in: bar)
-        measuredControl = control
-        measuredGlass = found.frame
-        measuredIsEstimated = found.isEstimated
-        measuredKey = (found.frame.isNull || (found.isEstimated && window == nil)) ? "" : key
-        return found.frame
+
+        if shrink != bestShrink {
+            shrink = bestShrink
+            updateContent(reference: reference)
+            bar.setNeedsLayout()
+            bar.layoutIfNeeded()
+            measuredControl = AstraBarGlassMeasure.controls(in: bar).first ?? measuredControl
+        }
+
+        measuredGlass = result
+        measuredIsEstimated = isEstimated
+        measuredKey = (result.isNull || (isEstimated && window == nil)) ? "" : key
+        return result
     }
 
     private func updateContent(reference: CGFloat) {
         let scale = max(0.3, reference)
         let render = max(0.3, renderScale > 0 ? renderScale : reference)
         let displayScale = traitCollection.displayScale > 0 ? traitCollection.displayScale : 3
-        let key = "\(contentSignature)|\(Int(scale * 1000))|\(Int(render * 1000))"
+        let key = "\(contentSignature)|\(Int(scale * 1000))|\(Int(render * 1000))|\(Int(shrink * 1000))"
         guard key != contentKey else { return }
         contentKey = key
 
@@ -890,16 +928,17 @@ final class AstraBarGlassButtonView: UIView {
         var image: UIImage?
         switch content {
         case .icon(let systemName, let pointSize, let weight, _):
-            let config = UIImage.SymbolConfiguration(pointSize: pointSize / scale, weight: weight)
+            let config = UIImage.SymbolConfiguration(pointSize: pointSize / scale * shrink, weight: weight)
             image = UIImage(systemName: systemName, withConfiguration: config)?
                 .withRenderingMode(.alwaysTemplate)
-        case .pill(let symbol, let title, let showsChevron, let fontSize, let iconSize, _, let monospaced):
+        case .pill(let symbol, let title, let showsChevron, let fontSize, let iconSize, _, let horizontalPadding, let monospaced):
             image = AstraBarGlassMeasure.renderPillGlyph(
                 symbol: symbol,
                 title: title,
                 showsChevron: showsChevron,
                 fontSize: fontSize,
                 iconPointSize: iconSize,
+                horizontalPadding: horizontalPadding,
                 layoutScale: scale,
                 renderScale: render,
                 displayScale: displayScale,
@@ -974,19 +1013,17 @@ struct BarGlassIconButton: View {
     var weight: UIImage.SymbolWeight = .semibold
     var diameter: CGFloat = 44
     var tint: UIColor? = nil
-    var tone: AstraGlassTone? = nil
+    var tone: AstraGlassTone = .dark
     var isLoading = false
     var isDisabled = false
     var accessibilityLabel: String? = nil
     let action: () -> Void
 
-    @Environment(\.astraGlassTone) private var envTone
-
     var body: some View {
         if #available(iOS 26.0, *) {
             AstraBarGlassRepresentable(
                 content: .icon(systemName: systemImage, pointSize: pointSize, weight: weight, diameter: diameter),
-                tone: tone ?? envTone,
+                tone: tone,
                 tint: tint,
                 isLoading: isLoading,
                 isDisabled: isDisabled,
@@ -1024,15 +1061,14 @@ struct BarGlassPillButton: View {
     var systemImage: String? = nil
     var fontSize: CGFloat = 14
     var iconSize: CGFloat = 13
-    var height: CGFloat = 38
+    var height: CGFloat = 36
+    var horizontalPadding: CGFloat = 13
     var tint: UIColor? = nil
-    var tone: AstraGlassTone? = nil
+    var tone: AstraGlassTone = .dark
     var monospacedDigits = false
     var isDisabled = false
     var accessibilityLabel: String? = nil
     let action: () -> Void
-
-    @Environment(\.astraGlassTone) private var envTone
 
     var body: some View {
         if #available(iOS 26.0, *) {
@@ -1044,9 +1080,10 @@ struct BarGlassPillButton: View {
                     fontSize: fontSize,
                     iconSize: iconSize,
                     height: height,
+                    horizontalPadding: horizontalPadding,
                     monospacedDigits: monospacedDigits
                 ),
-                tone: tone ?? envTone,
+                tone: tone,
                 tint: tint,
                 isLoading: false,
                 isDisabled: isDisabled,
@@ -1067,7 +1104,7 @@ struct BarGlassPillButton: View {
                         .font(.system(size: fontSize, weight: .semibold))
                 }
                 .foregroundStyle(tint.map { Color(uiColor: $0) } ?? .primary)
-                .padding(.horizontal, 13)
+                .padding(.horizontal, horizontalPadding)
                 .frame(height: height)
                 .contentShape(Capsule())
             }
@@ -1086,18 +1123,16 @@ struct BarGlassIconMenuButton: View {
     var weight: UIImage.SymbolWeight = .semibold
     var diameter: CGFloat = 44
     var tint: UIColor? = nil
-    var tone: AstraGlassTone? = nil
+    var tone: AstraGlassTone = .dark
     var menuTitle: String = ""
     var accessibilityLabel: String? = nil
     let menuElements: () -> [UIMenuElement]
-
-    @Environment(\.astraGlassTone) private var envTone
 
     var body: some View {
         if #available(iOS 26.0, *) {
             AstraBarGlassRepresentable(
                 content: .icon(systemName: systemImage, pointSize: pointSize, weight: weight, diameter: diameter),
-                tone: tone ?? envTone,
+                tone: tone,
                 tint: tint,
                 isLoading: false,
                 isDisabled: false,
@@ -1124,22 +1159,21 @@ struct BarGlassIconMenuButton: View {
     }
 }
 
-/// 胶囊真导航栏玻璃菜单按钮（用于首页模式菜单、音乐特效菜单、播放器倍速、分类排序、书源切换等）
+/// 胶囊真导航栏玻璃菜单按钮（用于首页顶部模式菜单、音乐首页右上角特效菜单、播放器倍速菜单）
 struct BarGlassPillMenuButton: View {
     let title: String
     var systemImage: String? = nil
     var showsChevron: Bool = true
-    var fontSize: CGFloat = 15
-    var iconSize: CGFloat = 14
-    var height: CGFloat = 40
+    var fontSize: CGFloat = 14.5
+    var iconSize: CGFloat = 13.5
+    var height: CGFloat = 35
+    var horizontalPadding: CGFloat = 14
     var tint: UIColor? = nil
-    var tone: AstraGlassTone? = nil
+    var tone: AstraGlassTone = .dark
     var monospacedDigits = false
     var menuTitle: String = ""
     var accessibilityLabel: String? = nil
     let menuElements: () -> [UIMenuElement]
-
-    @Environment(\.astraGlassTone) private var envTone
 
     var body: some View {
         if #available(iOS 26.0, *) {
@@ -1151,9 +1185,10 @@ struct BarGlassPillMenuButton: View {
                     fontSize: fontSize,
                     iconSize: iconSize,
                     height: height,
+                    horizontalPadding: horizontalPadding,
                     monospacedDigits: monospacedDigits
                 ),
-                tone: tone ?? envTone,
+                tone: tone,
                 tint: tint,
                 isLoading: false,
                 isDisabled: false,
@@ -1237,7 +1272,7 @@ private extension UIImage.SymbolWeight {
     }
 }
 
-// MARK: - iOS 26 卡片 / 面板 / 按钮底板：复用底栏实体玻璃
+// MARK: - iOS 26 播放器 HUD 面板底板：复用底栏实体玻璃 + 独立暗色滚动边
 
 @available(iOS 26.0, *)
 final class AstraBarMatchedGlassContainerView: UIView {
@@ -1345,11 +1380,7 @@ struct AstraBarMatchedGlassBackground: UIViewRepresentable {
     @Environment(\.colorScheme) private var systemScheme
 
     private var uiStyle: UIUserInterfaceStyle {
-        switch tone {
-        case .dark: return .dark
-        case .light: return .light
-        case .system: return systemScheme == .dark ? .dark : .light
-        }
+        tone.resolvedUIStyle(system: systemScheme == .dark ? .dark : .light)
     }
 
     func makeUIView(context: Context) -> AstraBarMatchedGlassContainerView {
@@ -1363,73 +1394,19 @@ struct AstraBarMatchedGlassBackground: UIViewRepresentable {
     }
 }
 
-/// 用底栏同款实体玻璃绘制的玻璃按钮样式（替代系统 `.buttonStyle(.glass)` 的偏白/色调档控制玻璃）
-@available(iOS 26.0, *)
-struct AstraBarMatchedGlassButtonStyle: ButtonStyle {
-    @Environment(\.controlSize) private var controlSize
-    @Environment(\.astraGlassTone) private var glassTone
-    @Environment(\.colorScheme) private var systemScheme
-    @Environment(\.isEnabled) private var isEnabled
+// MARK: - 底栏协调器（xyydy 做法：只切底栏控制器与滚动边，不锁整窗）
 
-    private var horizontalPadding: CGFloat {
-        switch controlSize {
-        case .mini: return 10
-        case .small: return 12
-        case .large: return 18
-        case .extraLarge: return 22
-        default: return 15
-        }
-    }
-
-    private var minHeight: CGFloat {
-        switch controlSize {
-        case .mini: return 28
-        case .small: return 32
-        case .large: return 50
-        case .extraLarge: return 54
-        default: return 40
-        }
-    }
-
-    func makeBody(configuration: Configuration) -> some View {
-        let resolvedScheme = glassTone.resolvedColorScheme(system: systemScheme)
-        configuration.label
-            .font(controlSize == .large ? .body.weight(.semibold) : nil)
-            .padding(.horizontal, horizontalPadding)
-            .frame(minWidth: minHeight, minHeight: minHeight)
-            .foregroundStyle(resolvedScheme == .dark ? Color.white : Color.primary)
-            .environment(\.colorScheme, resolvedScheme)
-            .background {
-                AstraBarMatchedGlassBackground(interactive: true, corner: .capsule, tone: glassTone)
-            }
-            .contentShape(Capsule())
-            .opacity(isEnabled ? 1 : 0.45)
-            .scaleEffect(configuration.isPressed ? 0.96 : 1)
-            .animation(.spring(response: 0.22, dampingFraction: 0.72), value: configuration.isPressed)
-    }
-}
-
-// MARK: - 底栏与详情导航栏协调器（xyydy 做法：只切底栏控制器，不污染整个窗口）
-
-/// 统一管理 iOS 26 浮动底栏（UITabBarController / UITabBar）与详情页导航栏（UINavigationBar）的深浅：
-/// - 绝不锁 `window.overrideUserInterfaceStyle`（避免切换标签时把收藏/历史/我的先染成黑底，导致底栏卡死在深色）
-/// - 沉浸页（所有首页模式 + 海报取色详情页）：底栏与对应滚动边设为 `.dark`（高阈值深色通透，极亮画面仍由系统自动翻浅）
-/// - 常规系统页（收藏 / 历史 / 我的 / 搜索 / 常规二级列表）：底栏立刻切回具体的系统浅色或深色（`performWithoutAnimation` + `updateTraitsIfNeeded`）
-/// - 每个标签页的子控制器始终保持真实系统深浅，互不干扰
+/// 统一管理 iOS 26 浮动底栏（UITabBarController / UITabBar / 浮动胶囊容器）的深浅：
+/// - 绝不锁 `window.overrideUserInterfaceStyle`（避免把收藏/历史/我的先染成黑底，导致浅色模式切页底栏卡深色）
+/// - 首页根页面（番剧 / 影视 / 漫画 / 小说 / 音乐）：底栏与对应滚动边设为 `.dark`（高阈值深色通透）
+/// - 其他标签页与二级页面（收藏 / 历史 / 我的 / 搜索 / 推入的详情与列表页）：立刻切回具体的系统浅色或深色
 @MainActor
 final class AstraChromeCoordinator {
     static let shared = AstraChromeCoordinator()
 
-    private struct DetailEntry {
-        let id: UUID
-        var tone: AstraGlassTone
-        weak var navBar: UINavigationBar?
-    }
-
     private var currentTab: AppTab = .home
     private var currentMode: ContentMode = .anime
     private var isHomeRootVisible = true
-    private var immersiveDetailStack: [DetailEntry] = []
     private weak var styledHomeScrollView: UIScrollView?
     private var scheduledSyncToken: Int = 0
 
@@ -1446,39 +1423,6 @@ final class AstraChromeCoordinator {
         guard isHomeRootVisible != visible else { return }
         isHomeRootVisible = visible
         syncNow(reason: visible ? "home-root-appear" : "home-root-disappear")
-        scheduleFollowUpSyncs()
-    }
-
-    func pushImmersiveDetail(id: UUID, tone: AstraGlassTone, navBar: UINavigationBar?) {
-        if let idx = immersiveDetailStack.firstIndex(where: { $0.id == id }) {
-            immersiveDetailStack[idx].tone = tone
-            if let navBar { immersiveDetailStack[idx].navBar = navBar }
-        } else {
-            immersiveDetailStack.append(DetailEntry(id: id, tone: tone, navBar: navBar))
-        }
-        syncNow(reason: "detail-push tone=\(tone)")
-        scheduleFollowUpSyncs()
-    }
-
-    func popImmersiveDetail(id: UUID, navBar: UINavigationBar?) {
-        if let idx = immersiveDetailStack.firstIndex(where: { $0.id == id }) {
-            immersiveDetailStack.remove(at: idx)
-        }
-        if let navBar {
-            let system = Self.concreteSystemStyle(for: navBar.window)
-            let remainingStyle: UIUserInterfaceStyle = immersiveDetailStack
-                .last(where: { $0.navBar === navBar })
-                .map { $0.tone.resolvedUIStyle(system: system) } ?? .unspecified
-            UIView.performWithoutAnimation {
-                if navBar.overrideUserInterfaceStyle != remainingStyle {
-                    navBar.overrideUserInterfaceStyle = remainingStyle
-                }
-                if #available(iOS 17.0, *) {
-                    navBar.updateTraitsIfNeeded()
-                }
-            }
-        }
-        syncNow(reason: "detail-pop")
         scheduleFollowUpSyncs()
     }
 
@@ -1540,9 +1484,9 @@ final class AstraChromeCoordinator {
                     }
                 }
 
-                // 3. 首页沉浸态时，把首页主垂直滚动视图的滚动边也设为深色（xyydy Tweak.x:304-311：
-                //    边本身必须是 Dark，iOS 26 才会以高阈值深色通透为起点），离开首页立刻还原
-                let wantsDarkHomeEdge = currentTab == .home && isHomeRootVisible && immersiveDetailStack.isEmpty
+                // 3. 首页沉浸态时，把首页主垂直滚动视图的滚动边也设为深色（跳过 WKWebView 内部滚动视图；
+                //    音乐首页没有原生列表滚动，由 MusicBottomEdgeBridge 提供透明暗色底边 ScrollView）
+                let wantsDarkHomeEdge = currentTab == .home && isHomeRootVisible
                 if wantsDarkHomeEdge,
                    let selectedView = tabController.selectedViewController?.viewIfLoaded,
                    let homeScroll = Self.findPrimaryVerticalScrollView(in: selectedView) {
@@ -1561,8 +1505,8 @@ final class AstraChromeCoordinator {
                 }
 
                 // 4. 按 xyydy（Tweak.x:13564-13566 / AwemeAlbumMorphBar.swift:251-253）做法：
-                //    同时切 UITabBarController、其根视图及 UITabBar，使 iOS 26 宿主在控制器根视图里的
-                //    浮动胶囊容器与搜索圆球在同一帧无动画切换
+                //    同时切 UITabBarController、其根视图、UITabBar 及浮动胶囊/搜索圆球宿主视图，
+                //    同一帧无动画刷新 traits
                 if tabController.overrideUserInterfaceStyle != desiredBarStyle {
                     tabController.overrideUserInterfaceStyle = desiredBarStyle
                 }
@@ -1594,15 +1538,11 @@ final class AstraChromeCoordinator {
     }
 
     private func resolvedBarStyle(systemStyle: UIUserInterfaceStyle) -> UIUserInterfaceStyle {
-        // 推入了海报取色详情页时，底栏按最上层详情页的高阈值玻璃倾向决定
-        if let activeDetailTone = immersiveDetailStack.last?.tone {
-            return activeDetailTone.resolvedUIStyle(system: systemStyle)
-        }
         // 首页全部 5 个模式（番剧 / 影视 / 漫画 / 小说 / 音乐）均为沉浸内容页，按 xyydy 固定深色起步
         if currentTab == .home && isHomeRootVisible {
             return .dark
         }
-        // 收藏 / 历史 / 我的 / 搜索 / 首页推入的常规二级列表：立刻切回系统实际深浅（浅色模式下为 .light，绝不卡深色）
+        // 收藏 / 历史 / 我的 / 搜索 / 二级页面：立刻切回系统实际深浅（浅色模式下为 .light，绝不卡深色）
         return systemStyle
     }
 
@@ -1622,7 +1562,7 @@ final class AstraChromeCoordinator {
         return screenStyle == .dark ? .dark : .light
     }
 
-    static func findPrimaryVerticalScrollView(in root: UIView) -> UIScrollView? {
+    private static func findPrimaryVerticalScrollView(in root: UIView) -> UIScrollView? {
         let minWidth = max(200, root.bounds.width * 0.7)
         let minHeight = max(200, root.bounds.height * 0.5)
         var queue: [UIView] = [root]
@@ -1632,6 +1572,7 @@ final class AstraChromeCoordinator {
             index += 1
             if let scroll = view as? UIScrollView,
                !(scroll is UITextView),
+               !NSStringFromClass(type(of: scroll)).contains("WK"),
                !scroll.isHidden,
                scroll.isUserInteractionEnabled,
                scroll.bounds.width >= minWidth,
@@ -1653,22 +1594,31 @@ final class AstraChromeCoordinator {
         return nil
     }
 
-    /// 同步 iOS 26 浮动底栏宿主视图（排除内容容器 UITransitionView 与子控制器视图）
+    /// 参照 xyydy ALB5BottomGeometry.m，BFS 遍历底栏宿主树（跳过内容容器与 ScrollView），
+    /// 同时同步主胶囊与右侧搜索圆球（TabBarPlatterView / TabBarAuxiliaryView）
     private static func applyToFloatingTabBarChrome(in controller: UITabBarController, style: UIUserInterfaceStyle) {
         let contentViews = Set((controller.viewControllers ?? []).compactMap { $0.viewIfLoaded }.map(ObjectIdentifier.init))
-        for subview in controller.view.subviews {
-            if contentViews.contains(ObjectIdentifier(subview)) { continue }
-            let name = NSStringFromClass(type(of: subview))
+        var queue: [UIView] = controller.view.subviews
+        var index = 0
+        while index < queue.count && index < 192 {
+            let view = queue[index]
+            index += 1
+            if contentViews.contains(ObjectIdentifier(view)) || view is UIScrollView { continue }
+            let name = NSStringFromClass(type(of: view))
             if name.contains("TransitionView") || name.contains("LayoutContainer") { continue }
-            if subview === controller.tabBar
+            if view === controller.tabBar
                 || name.contains("TabBar")
                 || name.contains("Platter")
                 || name.contains("Floating")
                 || name.contains("Auxiliary") {
-                if subview.overrideUserInterfaceStyle != style {
-                    subview.overrideUserInterfaceStyle = style
+                if view.overrideUserInterfaceStyle != style {
+                    view.overrideUserInterfaceStyle = style
+                }
+                if #available(iOS 17.0, *) {
+                    view.updateTraitsIfNeeded()
                 }
             }
+            queue.append(contentsOf: view.subviews)
         }
     }
 
@@ -1681,10 +1631,10 @@ final class AstraChromeCoordinator {
     }
 }
 
-// MARK: - 首页根页面 & 沉浸式详情页导航栏 / 底栏同步桥接
+// MARK: - 首页根页面 & 音乐首页底栏滚动边桥接
 
 extension View {
-    /// 首页根视图使用：追踪是否正停留在首页根页面（推入常规二级列表时自动释放首页深色底栏）
+    /// 首页根视图使用：追踪是否正停留在首页根页面（推入详情/列表页时自动释放首页深色底栏）
     func homeRootBarChrome() -> some View {
         background {
             HomeRootChromeBridge()
@@ -1693,10 +1643,21 @@ extension View {
         }
     }
 
-    /// 详情页使用：把系统导航栏（返回按钮玻璃）、页面主滚动边和底栏同步为高阈值深色通透（仅极浅封面才用浅色），
-    /// 返回常规列表页时自动恢复系统深浅。
-    func immersiveBarChrome(glassTone: AstraGlassTone) -> some View {
-        modifier(ImmersiveBarChromeModifier(glassTone: glassTone))
+    /// 音乐首页使用（参照 xyydy AwemeAlbumMorphBar 的透明代理滚动视图）：
+    /// 音乐首页本身没有延伸到底栏下方的 ScrollView，补一条不可交互、暗色、隐藏边缘模糊的
+    /// contentScrollView(for: .bottom)，让 iOS 26 底栏获得与其他首页一致的通透浮动液态玻璃，
+    /// 避免浅色模式下在“浅色底栏 / 压暗底栏 / 透明玻璃”之间来回打架。
+    @ViewBuilder
+    func musicBottomScrollEdge() -> some View {
+        if #available(iOS 26.0, *) {
+            background {
+                MusicBottomEdgeBridge()
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+            }
+        } else {
+            self
+        }
     }
 }
 
@@ -1728,132 +1689,72 @@ private struct HomeRootChromeBridge: UIViewControllerRepresentable {
     }
 }
 
-private struct ImmersiveBarChromeModifier: ViewModifier {
-    let glassTone: AstraGlassTone
-    @State private var token = UUID()
+@available(iOS 26.0, *)
+private struct MusicBottomEdgeBridge: UIViewControllerRepresentable {
+    func makeUIViewController(context: Context) -> EdgeController { EdgeController() }
+    func updateUIViewController(_ controller: EdgeController, context: Context) {}
 
-    func body(content: Content) -> some View {
-        content
-            .background {
-                ImmersiveNavBarBridge(token: token, glassTone: glassTone)
-                    .frame(width: 0, height: 0)
-                    .allowsHitTesting(false)
-            }
-    }
-}
+    final class EdgeController: UIViewController {
+        private let edgeScroll = AstraGlassEdge.makeEdgeScrollView(style: .dark)
+        private weak var boundParent: UIViewController?
 
-private struct ImmersiveNavBarBridge: UIViewControllerRepresentable {
-    let token: UUID
-    let glassTone: AstraGlassTone
-
-    func makeUIViewController(context: Context) -> BridgeController {
-        BridgeController(token: token, glassTone: glassTone)
-    }
-
-    func updateUIViewController(_ controller: BridgeController, context: Context) {
-        controller.update(glassTone: glassTone)
-    }
-
-    final class BridgeController: UIViewController {
-        private let token: UUID
-        private var glassTone: AstraGlassTone
-        private var isActive = false
-        private weak var styledNavBar: UINavigationBar?
-        private weak var styledScrollView: UIScrollView?
-
-        init(token: UUID, glassTone: AstraGlassTone) {
-            self.token = token
-            self.glassTone = glassTone
-            super.init(nibName: nil, bundle: nil)
+        override func viewDidLoad() {
+            super.viewDidLoad()
+            view.backgroundColor = .clear
+            view.isOpaque = false
+            view.isUserInteractionEnabled = false
+            edgeScroll.frame = view.bounds
+            edgeScroll.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            view.addSubview(edgeScroll)
         }
 
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
+        override func viewDidLayoutSubviews() {
+            super.viewDidLayoutSubviews()
+            let bounds = view.bounds
+            guard bounds.width > 0, bounds.height > 0 else { return }
+            if edgeScroll.frame != bounds {
+                edgeScroll.frame = bounds
+            }
+            // 与 xyydy AWEAlbumMorphProxyController 相同：让内容高度超过底栏底部，
+            // 使 UIKit 稳定进入“内容滚入底栏下方”的通透浮动玻璃状态
+            let targetContentSize = CGSize(width: bounds.width, height: bounds.height + 600)
+            if edgeScroll.contentSize != targetContentSize {
+                edgeScroll.contentSize = targetContentSize
+                edgeScroll.contentOffset = CGPoint(x: 0, y: 120)
+            }
         }
 
         override func viewWillAppear(_ animated: Bool) {
             super.viewWillAppear(animated)
-            isActive = true
-            apply()
+            bind()
         }
 
         override func viewDidAppear(_ animated: Bool) {
             super.viewDidAppear(animated)
-            isActive = true
-            apply()
+            bind()
         }
 
         override func viewWillDisappear(_ animated: Bool) {
             super.viewWillDisappear(animated)
-            if let coordinator = transitionCoordinator {
-                coordinator.animate(alongsideTransition: nil) { [weak self] context in
-                    guard let self else { return }
-                    if context.isCancelled {
-                        self.isActive = true
-                        self.apply()
-                    } else {
-                        self.teardown()
-                    }
-                }
-            } else {
-                teardown()
+            unbind()
+        }
+
+        private func bind() {
+            AstraGlassEdge.hideAllEdgeEffects(of: edgeScroll)
+            edgeScroll.overrideUserInterfaceStyle = .dark
+            setContentScrollView(edgeScroll, for: .bottom)
+            if let host = parent {
+                boundParent = host
+                host.setContentScrollView(edgeScroll, for: .bottom)
             }
         }
 
-        override func viewDidDisappear(_ animated: Bool) {
-            super.viewDidDisappear(animated)
-            if isMovingFromParent || parent == nil || navigationController == nil {
-                teardown()
+        private func unbind() {
+            setContentScrollView(nil, for: .bottom)
+            if let host = boundParent ?? parent, host.contentScrollView(for: .bottom) === edgeScroll {
+                host.setContentScrollView(nil, for: .bottom)
             }
-        }
-
-        deinit {
-            let token = self.token
-            Task { @MainActor in
-                AstraChromeCoordinator.shared.popImmersiveDetail(id: token, navBar: nil)
-            }
-        }
-
-        func update(glassTone: AstraGlassTone) {
-            self.glassTone = glassTone
-            guard isActive else { return }
-            apply()
-        }
-
-        private func apply() {
-            let system = AstraChromeCoordinator.concreteSystemStyle(for: view.window)
-            let desired = glassTone.resolvedUIStyle(system: system)
-            let navBar = navigationController?.navigationBar
-            if let navBar {
-                styledNavBar = navBar
-                UIView.performWithoutAnimation {
-                    if navBar.overrideUserInterfaceStyle != desired {
-                        navBar.overrideUserInterfaceStyle = desired
-                    }
-                    if #available(iOS 17.0, *) {
-                        navBar.updateTraitsIfNeeded()
-                    }
-                }
-            }
-            if let hostView = parent?.viewIfLoaded,
-               let scroll = AstraChromeCoordinator.findPrimaryVerticalScrollView(in: hostView) {
-                styledScrollView = scroll
-                if scroll.overrideUserInterfaceStyle != desired {
-                    scroll.overrideUserInterfaceStyle = desired
-                }
-            }
-            AstraChromeCoordinator.shared.pushImmersiveDetail(id: token, tone: glassTone, navBar: navBar)
-        }
-
-        private func teardown() {
-            isActive = false
-            if let scroll = styledScrollView, scroll.overrideUserInterfaceStyle != .unspecified {
-                scroll.overrideUserInterfaceStyle = .unspecified
-            }
-            styledScrollView = nil
-            let navBar = styledNavBar ?? navigationController?.navigationBar
-            styledNavBar = nil
-            AstraChromeCoordinator.shared.popImmersiveDetail(id: token, navBar: navBar)
+            boundParent = nil
         }
     }
 }

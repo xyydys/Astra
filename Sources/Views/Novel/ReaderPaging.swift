@@ -61,15 +61,6 @@ enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
     static var solid: [ReaderTheme] { allCases.filter { $0 != .image } }
 
     var colorScheme: ColorScheme { isDark ? .dark : .light }
-
-    /// 液态玻璃深浅：高阈值，仅极浅的纸张/背景图（亮度 > 0.80）才用浅色玻璃
-    var glassTone: AstraGlassTone {
-        if isDark { return .dark }
-        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
-        background.getRed(&r, green: &g, blue: &b, alpha: &a)
-        let luma = 0.2126 * Double(r) + 0.7152 * Double(g) + 0.0722 * Double(b)
-        return luma > 0.80 ? .light : .dark
-    }
 }
 
 enum ReaderFont: String, Codable, CaseIterable, Identifiable {
