@@ -34,13 +34,6 @@ enum AppAccent {
 
     static func color(_ hex: String) -> Color { Color(uiColor: uiColor(hex)) }
 
-    /// UIKit 部分（提示框、系统菜单、分享面板）也跟着换色
-    static func applyToWindows(_ hex: String) {
-        let color = uiColor(hex)
-        for scene in UIApplication.shared.connectedScenes {
-            for window in (scene as? UIWindowScene)?.windows ?? [] { window.tintColor = color }
-        }
-    }
 }
 
 extension UIColor {

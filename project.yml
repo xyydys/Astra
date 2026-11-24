@@ -102,7 +102,6 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         # 设置里可切换的备选图标（Resources/Assets.xcassets 里其余的 AppIcon-*）
         ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS: "YES"
-        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         GENERATE_INFOPLIST_FILE: "NO"
         # iOS 17 才有的库弱链接，iOS 15 / 16 上没有也能启动：
         # SwiftData 只用来迁移旧数据；Observation 是新版 SwiftUI 自己引用的

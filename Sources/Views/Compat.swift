@@ -114,16 +114,6 @@ extension View {
             self
         }
     }
-
-    /// 底栏用深色（iOS 15 不支持单独设置，跟随页面）
-    @ViewBuilder
-    func darkTabBarCompat() -> some View {
-        if #available(iOS 16, *) {
-            toolbarColorScheme(.dark, for: .tabBar)
-        } else {
-            self
-        }
-    }
 }
 
 // MARK: - 列表、滚动

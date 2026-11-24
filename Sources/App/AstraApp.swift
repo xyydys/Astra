@@ -15,7 +15,6 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
 struct AstraApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var ruleStore = RuleStore()
-    @AppStorage(AppAccent.key) private var accentHex = ""
 
     init() {
         #if DEBUG
@@ -52,10 +51,6 @@ struct AstraApp: App {
                 #endif
             }
             .environmentObject(ruleStore)
-            .tint(AppAccent.color(accentHex))
-            .accentColor(AppAccent.color(accentHex))
-            .onAppear { AppAccent.applyToWindows(accentHex) }
-            .onChangeCompat(of: accentHex) { AppAccent.applyToWindows(accentHex) }
         }
     }
 }
@@ -70,8 +65,7 @@ struct RootView: View {
     @State private var tabBeforeSearch: AppTab = .home
     @AppStorage(AppSettings.contentModeKey) private var mode: ContentMode = .anime
     @EnvironmentObject private var ruleStore: RuleStore
-    /// 底栏图标（设置 → 外观 → 底栏图标）
-    @AppStorage(TabIcons.storageKey) private var tabIconsRaw = ""
+    @AppStorage(AppAccent.key) private var accentHex = ""
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.colorScheme) private var colorScheme
     /// 从其他 App 打开的文件的导入结果
@@ -96,24 +90,20 @@ struct RootView: View {
         .onChangeCompat(of: tab) { old, new in
             if new == .search, old != .search { tabBeforeSearch = old }
             Diag.log("界面", "标签 \(old) → \(new)")
-            updateTabBarStyle()
+            updateDiagnosticContext()
         }
         .onChangeCompat(of: mode) { old, new in
             Diag.log("界面", "模式 \(old.rawValue) → \(new.rawValue)")
-            updateTabBarStyle()
+            updateDiagnosticContext()
         }
         .onChangeCompat(of: colorScheme) { _, scheme in
             Diag.log("界面", "界面深浅色 → \(scheme)")
-            updateTabBarStyle()
         }
         .onChangeCompat(of: scenePhase) { _, phase in
             Diag.log("界面", "scenePhase=\(phase)")
-            if phase == .active { updateTabBarStyle() }
         }
         .onAppear {
-            updateTabBarStyle()
-            // 冷启动时 TabView 底下的 UITabBarController 可能还没建好，稍后再设一次
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { updateTabBarStyle() }
+            updateDiagnosticContext()
         }
         .onOpenURL { url in
             Task {
@@ -145,10 +135,8 @@ struct RootView: View {
         }
     }
 
-    /// 参照 xyydy 底栏做法：不把整窗锁成深色，而是把底栏控制器与底栏本体按页面切换深浅，
-    /// 同时保持各标签页内容跟随系统，彻底避免从音乐首页切到浅色标签时底栏卡在深色。
-    private func updateTabBarStyle() {
-        AstraChromeCoordinator.shared.updateRoot(tab: tab, mode: mode)
+    private func updateDiagnosticContext() {
+        DiagnosticLog.context = "tab=\(tab) mode=\(mode.rawValue)"
     }
 
     private func restore(_ item: IncomingBackup) {
@@ -163,19 +151,22 @@ struct RootView: View {
         }
     }
 
-    private func icon(_ slot: TabIconSlot) -> String {
-        TabIcons.icon(for: slot, in: tabIconsRaw)
+    // 强调色仅用于页面内容，不设置 TabView 或窗口的 tint。
+    private func withContentAccent<Content: View>(_ content: Content) -> some View {
+        content
+            .tint(AppAccent.color(accentHex))
+            .accentColor(AppAccent.color(accentHex))
     }
 
     /// iOS 18 起的 Tab 写法：iOS 26 上搜索是底栏右侧单独的圆形按钮
     @available(iOS 18, *)
     private var modernTabs: some View {
         TabView(selection: $tab) {
-            Tab("首页", systemImage: icon(.home(mode)), value: AppTab.home) { homeTab }
-            Tab("收藏", systemImage: icon(.favorites), value: AppTab.favorites) { favoritesTab }
-            Tab("历史", systemImage: icon(.history), value: AppTab.history) { historyTab }
-            Tab("我的", systemImage: icon(.settings), value: AppTab.settings) { settingsTab }
-            Tab("搜索", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { searchTab }
+            Tab("首页", systemImage: "house", value: AppTab.home) { withContentAccent(homeTab) }
+            Tab("收藏", systemImage: "heart", value: AppTab.favorites) { withContentAccent(favoritesTab) }
+            Tab("历史", systemImage: "clock.arrow.circlepath", value: AppTab.history) { withContentAccent(historyTab) }
+            Tab("我的", systemImage: "person.crop.circle", value: AppTab.settings) { withContentAccent(settingsTab) }
+            Tab("搜索", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { withContentAccent(searchTab) }
         }
         .tabBarMinimizeOnScroll()
     }
@@ -183,19 +174,19 @@ struct RootView: View {
     /// iOS 15 – 17：普通的五个标签
     private var legacyTabs: some View {
         TabView(selection: $tab) {
-            homeTab
-                .tabItem { Label("首页", systemImage: icon(.home(mode))) }
+            withContentAccent(homeTab)
+                .tabItem { Label("首页", systemImage: "house") }
                 .tag(AppTab.home)
-            favoritesTab
-                .tabItem { Label("收藏", systemImage: icon(.favorites)) }
+            withContentAccent(favoritesTab)
+                .tabItem { Label("收藏", systemImage: "heart") }
                 .tag(AppTab.favorites)
-            historyTab
-                .tabItem { Label("历史", systemImage: icon(.history)) }
+            withContentAccent(historyTab)
+                .tabItem { Label("历史", systemImage: "clock.arrow.circlepath") }
                 .tag(AppTab.history)
-            settingsTab
-                .tabItem { Label("我的", systemImage: icon(.settings)) }
+            withContentAccent(settingsTab)
+                .tabItem { Label("我的", systemImage: "person.crop.circle") }
                 .tag(AppTab.settings)
-            searchTab
+            withContentAccent(searchTab)
                 .tabItem { Label("搜索", systemImage: "magnifyingglass") }
                 .tag(AppTab.search)
         }
@@ -212,7 +203,6 @@ struct RootView: View {
                 case .music: MusicHomeView()
                 }
             }
-            .homeRootBarChrome()
             .overlay(alignment: .topLeading) {
                 ContentModeMenu()
                     .padding(.leading, 16)

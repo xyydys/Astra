@@ -37,15 +37,14 @@ struct MusicHomeView: View {
                     .padding(.horizontal, 22)
                     .padding(.bottom, 18)
             }
+            // 歌词和播放控件用深色画布；不修改窗口或底栏的外观。
+            .environment(\.colorScheme, .dark)
         }
         .overlay(alignment: .topTrailing) {
             FoliaEffectMenu()
                 .padding(.trailing, 16)
                 .padding(.top, 4)
         }
-        .musicBottomScrollEdge()
-        .environment(\.colorScheme, .dark)
-        // 底栏的深浅由 RootView 直接设置（见 updateTabBarStyle）
         .navigationBarHiddenCompat()
         .task(id: player.current?.cover) {
             guard let cover = player.current?.cover, !cover.isEmpty else {
@@ -57,10 +56,10 @@ struct MusicHomeView: View {
         }
         .sheet(isPresented: $showQueue) {
             MusicQueueSheet()
+                .environment(\.colorScheme, .dark)
         }
         .onAppear {
             Diag.log("音乐", "音乐首页出现")
-            AstraChromeCoordinator.shared.notifyMusicHomeAppeared()
         }
         .onDisappear { Diag.log("音乐", "音乐首页消失") }
     }
