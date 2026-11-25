@@ -41,9 +41,11 @@ struct MusicHomeView: View {
             .environment(\.colorScheme, .dark)
         }
         .overlay(alignment: .topTrailing) {
-            FoliaEffectMenu()
-                .padding(.trailing, 16)
-                .padding(.top, 4)
+            if !AstraTabDiagnostic.hideMusicHomeTopGlass {
+                FoliaEffectMenu()
+                    .padding(.trailing, 16)
+                    .padding(.top, 4)
+            }
         }
         .navigationBarHiddenCompat()
         .task(id: player.current?.cover) {

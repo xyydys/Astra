@@ -204,9 +204,11 @@ struct RootView: View {
                 }
             }
             .overlay(alignment: .topLeading) {
-                ContentModeMenu()
-                    .padding(.leading, 16)
-                    .padding(.top, 4)
+                if !AstraTabDiagnostic.hideMusicHomeTopGlass || mode != .music {
+                    ContentModeMenu()
+                        .padding(.leading, 16)
+                        .padding(.top, 4)
+                }
             }
         }
     }
@@ -356,5 +358,15 @@ struct ContentModeMenu: View {
         } else {
             withAnimation(.smoothCompat) { mode = newMode }
         }
+    }
+}
+
+enum AstraTabDiagnostic {
+    static var hideMusicHomeTopGlass: Bool {
+        #if DEBUG
+        ProcessInfo.processInfo.arguments.contains("--astra-ab-hide-music-top-glass")
+        #else
+        false
+        #endif
     }
 }

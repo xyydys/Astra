@@ -1,8 +1,8 @@
-name: Tab Bar Foreground Diagnostic
+name: Astra Music Home Top Glass A-B
 
 on:
   push:
-    branches: ["diagnostic/native-tab-bar-foreground"]
+    branches: ["diagnostic/music-home-top-glass"]
   workflow_dispatch:
 
 permissions:
@@ -76,7 +76,7 @@ jobs:
           mkdir -p Vendor
           curl --fail --location --retry 3 -o /tmp/nodejs-mobile.zip https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-ios.zip
           unzip -q -o /tmp/nodejs-mobile.zip 'NodeMobile.xcframework/*' -d Vendor
-          brew install xcodegen
+          brew list --versions xcodegen || brew install xcodegen
           xcodegen generate
 
       - name: Boot the Simulator
@@ -97,7 +97,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             2>&1 | tee diagnostics/build.log
 
-      - name: Compare the Astra flow and stock SwiftUI tabs
+      - name: Compare Astra Music Home with and without top glass
         timeout-minutes: 8
         shell: bash
         run: |
@@ -127,7 +127,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Astra-native-tab-foreground
+          name: Astra-music-home-top-glass
           path: diagnostics
           retention-days: 7
           if-no-files-found: warn

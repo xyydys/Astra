@@ -1,80 +1,53 @@
 import XCTest
 
 final class TabBarForegroundTests: XCTestCase {
-    func testAstraMusicHome() {
-        captureFlow(
-            label: "Astra",
-            arguments: ["-contentMode", "music"],
-            homeLabel: "未在播放",
-            profileLabel: "规则管理"
-        )
+    func testMusicHomeAWithTopGlass() {
+        captureHome(label: "A-top-glass", extraArguments: [])
     }
 
-    func testStockSwiftUITabView() {
-        captureFlow(
-            label: "Stock",
-            arguments: ["-uiTestScenario", "tabBarForegroundControl"],
-            homeLabel: "原生深色首页",
-            profileLabel: "原生浅色列表 1"
-        )
+    func testMusicHomeBWithoutTopGlass() {
+        captureHome(label: "B-no-top-glass", extraArguments: ["--astra-ab-hide-music-top-glass"])
     }
 
-    private func captureFlow(label: String, arguments: [String], homeLabel: String, profileLabel: String) {
+    private func captureHome(label: String, extraArguments: [String]) {
         continueAfterFailure = false
         let app = XCUIApplication()
-        app.launchArguments = arguments + ["-uiTestDumpBars", "YES", "-uiTestLog", "uitest.log", "-uiTestLabel", label]
+        app.launchArguments = ["-contentMode", "music"] + extraArguments
         app.launch()
 
-        let home = app.staticTexts[homeLabel].firstMatch
+        let home = app.staticTexts["未在播放"].firstMatch
         let profile = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label BEGINSWITH %@", profileLabel))
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "规则管理"))
             .firstMatch
-        XCTAssertTrue(home.waitForExistence(timeout: 15), "Expected Home on fresh launch")
-        sleep(2)
+        XCTAssertTrue(home.waitForExistence(timeout: 15), "Expected Music Home on launch")
+        sleep(3)
         snap("\(label)-01-cold-home")
 
-        // Don't visit the Profile tab before foregrounding. The report
-        // reproduces on direct Home → Profile with no visit to Favorites.
         XCUIDevice.shared.press(.home)
         let backgrounded = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
             guard let app = object as? XCUIApplication else { return false }
             return app.state == .runningBackground || app.state == .runningBackgroundSuspended
         }, object: app)
-        XCTAssertEqual(
-            XCTWaiter.wait(for: [backgrounded], timeout: 18),
-            .completed,
-            "Expected the loaded app (not a relaunch) to reach the background"
-        )
+        XCTAssertEqual(XCTWaiter.wait(for: [backgrounded], timeout: 18), .completed)
         app.activate()
-        XCTAssertTrue(home.waitForExistence(timeout: 10), "Expected to resume on Home")
-        sleep(2)
+        XCTAssertTrue(home.waitForExistence(timeout: 10))
+        sleep(3)
         snap("\(label)-02-resumed-home")
 
-        tapTab("我的", in: app)
-        XCTAssertTrue(profile.waitForExistence(timeout: 8), "The Profile content did not appear")
-        let originalTop = profile.frame.minY
-        snap("\(label)-03-profile-before-scroll")
-        sleep(2)
-        snap("\(label)-04-profile-after-wait")
-
-        // Scroll in the page, not on the tab bar. Return to the top and
-        // capture the expanded bar with the original page position.
-        app.swipeUp()
-        sleep(1)
-        snap("\(label)-05-profile-after-up")
-        app.swipeDown()
-        XCTAssertTrue(profile.waitForExistence(timeout: 8), "The top Profile row did not return")
-        sleep(1)
-        print("TAB FOREGROUND: \(label) Profile row delta after scroll: \(profile.frame.minY - originalTop)pt")
-        snap("\(label)-06-profile-after-down")
-
-        tapTab("首页", in: app)
-        XCTAssertTrue(home.waitForExistence(timeout: 8), "Expected to switch back to Home")
-        sleep(2)
-        snap("\(label)-07-home-after-profile")
-        tapTab("搜索", in: app)
-        sleep(1)
-        snap("\(label)-08-search")
+        for pass in 1...2 {
+            tapTab("我的", in: app)
+            XCTAssertTrue(profile.waitForExistence(timeout: 8))
+            sleep(2)
+            snap("\(label)-pass\(pass)-profile")
+            tapTab("首页", in: app)
+            XCTAssertTrue(home.waitForExistence(timeout: 8))
+            snap("\(label)-pass\(pass)-home-now")
+            sleep(2)
+            snap("\(label)-pass\(pass)-home-2sec")
+            sleep(4)
+            snap("\(label)-pass\(pass)-home-6sec")
+        }
+        app.terminate()
     }
 
     private func tapTab(_ title: String, in app: XCUIApplication) {
