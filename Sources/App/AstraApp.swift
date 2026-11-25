@@ -157,13 +157,8 @@ struct RootView: View {
         let styled = content
             .tint(AppAccent.color(accentHex))
             .accentColor(AppAccent.color(accentHex))
-        if #available(iOS 26, *) {
-            if mode == .music {
-                // 保留系统的底边效果，只选较柔和的原生样式。
-                styled.scrollEdgeEffectStyle(.soft, for: .bottom)
-            } else {
-                styled.scrollEdgeEffectHidden(true, for: .bottom)
-            }
+        if #available(iOS 26, *), mode != .music {
+            styled.scrollEdgeEffectHidden(true, for: .bottom)
         } else {
             styled
         }

@@ -1264,8 +1264,8 @@ struct AstraHomeGlassMenuBar: UIViewRepresentable {
         override func layoutSubviews() {
             super.layoutSubviews()
             guard bounds.width > 0 else { return }
-            let edgeFrame = window.map { $0.convert($0.bounds, to: self) } ?? bounds
-            if edge.frame != edgeFrame { edge.frame = edgeFrame }
+            // 只为顶栏提供滚动边。不要将不可滚动的材质辅助视图扩展到底栏背后。
+            if edge.frame != bounds { edge.frame = bounds }
 
             // 用导航栏自己的高度和原始比例，不用 measure/scale 追着按压的玻璃改尺寸。
             let size = bar.sizeThatFits(CGSize(width: bounds.width, height: 200))

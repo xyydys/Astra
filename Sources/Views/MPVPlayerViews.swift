@@ -472,54 +472,64 @@ struct MPVControls: View {
 
             Spacer(minLength: 0)
 
-            HStack(spacing: 2) {
-                // 倍速胶囊只向左顺延，可变文字不会推动字幕或退出按钮。
-                speedMenu
-                    .padding(.horizontal, 4)
-                    .frame(height: Self.fullscreenIconHitSize)
-                optionsMenu
-                    .padding(.horizontal, 4)
-                    .frame(height: Self.fullscreenIconHitSize)
-                fullscreenCircleButton(
-                    "arrow.down.right.and.arrow.up.left",
-                    pointSize: 14,
-                    label: "退出全屏",
-                    action: exitFullscreen
-                )
-            }
-            .fixedSize()
+            // 右下三个控件统一使用同一种栏按钮布局；不再把两套玻璃几何混排。
+            trailingTools
+                .fixedSize()
+                .frame(height: Self.fullscreenIconHitSize)
         }
         .frame(maxWidth: .infinity)
     }
 
     private var inlineTools: some View {
         GlassGroup(spacing: 8) {
-            HStack(spacing: 8) {
+            HStack(spacing: 0) {
                 Spacer(minLength: 0)
-                speedMenu
-                optionsMenu
-
-                if #available(iOS 26, *) {
-                    BarGlassIconButton(
-                        systemImage: "arrow.up.left.and.arrow.down.right",
-                        pointSize: 13,
-                        diameter: 32,
-                        tone: .dark,
-                        accessibilityLabel: "全屏",
-                        action: toggleFullscreen
-                    )
-                } else {
-                    Button(action: toggleFullscreen) {
-                        Image(systemName: "arrow.up.left.and.arrow.down.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .frame(width: 32, height: 32)
-                            .contentShape(Circle())
-                    }
-                    .playerButtonStyle()
-                    .playerGlass(interactive: true, in: Circle())
-                    .accessibilityLabel("全屏")
-                }
+                trailingTools
             }
+        }
+    }
+
+    private var trailingTools: some View {
+        HStack(spacing: isFullscreen ? 10 : 8) {
+            speedMenu
+            optionsMenu
+            fullscreenToggle
+        }
+    }
+
+    @ViewBuilder
+    private var fullscreenToggle: some View {
+        let symbol = isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"
+        let label = isFullscreen ? "退出全屏" : "全屏"
+        let diameter: CGFloat = isFullscreen ? Self.fullscreenIconDiameter : 32
+        let pointSize: CGFloat = isFullscreen ? 14 : 13
+        let action: () -> Void = {
+            if isFullscreen {
+                exitFullscreen()
+            } else {
+                toggleFullscreen()
+            }
+        }
+
+        if #available(iOS 26, *) {
+            BarGlassIconButton(
+                systemImage: symbol,
+                pointSize: pointSize,
+                diameter: diameter,
+                tone: .dark,
+                accessibilityLabel: label,
+                action: action
+            )
+        } else {
+            Button(action: action) {
+                Image(systemName: symbol)
+                    .font(.system(size: pointSize, weight: .semibold))
+                    .frame(width: diameter, height: diameter)
+                    .contentShape(Circle())
+            }
+            .playerButtonStyle()
+            .playerGlass(interactive: true, in: Circle())
+            .accessibilityLabel(label)
         }
     }
 
