@@ -36,8 +36,15 @@ final class TabBarForegroundTests: XCTestCase {
         // Don't visit the Profile tab before foregrounding. The report
         // reproduces on direct Home → Profile with no visit to Favorites.
         XCUIDevice.shared.press(.home)
-        sleep(2)
-        XCTAssertNotEqual(app.state, .runningForeground, "Home did not send Astra to the background")
+        let backgrounded = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
+            guard let app = object as? XCUIApplication else { return false }
+            return app.state == .runningBackground || app.state == .runningBackgroundSuspended
+        }, object: app)
+        XCTAssertEqual(
+            XCTWaiter.wait(for: [backgrounded], timeout: 18),
+            .completed,
+            "Expected the loaded app (not a relaunch) to reach the background"
+        )
         app.activate()
         XCTAssertTrue(home.waitForExistence(timeout: 10), "Expected to resume on Home")
         sleep(2)

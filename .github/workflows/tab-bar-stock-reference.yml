@@ -15,7 +15,7 @@ concurrency:
 jobs:
   stock:
     runs-on: macos-26-intel
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,7 +72,7 @@ jobs:
           xcodegen generate
 
       - name: Boot the Simulator
-        timeout-minutes: 5
+        timeout-minutes: 9
         shell: bash
         run: |
           set -euo pipefail
