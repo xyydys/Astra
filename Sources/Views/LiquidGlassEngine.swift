@@ -1148,7 +1148,10 @@ struct AstraHomeGlassMenuBar: UIViewRepresentable {
         let elements: @MainActor () -> [UIMenuElement]
     }
 
-    static let height: CGFloat = AstraBarGlassMeasure.nominalGlass
+    // 沿用原首页 35pt 胶囊。固定导航栏比例，UIKit 仍负责整块玻璃和原生菜单过场。
+    static let height: CGFloat = 35
+    private static let layoutScale = height / AstraBarGlassMeasure.nominalGlass
+    private static let sideMargin: CGFloat = 16
 
     let leading: Menu
     var trailing: Menu?
@@ -1222,7 +1225,8 @@ struct AstraHomeGlassMenuBar: UIViewRepresentable {
                 item.image = AstraBarGlassMeasure.renderPillGlyph(
                     symbol: menu.systemImage, title: menu.title, showsChevron: true,
                     fontSize: 14.5, iconPointSize: 13.5, horizontalPadding: 14,
-                    layoutScale: 1, renderScale: 1, displayScale: displayScale, monospacedDigits: false
+                    layoutScale: AstraHomeGlassMenuBar.layoutScale, renderScale: AstraHomeGlassMenuBar.layoutScale,
+                    displayScale: displayScale, monospacedDigits: false
                 )
             }
         }
@@ -1239,7 +1243,10 @@ struct AstraHomeGlassMenuBar: UIViewRepresentable {
             clipsToBounds = false
             overrideUserInterfaceStyle = .dark
             bar.tintColor = .label
-            bar.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+            let nativeMargin = AstraHomeGlassMenuBar.sideMargin / AstraHomeGlassMenuBar.layoutScale
+            bar.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: nativeMargin, bottom: 0, trailing: nativeMargin)
+            let scale = AstraHomeGlassMenuBar.layoutScale
+            bar.transform = CGAffineTransform(scaleX: scale, y: scale)
             bar.setItems([navigationItem], animated: false)
             addSubview(edge)
             addSubview(bar)
@@ -1292,9 +1299,10 @@ struct AstraHomeGlassMenuBar: UIViewRepresentable {
             // 只为顶栏提供滚动边。不要将不可滚动的材质辅助视图扩展到底栏背后。
             if edge.frame != bounds { edge.frame = bounds }
 
-            // 用导航栏自己的高度和原始比例，不用 measure/scale 追着按压的玻璃改尺寸。
-            let size = bar.sizeThatFits(CGSize(width: bounds.width, height: 200))
-            let barBounds = CGRect(x: 0, y: 0, width: bounds.width, height: max(44, size.height))
+            // 按固定比例反算布局宽度；按压和展开时不重新量玻璃，也不修改比例。
+            let nativeWidth = bounds.width / AstraHomeGlassMenuBar.layoutScale
+            let size = bar.sizeThatFits(CGSize(width: nativeWidth, height: 200))
+            let barBounds = CGRect(x: 0, y: 0, width: nativeWidth, height: max(44, size.height))
             let center = CGPoint(x: bounds.midX, y: bounds.midY)
             if bar.bounds != barBounds { bar.bounds = barBounds }
             if bar.center != center { bar.center = center }

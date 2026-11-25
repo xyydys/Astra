@@ -6,6 +6,7 @@ import UIKit
 /// 播放时进度每 0.25 秒刷新一次。读进度的部分（歌词动画、控制区）各自是独立的视图，
 /// 这一层只依赖封面取色，特效菜单展开时不会被反复重建（否则点按、按住滑选都会失灵）
 struct MusicHomeView: View {
+    @Environment(\.colorScheme) private var colorScheme
     @ObservedObject private var player = MusicPlayer.shared
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
@@ -13,6 +14,12 @@ struct MusicHomeView: View {
     @State private var showQueue = false
 
     private var theme: FoliaTheme { FoliaTheme(tint: tint) }
+    private var usesLightPlaybackArea: Bool { colorScheme == .light }
+
+    private var playbackAccent: UIColor {
+        // Folia 的封面色本来是调亮给深色画布用的。浅底时压深，保留封面色相。
+        usesLightPlaybackArea ? theme.accent.mixed(with: .black, 0.52) : theme.accent
+    }
 
     var body: some View {
         ZStack {
@@ -33,12 +40,32 @@ struct MusicHomeView: View {
                     ], startPoint: .top, endPoint: .bottom)
                 )
                 .ignoresSafeArea(edges: .top)
-                MusicControls(accent: theme.accent) { showQueue = true }
+                .environment(\.colorScheme, .dark)
+                MusicControls(accent: playbackAccent) { showQueue = true }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 18)
+                    .environment(\.colorScheme, usesLightPlaybackArea ? .light : .dark)
+                    .background {
+                        if usesLightPlaybackArea {
+                            playbackBackground
+                        }
+                    }
+                    .overlay(alignment: .top) {
+                        if usesLightPlaybackArea {
+                            // 从控制区上沿向上衔接歌词，避免一条生硬的白色分界线。
+                            LinearGradient(stops: [
+                                .init(color: playbackBackgroundColor.opacity(0), location: 0),
+                                .init(color: playbackBackgroundColor.opacity(0.13), location: 0.32),
+                                .init(color: playbackBackgroundColor.opacity(0.58), location: 0.72),
+                                .init(color: playbackBackgroundColor, location: 1)
+                            ], startPoint: .top, endPoint: .bottom)
+                            .frame(height: 112)
+                            .offset(y: -112)
+                            .allowsHitTesting(false)
+                            .accessibilityHidden(true)
+                        }
+                    }
             }
-            // 歌词和播放控件用深色画布；不修改窗口或底栏的外观。
-            .environment(\.colorScheme, .dark)
         }
         .overlay(alignment: .topTrailing) {
             FoliaEffectMenu()
@@ -62,6 +89,15 @@ struct MusicHomeView: View {
             Diag.log("音乐", "音乐首页出现")
         }
         .onDisappear { Diag.log("音乐", "音乐首页消失") }
+    }
+
+    private var playbackBackgroundColor: Color { Color(uiColor: .systemBackground) }
+
+    private var playbackBackground: some View {
+        playbackBackgroundColor
+            .ignoresSafeArea(.container, edges: .bottom)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 
