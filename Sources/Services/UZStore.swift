@@ -963,7 +963,7 @@ final class UZStore: ObservableObject {
             }
             if panType == "UC" { await NetdiskQRLogin.refreshUCTokenIfNeeded() }
             let runtime = try await prepare(pan)
-            // 原画优先：MKV、AVI 之类系统播放器放不了的交给 mpv，不用再退到网盘转码的低清晰度
+            // 原画优先：mpv 支持 MKV、AVI 等封装，不用先退到网盘转码的低清晰度
             let fileName = RuleValue.string(item["name"])
             runtime.note("取播放地址：\(panType) \(fileName) \(RuleValue.string(item["remark"]))")
             let raw = try await runtime.callPan(tag: pan.id, method: "getPlayInfo", args: item, timeout: 60)

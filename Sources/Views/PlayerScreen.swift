@@ -26,8 +26,8 @@ struct PlayerScreen: View {
             }
         }
         .onDisappear {
-            // 全屏和画中画也会触发 onDisappear，这两种情况继续播放
-            guard let model, !model.isFullscreen, !model.isPictureInPicture, !model.isMPVFullscreen else { return }
+            // 打开播放器全屏时继续播放
+            guard let model, !model.isMPVFullscreen else { return }
             model.teardown()
         }
         .onChangeCompat(of: scenePhase) { _, phase in
@@ -71,20 +71,13 @@ private struct PlayerContent: View {
         ZStack {
             Color.black
             Group {
-                if model.engine == .mpv {
-                    MPVVideoHost(surface: model.mpv.surface, claim: !model.isMPVFullscreen)
-                    if !model.isMPVFullscreen {
-                        MPVControls(mpv: model.mpv, isFullscreen: false) { model.setMPVFullscreen(true) }
-                    }
-                } else {
-                    VideoPlayerView(
-                        player: model.player,
-                        onFullscreenChange: { model.setSystemFullscreen($0) },
-                        onPictureInPictureChange: { model.isPictureInPicture = $0 }
-                    )
+                MPVVideoHost(surface: model.mpv.surface, claim: !model.isMPVFullscreen)
+                if !model.isMPVFullscreen {
+                    MPVControls(mpv: model.mpv, isFullscreen: false) { model.setMPVFullscreen(true) }
                 }
             }
             .opacity(model.phase == .ready ? 1 : 0)
+            .allowsHitTesting(model.phase == .ready)
 
             switch model.phase {
             case .loadingChapters:
@@ -157,11 +150,6 @@ private struct PlayerContent: View {
                         Button("下一集", icon: "forward.end.fill") { model.playNext() }
                             .glassButtonStyle()
                     }
-                    // 系统播放器有画中画和隔空播放；mpv 能放 MKV 之类的格式、能选音轨和字幕
-                    Button(model.engine == .mpv ? "换系统播放器" : "换 mpv 播放", icon: "arrow.triangle.2.circlepath") {
-                        model.switchEngine()
-                    }
-                    .glassButtonStyle()
                     // 播放卡顿时也能复制日志（里面有网速、码率和解码方式）
                     Button(copiedLog ? "已复制" : "日志", icon: "doc.on.doc") {
                         UIPasteboard.general.string = model.debugLog

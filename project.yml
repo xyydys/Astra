@@ -8,7 +8,7 @@ packages:
   SwiftSoup:
     url: https://github.com/scinfu/SwiftSoup
     from: "2.7.0"
-  # mpv 播放内核（LGPL 版）：MKV、AVI 之类系统播放器放不了的格式
+  # 视频播放内核 mpv（LGPL 版）
   MPVKit:
     url: https://github.com/mpvkit/MPVKit
     exactVersion: "1.0.0"

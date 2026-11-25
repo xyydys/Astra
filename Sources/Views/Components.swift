@@ -1,6 +1,5 @@
 import SwiftUI
 import WebKit
-import AVKit
 
 // MARK: - 导航
 
@@ -211,61 +210,4 @@ struct WebViewContainer: UIViewRepresentable {
 
     func makeUIView(context: Context) -> WKWebView { webView }
     func updateUIView(_ uiView: WKWebView, context: Context) {}
-}
-
-// MARK: - 播放器
-
-struct VideoPlayerView: UIViewControllerRepresentable {
-    let player: AVPlayer
-    var onFullscreenChange: (Bool) -> Void = { _ in }
-    var onPictureInPictureChange: (Bool) -> Void = { _ in }
-
-    func makeCoordinator() -> Coordinator { Coordinator(parent: self) }
-
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.player = player
-        controller.allowsPictureInPicturePlayback = true
-        controller.canStartPictureInPictureAutomaticallyFromInline = true
-        controller.videoGravity = .resizeAspect
-        controller.delegate = context.coordinator
-        return controller
-    }
-
-    func updateUIViewController(_ controller: AVPlayerViewController, context: Context) {
-        context.coordinator.parent = self
-        if controller.player !== player { controller.player = player }
-    }
-
-    @MainActor
-    final class Coordinator: NSObject, AVPlayerViewControllerDelegate {
-        var parent: VideoPlayerView
-
-        init(parent: VideoPlayerView) { self.parent = parent }
-
-        func playerViewController(
-            _ playerViewController: AVPlayerViewController,
-            willBeginFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
-        ) {
-            parent.onFullscreenChange(true)
-        }
-
-        func playerViewController(
-            _ playerViewController: AVPlayerViewController,
-            willEndFullScreenPresentationWithAnimationCoordinator coordinator: UIViewControllerTransitionCoordinator
-        ) {
-            let callback = parent.onFullscreenChange
-            _ = coordinator.animate(alongsideTransition: nil) { context in
-                if !context.isCancelled { callback(false) }
-            }
-        }
-
-        func playerViewControllerWillStartPictureInPicture(_ playerViewController: AVPlayerViewController) {
-            parent.onPictureInPictureChange(true)
-        }
-
-        func playerViewControllerDidStopPictureInPicture(_ playerViewController: AVPlayerViewController) {
-            parent.onPictureInPictureChange(false)
-        }
-    }
 }

@@ -58,10 +58,11 @@ final class VideoSniffer: NSObject, WKNavigationDelegate {
     }
 
     /// 解析一集的视频地址
-    func resolve(pageURL: String, legacy: Bool, timeout: TimeInterval = 25) async throws -> String {
+    func resolve(pageURL: String, legacy: Bool, userAgent preferredAgent: String? = nil, timeout: TimeInterval = 25) async throws -> String {
         cancel()
         guard let url = URL.lenient(pageURL) else { throw SnifferError.badURL }
         self.legacy = legacy
+        webView.customUserAgent = preferredAgent.flatMap { $0.isEmpty ? nil : $0 } ?? userAgent
         logs.removeAll()
         log("加载 \(url.absoluteString)\(legacy ? "（旧版解析）" : "")")
 

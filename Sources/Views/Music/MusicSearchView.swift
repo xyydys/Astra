@@ -381,8 +381,6 @@ struct MusicSettingsSection: View {
             }
         } header: {
             Text("音乐")
-        } footer: {
-            Text("播放地址来自洛雪音乐的自定义音源，登录网易云账号后网易云的歌也可以用账号播放；歌词动画移植自 Folia、AMLL 和 Mineradio。")
         }
     }
 }

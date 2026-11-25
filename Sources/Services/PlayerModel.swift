@@ -1,6 +1,6 @@
 import Foundation
 import AVFoundation
-import UIKit
+import Combine
 
 @MainActor
 final class PlayerModel: ObservableObject {
@@ -11,15 +11,8 @@ final class PlayerModel: ObservableObject {
         case failed(String)
     }
 
-    /// 播放内核：系统播放器（有画中画、隔空播放），或者 mpv（MKV 之类系统放不了的格式）
-    enum Engine: Equatable {
-        case system
-        case mpv
-    }
-
     let request: PlayRequest
     let rule: Rule?
-    let player = AVPlayer()
     let mpv = MPVPlayback()
     let sniffer = VideoSniffer()
 
@@ -40,24 +33,18 @@ final class PlayerModel: ObservableObject {
             }
         }
     }
-    @Published var isFullscreen = false
-    @Published var isPictureInPicture = false
     /// 本集播放列表里去掉的广告分片数
     @Published var adSegmentsRemoved = 0
-    @Published private(set) var engine: Engine = .system
-    /// mpv 自己的全屏（系统播放器的全屏是 isFullscreen）
     @Published var isMPVFullscreen = false
 
     private var resolveTask: Task<Void, Never>?
-    private var statusObservation: NSKeyValueObservation?
-    private var endObserver: NSObjectProtocol?
-    private var timeObserver: Any?
+    private var attachTask: Task<Void, Never>?
     private var pendingSeek: Double = 0
     private var started = false
     private var tornDown = false
     private var lastResolvedURL = ""
-    /// 去广告的资源加载代理（AVAssetResourceLoader 只弱引用它，要自己持有）
-    private var adLoader: HLSAdBlockLoader?
+    /// 当前正在使用的本地 HLS 播放列表路由
+    private var hlsFilterSessionID: UUID?
     /// 去广告后播放失败过一次，本次播放不再过滤
     private var adFilterFailed = false
     /// 网盘片源：播放地址需要带的请求头（Cookie 等），以及其他清晰度（播放失败时依次换）
@@ -67,25 +54,12 @@ final class PlayerModel: ObservableObject {
     private var attempts: [String] = []
     /// 猫影视插件的运行日志（出错时取一份，复制日志时带上）
     private var catLogs: [String] = []
-    /// 网盘里的文件名和文件类型（按格式选播放内核）
-    private var mediaName = ""
-    private var mediaType = ""
-    /// 本集指定的播放内核（手动切换，或者系统播放器放不了自动换成 mpv）；nil 按格式自动选
-    private var forcedEngine: Engine?
     /// mpv 播放中途断开后重新连接的次数
     private var mpvReconnects = 0
 
     init(request: PlayRequest, rule: Rule?) {
         self.request = request
         self.rule = rule
-        player.allowsExternalPlayback = true
-        timeObserver = player.addPeriodicTimeObserver(
-            forInterval: CMTime(seconds: 5, preferredTimescale: 1), queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.saveProgress()
-            }
-        }
         mpv.onEnd = { [weak self] in self?.mpvEnded() }
         mpv.onFailure = { [weak self] message in self?.mpvFailed(message) }
         mpv.onProgress = { [weak self] in self?.saveProgress() }
@@ -116,7 +90,7 @@ final class PlayerModel: ObservableObject {
         if let ep = currentEpisode { lines.append("剧集页: \(ep.url)") }
         if case .failed(let message) = phase { lines.append("错误: \(message)") }
         if !lastResolvedURL.isEmpty { lines.append("视频: \(lastResolvedURL)") }
-        if phase == .ready || engine == .mpv { lines.append("播放内核: \(engine == .mpv ? "mpv" : "系统播放器")") }
+        if !lastResolvedURL.isEmpty { lines.append("播放内核: mpv") }
         lines.append(contentsOf: attempts)
         if adSegmentsRemoved > 0 { lines.append("去广告: 移除 \(adSegmentsRemoved) 个分片") }
         if adFilterFailed { lines.append("去广告: 过滤后播放失败，已改为原始播放列表") }
@@ -199,21 +173,8 @@ final class PlayerModel: ObservableObject {
         if roads.isEmpty {
             Task { await loadChapters() }
         } else if let ep = playingEpisode {
-            play(road: playingRoad, episode: ep, startAt: currentPosition)
+            play(road: playingRoad, episode: ep, startAt: lastResolvedURL.isEmpty ? pendingSeek : mpv.position)
         }
-    }
-
-    /// 当前播放位置和总时长（看正在用的内核）
-    private var currentPosition: Double {
-        if engine == .mpv { return mpv.position }
-        let seconds = player.currentTime().seconds
-        return seconds.isFinite ? seconds : 0
-    }
-
-    private var currentDuration: Double {
-        if engine == .mpv { return mpv.duration }
-        let seconds = player.currentItem?.duration.seconds ?? 0
-        return seconds.isFinite ? seconds : 0
     }
 
     func play(road: Int, episode: Int, startAt: Double = 0) {
@@ -225,25 +186,22 @@ final class PlayerModel: ObservableObject {
         playingEpisode = episode
         phase = .resolving
         pendingSeek = startAt > 5 ? startAt : 0
-        player.pause()
-        player.replaceCurrentItem(with: nil)
+        resolveTask?.cancel()
+        sniffer.cancel()
+        attachTask?.cancel()
         mpv.stop()
-        statusObservation = nil
+        clearHLSFilter()
         lastResolvedURL = ""
         adSegmentsRemoved = 0
         adFilterFailed = false
         extraHeaders = [:]
         alternates = []
         attempts = []
-        mediaName = ""
-        mediaType = ""
-        forcedEngine = nil
         mpvReconnects = 0
         saveRecord(position: startAt, duration: 0)
 
         let page = roads[road].episodes[episode].url
         if UZStore.isEpisodeURL(page) || CatStore.isEpisodeURL(page) {
-            resolveTask?.cancel()
             resolveTask = Task { [weak self] in
                 guard let self else { return }
                 do {
@@ -251,15 +209,17 @@ final class PlayerModel: ObservableObject {
                     let info = CatStore.isEpisodeURL(page)
                         ? try await CatStore.shared.resolve(page)
                         : try await UZStore.shared.resolve(page)
+                    try Task.checkCancellation()
                     var url = info.url
                     if info.needsSniff, !CMSClient.isDirectMedia(url) {
-                        url = try await self.sniffer.resolve(pageURL: url, legacy: false)
+                        url = try await self.sniffer.resolve(
+                            pageURL: url, legacy: false,
+                            userAgent: Self.header(named: "User-Agent", in: info.headers)
+                        )
                     }
                     guard !Task.isCancelled, !self.tornDown else { return }
                     guard !url.isEmpty else { throw RuleError.parse("没有取到播放地址") }
                     self.alternates = info.alternates
-                    self.mediaName = info.fileName
-                    self.mediaType = info.mimeType
                     // 网盘原文件走本地多线程代理（网盘按连接限速）；转码的 m3u8 直接播
                     // 插件包给的本机地址（它自己已经是多线程代理）不再套一层
                     let isLocal = URL(string: url)?.host == "127.0.0.1"
@@ -289,12 +249,13 @@ final class PlayerModel: ObservableObject {
         }
         let legacy = rule?.useLegacyParser ?? false
         let direct = request.isCMS && CMSClient.isDirectMedia(page)
-        resolveTask?.cancel()
         resolveTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self, !Task.isCancelled, !self.tornDown else { return }
             do {
                 // 采集站大多直接给 m3u8；给的是网页中转页时和规则片源一样去嗅探
-                let url = direct ? page : try await self.sniffer.resolve(pageURL: page, legacy: legacy)
+                let url = direct ? page : try await self.sniffer.resolve(
+                    pageURL: page, legacy: legacy, userAgent: self.rule?.userAgent
+                )
                 guard !Task.isCancelled, !self.tornDown else { return }
                 self.attach(urlString: url)
             } catch is CancellationError {
@@ -316,88 +277,82 @@ final class PlayerModel: ObservableObject {
             phase = .failed("视频地址无效：\(urlString)")
             return
         }
+        attachTask?.cancel()
+        clearHLSFilter()
         lastResolvedURL = url.absoluteString
         if let extra { extraHeaders = extra }
-        let useMPV = (forcedEngine ?? (MPVFormats.needsMPV(fileName: mediaName, url: url, mimeType: mediaType) ? .mpv : .system)) == .mpv
-        attempts.append("尝试播放\(useMPV ? "（mpv）" : ""): \(url.host ?? "")\(url.path.suffix(60))\(extraHeaders.isEmpty ? "" : "（带 \(extraHeaders.keys.sorted().joined(separator: "/")) 请求头）")")
+        attempts.append("尝试播放（mpv）: \(url.host ?? "")\(url.path.suffix(60))\(extraHeaders.isEmpty ? "" : "（带 \(extraHeaders.keys.sorted().joined(separator: "/")) 请求头）")")
 
         let userAgent = rule?.userAgent ?? ""
         var headers = ["User-Agent": userAgent.isEmpty ? sniffer.userAgent : userAgent]
         if let referer = rule?.referer, !referer.isEmpty { headers["Referer"] = referer }
         for (key, value) in extraHeaders {
-            for existing in headers.keys where existing.lowercased() == key.lowercased() { headers[existing] = nil }
+            if let previous = headers.keys.first(where: { $0.caseInsensitiveCompare(key) == .orderedSame }) {
+                headers.removeValue(forKey: previous)
+            }
             headers[key] = value
         }
 
-        if useMPV {
-            attachMPV(url: url, headers: headers)
+        // 需要 Cookie / 额外鉴权头的地址照旧直连；普通 HLS 播放列表保留去广告。
+        guard extraHeaders.isEmpty, AppSettings.hlsAdFilter, !adFilterFailed,
+              HLSAdBlockSession.canHandle(url) else {
+            startMPV(url: url, headers: headers)
             return
         }
-        if engine == .mpv {
-            mpv.stop()
-            setMPVFullscreen(false)
-        }
-        engine = .system
 
-        let asset: AVURLAsset
-        // 网盘地址要带 Cookie，分片也要，不走去广告（改写过的播放列表里分片请求带不上请求头）
-        if extraHeaders.isEmpty, AppSettings.hlsAdFilter, !adFilterFailed, HLSAdBlockLoader.canHandle(url) {
-            let loader = HLSAdBlockLoader(headers: headers)
-            loader.onFiltered = { [weak self] count in
-                Task { @MainActor in self?.adSegmentsRemoved += count }
-            }
-            adLoader = loader
-            asset = loader.makeAsset(url: url)
-        } else {
-            adLoader = nil
-            asset = AVURLAsset(url: url, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-        }
-        let item = AVPlayerItem(asset: asset)
-
-        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
-            let status = item.status
-            let message = item.error?.localizedDescription
-            Task { @MainActor in
-                self?.handle(status: status, error: message)
+        attachTask = Task { [weak self] in
+            do {
+                let session = try await NetdiskProxy.shared.registerHLS(url: url, headers: headers) { [weak self] id, count in
+                    Task { @MainActor [weak self] in
+                        guard let self, self.hlsFilterSessionID == id else { return }
+                        self.adSegmentsRemoved += count
+                    }
+                }
+                guard let self, !Task.isCancelled, !self.tornDown else {
+                    NetdiskProxy.shared.unregisterHLS(session.id)
+                    return
+                }
+                self.hlsFilterSessionID = session.id
+                self.startMPV(url: session.url, headers: headers)
+            } catch {
+                guard let self, !Task.isCancelled, !self.tornDown else { return }
+                self.attempts.append("m3u8 去广告代理不可用，直接播放")
+                self.startMPV(url: url, headers: headers)
             }
         }
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = NotificationCenter.default.addObserver(
-            forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                self?.saveProgress()
-                self?.playNext()
-            }
-        }
-
-        player.replaceCurrentItem(with: item)
-        phase = .ready
-        MusicPlayer.shared.pause()
-        try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
-        player.play()
     }
 
-    /// 用 mpv 播：先停掉系统播放器
-    private func attachMPV(url: URL, headers: [String: String]) {
-        adLoader = nil
-        statusObservation = nil
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = nil
-        player.pause()
-        player.replaceCurrentItem(with: nil)
-        engine = .mpv
+    private static func header(named name: String, in headers: [String: String]) -> String? {
+        headers.first { $0.key.caseInsensitiveCompare(name) == .orderedSame }?.value
+    }
+
+    private func clearHLSFilter() {
+        if let id = hlsFilterSessionID {
+            NetdiskProxy.shared.unregisterHLS(id)
+            hlsFilterSessionID = nil
+        }
+    }
+
+    private func startMPV(url: URL, headers: [String: String]) {
         phase = .ready
         MusicPlayer.shared.pause()
         try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
         try? AVAudioSession.sharedInstance().setActive(true)
-        mpv.load(url: url.absoluteString, headers: headers, start: pendingSeek)
+        let start = pendingSeek
         pendingSeek = 0
+        mpv.load(url: url.absoluteString, headers: headers, start: start)
     }
 
     private func mpvFailed(_ message: String) {
-        guard engine == .mpv, !tornDown, phase == .ready else { return }
+        guard !tornDown, phase == .ready else { return }
         attempts.append("mpv 播放失败: \(message)")
+        if hlsFilterSessionID != nil, !adFilterFailed, !lastResolvedURL.isEmpty {
+            adFilterFailed = true
+            adSegmentsRemoved = 0
+            pendingSeek = mpv.position > 5 ? mpv.position : 0
+            attach(urlString: lastResolvedURL)
+            return
+        }
         // 网盘：换下一个地址（直连 / 其他清晰度）
         if !alternates.isEmpty {
             let next = alternates.removeFirst()
@@ -409,7 +364,7 @@ final class PlayerModel: ObservableObject {
     }
 
     private func mpvEnded() {
-        guard engine == .mpv, !tornDown, phase == .ready else { return }
+        guard !tornDown, phase == .ready else { return }
         let position = mpv.position
         let duration = mpv.duration
         // 网络断开时 mpv 也会当成播完：离结尾还远，就从断开的地方重新连
@@ -422,17 +377,6 @@ final class PlayerModel: ObservableObject {
         }
         saveProgress()
         playNext()
-    }
-
-    /// 手动切换播放内核，从当前位置接着播
-    func switchEngine() {
-        guard phase == .ready, !lastResolvedURL.isEmpty else { return }
-        let position = currentPosition
-        let target: Engine = engine == .mpv ? .system : .mpv
-        forcedEngine = target
-        pendingSeek = position > 5 ? position : 0
-        attempts.append("手动换成\(target == .mpv ? " mpv" : "系统播放器")")
-        attach(urlString: lastResolvedURL)
     }
 
     func setMPVFullscreen(_ on: Bool) {
@@ -452,83 +396,30 @@ final class PlayerModel: ObservableObject {
         }
     }
 
-    func setSystemFullscreen(_ on: Bool) {
-        guard on != isFullscreen else { return }
-        isFullscreen = on
-        ScreenOrientation.set(on ? .flexible : .portrait)
-    }
-
-    private func handle(status: AVPlayerItem.Status, error: String?) {
-        switch status {
-        case .readyToPlay:
-            if pendingSeek > 0 {
-                let target = CMTime(seconds: pendingSeek, preferredTimescale: 600)
-                pendingSeek = 0
-                player.seek(to: target, toleranceBefore: .zero, toleranceAfter: CMTime(seconds: 1, preferredTimescale: 600))
-            }
-        case .failed:
-            attempts.append("播放失败: \(error ?? "未知错误")")
-            // 去广告改写过的播放列表放不了：退回原始播放列表再试一次，从当前位置继续
-            if adLoader != nil, !adFilterFailed, !lastResolvedURL.isEmpty {
-                adFilterFailed = true
-                let position = player.currentTime().seconds
-                if position.isFinite, position > 5 { pendingSeek = position }
-                attach(urlString: lastResolvedURL)
-                return
-            }
-            // 系统播放器放不了（编码或者封装不支持）：换 mpv 从当前位置再试
-            if forcedEngine == nil, !lastResolvedURL.isEmpty {
-                forcedEngine = .mpv
-                attempts.append("系统播放器放不了，换 mpv 再试")
-                let position = player.currentTime().seconds
-                if position.isFinite, position > 5 { pendingSeek = position }
-                attach(urlString: lastResolvedURL)
-                return
-            }
-            // 网盘：这个地址放不了就换下一个
-            if !alternates.isEmpty {
-                let next = alternates.removeFirst()
-                let position = player.currentTime().seconds
-                if position.isFinite, position > 5 { pendingSeek = position }
-                attach(urlString: next.url, headers: next.headers)
-                return
-            }
-            phase = .failed("播放失败：\(error ?? "未知错误")。可以重试，或者换条线路 / 换个片源")
-        default:
-            break
-        }
-    }
-
-    /// 真正离开播放页时调用（进入全屏 / 画中画时不调用）
+    /// 真正离开播放页时调用（打开播放器全屏时保留当前播放）
     func teardown() {
         guard !tornDown else { return }
         saveProgress()
         tornDown = true
         resolveTask?.cancel()
+        attachTask?.cancel()
         sniffer.cancel()
-        player.pause()
-        player.replaceCurrentItem(with: nil)
+        clearHLSFilter()
         mpv.destroy()
         if isMPVFullscreen {
             MPVFullscreenManager.shared.dismiss(model: self)
         }
         isMPVFullscreen = false
-        isFullscreen = false
         ScreenOrientation.set(.portrait)
-        statusObservation = nil
-        if let endObserver { NotificationCenter.default.removeObserver(endObserver) }
-        endObserver = nil
-        if let timeObserver { player.removeTimeObserver(timeObserver) }
-        timeObserver = nil
     }
 
     // MARK: 观看记录
 
     func saveProgress() {
         guard !tornDown, playingEpisode != nil, phase == .ready else { return }
-        let position = currentPosition
+        let position = mpv.position
         guard position > 0 else { return }
-        saveRecord(position: position, duration: currentDuration)
+        saveRecord(position: position, duration: mpv.duration)
     }
 
     private func saveRecord(position: Double, duration: Double) {

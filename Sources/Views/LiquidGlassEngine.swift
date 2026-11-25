@@ -145,11 +145,10 @@ final class AstraGlassMaterialPool {
         }
     }
 
-    /// 系统外观相关设置变化时释放旧材质，导航栏下次出现时重新抓取。
+    /// 刷新时保留上一份有效材质，直到导航栏重新采样。
+    /// 否则回前台的这一帧会把可见控件改回 regular，并可能一直停留在那里。
     private func invalidate() {
-        navGlass = nil
         navGlassKey = ""
-        bumpGeneration()
     }
 
     /// 从可见的 UINavigationBar 栏按钮抓取玻璃。
@@ -1112,8 +1111,8 @@ struct BarGlassIconMenuButton: View {
     }
 }
 
-/// 首页专用：采用系统 UIButton 玻璃，外观由系统当前方式渲染，不缩放玻璃。
-/// 播放器和其它玻璃继续使用原来的组件。
+/// 首页菜单的交互仍由 UIKit 提供，底板与播放器共用同一个玻璃渲染器。
+/// 底板直接使用最终尺寸，不通过缩放导航栏来调整高度。
 @available(iOS 26.0, *)
 struct HomeGlassPillMenuButton: UIViewRepresentable {
     let title: String
@@ -1121,6 +1120,85 @@ struct HomeGlassPillMenuButton: UIViewRepresentable {
     var menuTitle: String = ""
     let accessibilityLabel: String
     let menuElements: () -> [UIMenuElement]
+
+    final class Container: UIView {
+        let button = UIButton(type: .system)
+        private let glass = AstraBarMatchedGlassContainerView()
+        private let sampleViewport = UIView()
+        private let sampleBar = AstraItemOnlyNavigationBar(frame: CGRect(x: 0, y: 0, width: 200, height: 56))
+        private var refreshTask: Task<Void, Never>?
+        private var observations: [NSObjectProtocol] = []
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            isOpaque = false
+            backgroundColor = .clear
+            // 导航栏样本只有布局尺寸，无可见区域和点击区域。
+            sampleViewport.clipsToBounds = true
+            sampleViewport.isUserInteractionEnabled = false
+            sampleViewport.accessibilityElementsHidden = true
+            sampleViewport.frame = CGRect(x: -1, y: -1, width: 1, height: 1)
+            sampleBar.overrideUserInterfaceStyle = .dark
+            let item = UINavigationItem(title: "")
+            let sampleItem = UIBarButtonItem(primaryAction: UIAction(
+                title: "", image: UIImage(systemName: "circle")
+            ) { _ in })
+            item.leftBarButtonItem = sampleItem
+            sampleBar.setItems([item], animated: false)
+            sampleViewport.addSubview(sampleBar)
+            addSubview(sampleViewport)
+
+            glass.configure(interactive: false, corner: .capsule, style: .dark)
+            addSubview(glass)
+            button.showsMenuAsPrimaryAction = true
+            addSubview(button)
+
+            for name in [
+                UIApplication.didBecomeActiveNotification,
+                UIAccessibility.reduceTransparencyStatusDidChangeNotification
+            ] {
+                let observation = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    Task { @MainActor in self?.scheduleSample() }
+                }
+                observations.append(observation)
+            }
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        deinit {
+            refreshTask?.cancel()
+            observations.forEach { NotificationCenter.default.removeObserver($0) }
+        }
+
+        override var intrinsicContentSize: CGSize {
+            button.intrinsicContentSize
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            glass.frame = bounds
+            button.frame = bounds
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            scheduleSample()
+        }
+
+        private func scheduleSample() {
+            refreshTask?.cancel()
+            guard window != nil else { return }
+            refreshTask = Task { @MainActor [weak self] in
+                for delay in [UInt64(20_000_000), 160_000_000] {
+                    try? await Task.sleep(nanoseconds: delay)
+                    guard !Task.isCancelled, let self, self.window != nil else { return }
+                    self.sampleBar.layoutIfNeeded()
+                    AstraGlassMaterialPool.shared.captureFromNavigationBar(self.sampleBar)
+                }
+            }
+        }
+    }
 
     final class Coordinator {
         var menuElements: () -> [UIMenuElement]
@@ -1137,14 +1215,12 @@ struct HomeGlassPillMenuButton: UIViewRepresentable {
         Coordinator(menuElements: menuElements)
     }
 
-    func makeUIView(context: Context) -> UIButton {
-        let button = UIButton(type: .system)
-        button.showsMenuAsPrimaryAction = true
-        button.automaticallyUpdatesConfiguration = true
-        return button
+    func makeUIView(context: Context) -> Container {
+        Container(frame: .zero)
     }
 
-    func updateUIView(_ button: UIButton, context: Context) {
+    func updateUIView(_ view: Container, context: Context) {
+        let button = view.button
         let coordinator = context.coordinator
         coordinator.menuElements = menuElements
         if coordinator.installedMenuTitle != menuTitle {
@@ -1156,7 +1232,8 @@ struct HomeGlassPillMenuButton: UIViewRepresentable {
         }
         button.accessibilityLabel = accessibilityLabel
         if coordinator.installedTitle != title || coordinator.installedSymbol != systemImage {
-            var configuration = UIButton.Configuration.glass()
+            var configuration = UIButton.Configuration.plain()
+            configuration.baseForegroundColor = .white
             configuration.cornerStyle = .capsule
             configuration.title = title
             configuration.image = UIImage(
@@ -1174,11 +1251,11 @@ struct HomeGlassPillMenuButton: UIViewRepresentable {
             coordinator.installedTitle = title
             coordinator.installedSymbol = systemImage
             button.configuration = configuration
-            button.invalidateIntrinsicContentSize()
+            view.invalidateIntrinsicContentSize()
         }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIButton, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: Container, context: Context) -> CGSize? {
         let size = uiView.intrinsicContentSize
         return CGSize(width: ceil(max(44, size.width)), height: max(35, ceil(size.height)))
     }

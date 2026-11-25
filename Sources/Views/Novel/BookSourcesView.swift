@@ -351,8 +351,6 @@ struct NovelSettingsSection: View {
             }
         } header: {
             Text("小说")
-        } footer: {
-            Text("兼容「阅读」（Legado）的书源格式，书源需要自己导入。读过的章节会缓存在本机，方便离线看。")
         }
         .task {
             await store.load()

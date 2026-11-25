@@ -126,7 +126,7 @@ final class UZRuntime: @unchecked Sendable {
         try await invoke(tag: tag, target: "pan", function: method, args: args, webSite: "", timeout: timeout)
     }
 
-    /// 夸克 / UC：转存到自己网盘后取转码清晰度（系统播放器放不了 mkv 原文件时用）
+    /// 夸克 / UC：转存到自己网盘后取转码清晰度（原画不能播放时备用）
     func transcode(tag: String, item: Any, timeout: TimeInterval = 60) async throws -> String {
         try await invoke(tag: tag, target: "transcode", function: "transcode", args: item, webSite: "", timeout: timeout)
     }

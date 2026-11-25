@@ -39,6 +39,7 @@ struct MPVControls: View {
     var onNextEpisode: (() -> Void)? = nil
     let toggleFullscreen: () -> Void
 
+    @Environment(\.scenePhase) private var scenePhase
     @AppStorage(AppSettings.defaultPlaybackSpeedKey) private var defaultSpeed: Double = 1.0
     @AppStorage(AppAccent.key) private var accentHex = ""
 
@@ -56,6 +57,9 @@ struct MPVControls: View {
     @State private var pulseHideTask: Task<Void, Never>?
     @State private var boostPulse = false
 
+    private static let fullscreenEdgePadding: CGFloat = 14
+    private static let fullscreenIconDiameter: CGFloat = 36
+    private static let fullscreenIconHitSize: CGFloat = 44
     private static let speeds: [Double] = [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 3]
     private static let defaultSpeedOptions: [Double] = [0.75, 1, 1.25, 1.5, 1.75, 2]
 
@@ -117,14 +121,11 @@ struct MPVControls: View {
             }
 
             // 顶部和底部控件独立布局，不参与中央控件的定位。
-            VStack(spacing: 0) {
-                if isFullscreen { topBar }
-                Spacer(minLength: 0)
-                bottomBar
-            }
-            .foregroundStyle(.white)
-            .opacity(visible && !isLocked ? 1 : 0)
-            .allowsHitTesting(visible && !isLocked)
+            controlsChrome
+                .foregroundStyle(.white)
+                .opacity(visible && !isLocked ? 1 : 0)
+                .allowsHitTesting(visible && !isLocked)
+                .accessibilityHidden(!visible || isLocked)
 
             // 中央控件在画面中心独立布局。隐藏控制栏也用同一枚玻璃显示缓冲。
             centerControls
@@ -184,7 +185,18 @@ struct MPVControls: View {
             lockHideTask?.cancel()
             pulseHideTask?.cancel()
             mpv.endSpeedBoost()
+            resetSeekPreview()
             isLocked = false
+        }
+        .onChangeCompat(of: scenePhase) { _, phase in
+            if phase != .active {
+                resetSeekPreview()
+            } else if visible {
+                scheduleHide()
+            }
+        }
+        .onChangeCompat(of: mpv.duration > 0) { _, canSeek in
+            if !canSeek { resetSeekPreview() }
         }
         .onChangeCompat(of: mpv.isPaused) { _, paused in
             if paused {
@@ -216,67 +228,69 @@ struct MPVControls: View {
 
     // MARK: 顶栏（全屏）
 
-    private var topBar: some View {
-        GlassGroup(spacing: 12) {
-            HStack(spacing: 12) {
-                if #available(iOS 26, *) {
-                    BarGlassIconButton(
-                        systemImage: "chevron.backward",
-                        pointSize: 16,
-                        diameter: 38,
-                        tone: .dark,
-                        accessibilityLabel: "退出全屏",
-                        action: exitFullscreen
-                    )
-                } else {
-                    Button(action: exitFullscreen) {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 16, weight: .semibold))
-                            .frame(width: 38, height: 38)
-                            .contentShape(Circle())
-                    }
-                    .playerButtonStyle()
-                    .playerGlass(interactive: true, in: Circle())
-                    .accessibilityLabel("退出全屏")
+    @ViewBuilder
+    private var controlsChrome: some View {
+        if isFullscreen {
+            GeometryReader { proxy in
+                // 横屏的刘海一侧安全区可能更大。两边以较大值为准，
+                // 保留上下安全区，左右控件都不会贴到屏幕圆角或灵动岛里。
+                let insets = proxy.safeAreaInsets
+                let side = max(insets.leading, insets.trailing)
+                VStack(spacing: 0) {
+                    topBar
+                    Spacer(minLength: 0)
+                    bottomBar
                 }
-
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-                    .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
-
-                Spacer(minLength: 8)
-
-                if #available(iOS 26, *) {
-                    BarGlassIconButton(
-                        systemImage: "lock.open",
-                        pointSize: 15,
-                        diameter: 38,
-                        tone: .dark,
-                        accessibilityLabel: "锁定屏幕"
-                    ) {
-                        lockScreen()
-                    }
-                } else {
-                    Button(action: lockScreen) {
-                        Image(systemName: "lock.open")
-                            .font(.system(size: 15, weight: .semibold))
-                            .frame(width: 38, height: 38)
-                            .contentShape(Circle())
-                    }
-                    .playerButtonStyle()
-                    .playerGlass(interactive: true, in: Circle())
-                    .accessibilityLabel("锁定屏幕")
-                }
+                .padding(.leading, side - insets.leading)
+                .padding(.trailing, side - insets.trailing)
+            }
+        } else {
+            VStack(spacing: 0) {
+                Spacer(minLength: 0)
+                bottomBar
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.top, 10)
+    }
+
+    private var topBar: some View {
+        HStack(spacing: 8) {
+            fullscreenCircleButton("chevron.backward", pointSize: 16, label: "退出全屏", action: exitFullscreen)
+
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .shadow(color: .black.opacity(0.45), radius: 3, y: 1)
+
+            Spacer(minLength: 8)
+
+            fullscreenCircleButton("lock.open", pointSize: 15, label: "锁定屏幕", action: lockScreen)
+        }
+        .padding(.horizontal, Self.fullscreenEdgePadding)
+        .padding(.top, 7)
+    }
+
+    private func fullscreenCircleButton(
+        _ icon: String,
+        pointSize: CGFloat,
+        label: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: pointSize, weight: .semibold))
+                .frame(width: Self.fullscreenIconDiameter, height: Self.fullscreenIconDiameter)
+                .playerGlass(interactive: true, in: Circle())
+                .frame(width: Self.fullscreenIconHitSize, height: Self.fullscreenIconHitSize)
+                .contentShape(Rectangle())
+        }
+        .playerButtonStyle()
+        .accessibilityLabel(label)
     }
 
     private func lockScreen() {
         Haptics.tap()
         hideTask?.cancel()
+        resetSeekPreview()
         withAnimation(.easeOut(duration: 0.18)) {
             isLocked = true
             visible = false
@@ -379,48 +393,28 @@ struct MPVControls: View {
 
     private var bottomBar: some View {
         VStack(spacing: isFullscreen ? 8 : 4) {
-            // 进度条行：iOS 26 保留原生 Slider（点按拖拽自动切换液态玻璃水滴）；低系统用带缓冲条的自定义进度条
+            // 高系统保留 UIKit 原生液态玻璃滑块，低系统保留自定义缓冲进度条。
             HStack(spacing: 10) {
                 Text(Self.time(displayedPosition))
                     .font(.caption.weight(.medium).monospacedDigit())
                     .frame(minWidth: 42, alignment: .leading)
 
                 if #available(iOS 26, *) {
-                    let upper = max(mpv.duration, 1)
-                    Slider(
-                        value: Binding(
-                            get: { min(max(displayedPosition, 0), upper) },
-                            set: { scrub = $0 }
-                        ),
-                        in: 0...upper,
-                        onEditingChanged: { editing in
-                            if editing {
-                                hideTask?.cancel()
-                                if scrub == nil { scrub = mpv.position }
-                            } else if let target = scrub {
-                                mpv.seek(to: target)
-                                scrub = nil
-                                scheduleHide()
-                            }
-                        }
+                    MPVNativeProgressSlider(
+                        position: displayedPosition,
+                        duration: mpv.duration,
+                        onScrubChanged: previewScrub,
+                        onScrubFinished: finishScrub
                     )
-                    .tint(.white)
-                    .disabled(mpv.duration <= 0)
+                    .frame(height: 28)
                 } else {
                     MPVProgressBar(
                         position: displayedPosition,
                         buffered: mpv.cachedUntil,
                         duration: mpv.duration,
                         isScrubbing: scrub != nil,
-                        onScrubChanged: { target in
-                            hideTask?.cancel()
-                            scrub = target
-                        },
-                        onScrubEnded: { target in
-                            mpv.seek(to: target)
-                            scrub = nil
-                            scheduleHide()
-                        }
+                        onScrubChanged: previewScrub,
+                        onScrubFinished: finishScrub
                     )
                 }
 
@@ -434,32 +428,14 @@ struct MPVControls: View {
             GlassGroup(spacing: isFullscreen ? 10 : 8) {
                 HStack(spacing: isFullscreen ? 10 : 8) {
                     if isFullscreen {
-                        if #available(iOS 26, *) {
-                            BarGlassIconButton(
-                                systemImage: mpv.isPaused ? "play.fill" : "pause.fill",
-                                pointSize: 14,
-                                diameter: 36,
-                                tone: .dark,
-                                accessibilityLabel: mpv.isPaused ? "播放" : "暂停"
-                            ) {
-                                Haptics.tap()
-                                mpv.togglePause()
-                                scheduleHide()
-                            }
-                        } else {
-                            Button {
-                                Haptics.tap()
-                                mpv.togglePause()
-                                scheduleHide()
-                            } label: {
-                                Image(systemName: mpv.isPaused ? "play.fill" : "pause.fill")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(width: 36, height: 36)
-                                    .contentShape(Circle())
-                            }
-                            .playerButtonStyle()
-                            .playerGlass(interactive: true, in: Circle())
-                            .accessibilityLabel(mpv.isPaused ? "播放" : "暂停")
+                        fullscreenCircleButton(
+                            mpv.isPaused ? "play.fill" : "pause.fill",
+                            pointSize: 14,
+                            label: mpv.isPaused ? "播放" : "暂停"
+                        ) {
+                            Haptics.tap()
+                            mpv.togglePause()
+                            scheduleHide()
                         }
 
                         if let onNextEpisode {
@@ -506,41 +482,37 @@ struct MPVControls: View {
                     speedMenu
                     optionsMenu
 
-                    if #available(iOS 26, *) {
+                    if isFullscreen {
+                        fullscreenCircleButton(
+                            "arrow.down.right.and.arrow.up.left",
+                            pointSize: 14,
+                            label: "退出全屏",
+                            action: exitFullscreen
+                        )
+                    } else if #available(iOS 26, *) {
                         BarGlassIconButton(
-                            systemImage: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                            pointSize: isFullscreen ? 14 : 13,
-                            diameter: isFullscreen ? 36 : 32,
+                            systemImage: "arrow.up.left.and.arrow.down.right",
+                            pointSize: 13,
+                            diameter: 32,
                             tone: .dark,
-                            accessibilityLabel: isFullscreen ? "退出全屏" : "全屏"
-                        ) {
-                            if isFullscreen {
-                                exitFullscreen()
-                            } else {
-                                toggleFullscreen()
-                            }
-                        }
+                            accessibilityLabel: "全屏",
+                            action: toggleFullscreen
+                        )
                     } else {
-                        Button {
-                            if isFullscreen {
-                                exitFullscreen()
-                            } else {
-                                toggleFullscreen()
-                            }
-                        } label: {
-                            Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
-                                .frame(width: isFullscreen ? 36 : 32, height: isFullscreen ? 36 : 32)
+                        Button(action: toggleFullscreen) {
+                            Image(systemName: "arrow.up.left.and.arrow.down.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .frame(width: 32, height: 32)
                                 .contentShape(Circle())
                         }
                         .playerButtonStyle()
                         .playerGlass(interactive: true, in: Circle())
-                        .accessibilityLabel(isFullscreen ? "退出全屏" : "全屏")
+                        .accessibilityLabel("全屏")
                     }
                 }
             }
         }
-        .padding(.horizontal, isFullscreen ? 14 : 12)
+        .padding(.horizontal, isFullscreen ? Self.fullscreenEdgePadding : 12)
         .padding(.bottom, isFullscreen ? 8 : 6)
     }
 
@@ -952,6 +924,7 @@ struct MPVControls: View {
     // MARK: 手势回调
 
     private func exitFullscreen() {
+        resetSeekPreview()
         isLocked = false
         mpv.endSpeedBoost()
         toggleFullscreen()
@@ -996,6 +969,26 @@ struct MPVControls: View {
         mpv.endSpeedBoost()
     }
 
+    private func previewScrub(_ target: Double) {
+        guard visible, !isLocked else { return }
+        hideTask?.cancel()
+        scrub = target
+    }
+
+    private func finishScrub(_ target: Double?) {
+        scrub = nil
+        if let target, mpv.duration > 0, visible, !isLocked,
+           abs(target - mpv.position) > 0.01 {
+            mpv.seek(to: target)
+        }
+        if visible { scheduleHide() }
+    }
+
+    private func resetSeekPreview() {
+        scrub = nil
+        gestureSeekTarget = nil
+    }
+
     private func handleGestureSeekBegin() {
         hideTask?.cancel()
         gestureSeekStart = mpv.position
@@ -1003,7 +996,7 @@ struct MPVControls: View {
     }
 
     private func handleGestureSeekUpdate(_ fraction: Double) {
-        guard mpv.duration > 0 else { return }
+        guard gestureSeekTarget != nil, mpv.duration > 0 else { return }
         // 滑满屏幕宽度的跨度按片长自适应（60 秒 ~ 180 秒），兼顾短片与长电影的精度
         let span = min(max(mpv.duration * 0.2, 60), 180)
         let maxPos = max(mpv.duration - 1, 0)
@@ -1145,6 +1138,103 @@ private extension View {
     }
 }
 
+// MARK: - 原生液态玻璃进度条（iOS 26+）
+
+@available(iOS 26, *)
+private struct MPVNativeProgressSlider: UIViewRepresentable {
+    let position: Double
+    let duration: Double
+    let onScrubChanged: (Double) -> Void
+    let onScrubFinished: (Double?) -> Void
+
+    func makeUIView(context: Context) -> TrackingSlider {
+        let slider = TrackingSlider(frame: .zero)
+        slider.minimumTrackTintColor = .white
+        slider.overrideUserInterfaceStyle = .dark
+        slider.accessibilityLabel = "播放进度"
+        slider.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        slider.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        slider.addTarget(slider, action: #selector(TrackingSlider.valueDidChange), for: .valueChanged)
+        return slider
+    }
+
+    func updateUIView(_ slider: TrackingSlider, context: Context) {
+        slider.onScrubChanged = onScrubChanged
+        slider.onScrubFinished = onScrubFinished
+        slider.apply(position: position, duration: duration)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: TrackingSlider, context: Context) -> CGSize? {
+        guard let width = proposal.width, width.isFinite else { return nil }
+        return CGSize(width: width, height: 28)
+    }
+
+    final class TrackingSlider: UISlider {
+        var onScrubChanged: ((Double) -> Void)?
+        var onScrubFinished: ((Double?) -> Void)?
+        private var reportsTouch = false
+        private var duration: Double = 0
+
+        func apply(position: Double, duration: Double) {
+            self.duration = duration.isFinite ? max(duration, 0) : 0
+            let enabled = self.duration > 0
+            if isEnabled != enabled { isEnabled = enabled }
+            guard !reportsTouch, !isTracking else { return }
+            let ratio = self.duration > 0 && position.isFinite ? position / self.duration : 0
+            let clamped = Float(min(max(ratio, 0), 1))
+            if value != clamped { setValue(clamped, animated: false) }
+        }
+
+        override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+            guard duration > 0 else { return false }
+            reportsTouch = true
+            let tracking = super.beginTracking(touch, with: event)
+            if tracking {
+                onScrubChanged?(seconds)
+            } else {
+                reportsTouch = false
+                onScrubFinished?(nil)
+            }
+            return tracking
+        }
+
+        override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+            let tracking = super.continueTracking(touch, with: event)
+            if !tracking, reportsTouch {
+                reportsTouch = false
+                onScrubFinished?(nil)
+            }
+            return tracking
+        }
+
+        override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+            let wasReporting = reportsTouch
+            super.endTracking(touch, with: event)
+            reportsTouch = false
+            if wasReporting { onScrubFinished?(touch == nil ? nil : seconds) }
+        }
+
+        override func cancelTracking(with event: UIEvent?) {
+            let wasReporting = reportsTouch
+            super.cancelTracking(with: event)
+            reportsTouch = false
+            if wasReporting { onScrubFinished?(nil) }
+        }
+
+        @objc func valueDidChange() {
+            guard duration > 0 else { return }
+            if reportsTouch {
+                onScrubChanged?(seconds)
+            } else {
+                // VoiceOver、键盘等不走触摸追踪。直接跳转，不开启预览浮层。
+                onScrubFinished?(seconds)
+            }
+        }
+
+        private var seconds: Double { Double(value) * duration }
+    }
+}
+
 // MARK: - 自定义进度条（iOS 26 以下使用）
 
 /// iOS 26 以下替代系统默认 Slider，支持显示缓冲进度与拖拽放大
@@ -1154,7 +1244,8 @@ private struct MPVProgressBar: View {
     let duration: Double
     let isScrubbing: Bool
     let onScrubChanged: (Double) -> Void
-    let onScrubEnded: (Double) -> Void
+    let onScrubFinished: (Double?) -> Void
+    @GestureState private var touchActive = false
 
     var body: some View {
         GeometryReader { proxy in
@@ -1190,6 +1281,7 @@ private struct MPVProgressBar: View {
             .contentShape(Rectangle())
             .gesture(
                 DragGesture(minimumDistance: 0)
+                    .updating($touchActive) { _, active, _ in active = true }
                     .onChanged { value in
                         guard duration > 0 else { return }
                         let ratio = min(max(value.location.x / width, 0), 1)
@@ -1198,12 +1290,16 @@ private struct MPVProgressBar: View {
                     .onEnded { value in
                         guard duration > 0 else { return }
                         let ratio = min(max(value.location.x / width, 0), 1)
-                        onScrubEnded(Double(ratio) * duration)
+                        onScrubFinished(Double(ratio) * duration)
                     }
             )
             .animation(.easeOut(duration: 0.14), value: isScrubbing)
         }
         .frame(height: 28)
+        .onChangeCompat(of: touchActive) { _, active in
+            // SwiftUI 拖拽取消时不一定有 onEnded，但 GestureState 一定会复位。
+            if !active { onScrubFinished(nil) }
+        }
     }
 }
 
@@ -1765,13 +1861,12 @@ final class MPVFullscreenManager {
 }
 
 /// 屏幕方向管理（配合 AppDelegate.supportedInterfaceOrientationsFor）：
-/// 正常页面在 iPhone 上锁竖屏，mpv 横屏全屏锁横屏，系统播放器全屏放开横竖屏，退出全屏后确保完整切回竖屏
+/// 正常页面在 iPhone 上锁竖屏，mpv 横屏全屏锁横屏，退出全屏后切回竖屏
 @MainActor
 enum ScreenOrientation {
     enum Mode: Equatable {
         case portrait
         case landscape
-        case flexible
     }
 
     private(set) static var mode: Mode = .portrait
@@ -1781,12 +1876,9 @@ enum ScreenOrientation {
         guard UIDevice.current.userInterfaceIdiom == .phone else { return .all }
         switch mode {
         case .portrait:
-            if hasSystemPlayerFullscreen(in: window) { return .allButUpsideDown }
             return .portrait
         case .landscape:
             return .landscape
-        case .flexible:
-            return .allButUpsideDown
         }
     }
 
@@ -1811,9 +1903,6 @@ enum ScreenOrientation {
         notifyAllViewControllers(in: scene)
 
         switch newMode {
-        case .flexible:
-            // 系统播放器自己管旋转，这里只放开方向掩码，不主动抢几何更新
-            return
         case .landscape:
             if !scene.interfaceOrientation.isLandscape {
                 let mask: UIInterfaceOrientationMask = preferredLandscapeOrientation == .landscapeLeft
@@ -1845,18 +1934,6 @@ enum ScreenOrientation {
     private static var activeScene: UIWindowScene? {
         let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
         return scenes.first { $0.activationState == .foregroundActive } ?? scenes.first
-    }
-
-    private static func hasSystemPlayerFullscreen(in window: UIWindow?) -> Bool {
-        var current = window?.rootViewController
-        while let presented = current?.presentedViewController {
-            let name = String(describing: type(of: presented))
-            if name.contains("AVFullScreen") || name.contains("AVPlayerViewController") {
-                return true
-            }
-            current = presented
-        }
-        return false
     }
 
     private static func notifyAllViewControllers(in scene: UIWindowScene) {

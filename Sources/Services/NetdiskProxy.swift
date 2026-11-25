@@ -39,6 +39,7 @@ final class NetdiskProxy: @unchecked Sendable {
     private var port: UInt16 = 0
     private var waiters: [CheckedContinuation<UInt16, Error>] = []
     private var sources: [String: Source] = [:]
+    private var hlsSessions: [UUID: HLSAdBlockSession] = [:]
     private var logLines: [String] = []
 
     /// 每个连接一个 URLSession：同一个 URLSession 遇到支持 HTTP/2 的网盘服务器会把所有请求合并到一条 TCP 连接上，
@@ -114,6 +115,36 @@ final class NetdiskProxy: @unchecked Sendable {
         let port = try await ensureStarted()
         note("登记 \(target.host ?? "") \(total / 1_048_576)MB")
         return URL(string: "http://127.0.0.1:\(port)/v/\(id).\(ext.isEmpty ? "mp4" : ext)")!
+    }
+
+    /// 复用只在 127.0.0.1 监听的服务，mpv 用普通 HTTP 读取已处理的播放列表。
+    func registerHLS(url: URL, headers: [String: String],
+                     onFiltered: @escaping @Sendable (UUID, Int) -> Void) async throws -> (id: UUID, url: URL) {
+        let port = try await ensureStarted()
+        try Task.checkCancellation()
+        let id = UUID()
+        let root = UUID()
+        let session = HLSAdBlockSession(id: id, root: root, url: url, port: port, headers: headers, onFiltered: onFiltered)
+        storeHLS(session, id: id)
+        return (id, HLSAdBlockSession.localURL(port: port, session: id, playlist: root))
+    }
+
+    private func storeHLS(_ session: HLSAdBlockSession, id: UUID) {
+        lock.lock()
+        hlsSessions[id] = session
+        lock.unlock()
+    }
+
+    func unregisterHLS(_ id: UUID) {
+        lock.lock()
+        hlsSessions.removeValue(forKey: id)
+        lock.unlock()
+    }
+
+    private func hlsSession(_ id: UUID) -> HLSAdBlockSession? {
+        lock.lock()
+        defer { lock.unlock() }
+        return hlsSessions[id]
     }
 
     // MARK: 监听
@@ -201,6 +232,10 @@ final class NetdiskProxy: @unchecked Sendable {
         let requestLine = (lines.first ?? "").split(separator: " ")
         let method = requestLine.first.map(String.init) ?? "GET"
         let path = requestLine.count > 1 ? String(requestLine[1]) : ""
+        if path.hasPrefix("/hls/") {
+            await serveHLS(connection, method: method, path: path)
+            return
+        }
         let id = path.components(separatedBy: "/v/").last?.components(separatedBy: ".").first ?? ""
         lock.lock()
         let source = sources[id]
@@ -280,6 +315,42 @@ final class NetdiskProxy: @unchecked Sendable {
             note(String(format: "从 %lldMB 处读了 %lldMB，平均 %.1f MB/s", start / 1_048_576, sent / 1_048_576, Double(sent) / seconds / 1_048_576))
         }
         if let failure { note("下载中断：\(failure.localizedDescription)") }
+    }
+
+    private func serveHLS(_ connection: NWConnection, method: String, path: String) async {
+        let parts = path.split(separator: "/")
+        let method = method.uppercased()
+        guard method == "GET" || method == "HEAD" else {
+            await reply(connection, status: "405 Method Not Allowed")
+            return
+        }
+        guard parts.count == 3, parts[2].hasSuffix(".m3u8"),
+              let sessionID = UUID(uuidString: String(parts[1])),
+              let playlistID = UUID(uuidString: String(parts[2].dropLast(".m3u8".count))),
+              let session = hlsSession(sessionID) else {
+            await reply(connection, status: "404 Not Found")
+            return
+        }
+        let result: Data?
+        do {
+            result = try await session.response(for: playlistID)
+        } catch {
+            await reply(connection, status: "502 Bad Gateway")
+            return
+        }
+        guard let result else {
+            await reply(connection, status: "404 Not Found")
+            return
+        }
+        let head = "HTTP/1.1 200 OK\r\nContent-Type: application/vnd.apple.mpegurl\r\n" +
+            "Content-Length: \(result.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
+        do {
+            try await send(connection, Data(head.utf8))
+            if method == "GET" { try await send(connection, result) }
+        } catch {
+            // mpv 换集、跳转或退出时可能已经关闭连接。
+        }
+        connection.cancel()
     }
 
     private func fetch(_ source: Source, _ start: Int64, _ end: Int64, session: URLSession) async throws -> Data {

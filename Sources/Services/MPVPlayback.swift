@@ -3,36 +3,19 @@ import UIKit
 import AVFoundation
 import Libmpv
 
-/// 哪些格式交给 mpv：系统播放器放不了的封装（MKV、AVI、RMVB、FLV…）
+/// 采集站直链识别的其他视频封装（MKV、AVI、RMVB、FLV…）
 enum MPVFormats {
     static let formats: Set<String> = [
         "mkv", "mk3d", "avi", "divx", "rmvb", "rm", "flv", "f4v", "wmv", "asf", "webm", "ogv",
         "ts", "m2ts", "mts", "tp", "trp", "mpg", "mpeg", "vob", "iso", "3gp", "dat",
     ]
-    /// 系统播放器能放、而且有画中画 / 隔空播放的格式
-    static let systemFormats: Set<String> = ["m3u8", "mp4", "m4v", "mov"]
-
-    /// 网盘标的文件类型是 mpv 格式（有的 MKV 文件名写的是 .mp4）
-    static let mimeTypes = ["matroska", "x-msvideo", "x-flv", "webm", "mp2t", "realmedia", "x-ms-wmv", "x-ms-asf", "mpeg"]
-
-    /// 地址或网盘文件名的扩展名、网盘标的文件类型是 mpv 格式
-    static func needsMPV(fileName: String, url: URL, mimeType: String = "") -> Bool {
-        let mime = mimeType.lowercased()
-        if mimeTypes.contains(where: { mime.contains($0) }) { return true }
-        let urlExt = url.pathExtension.lowercased()
-        if systemFormats.contains(urlExt) { return false }
-        let nameExt = (fileName as NSString).pathExtension.lowercased()
-        return formats.contains(nameExt) || formats.contains(urlExt)
-    }
-
     static func isMPVMedia(_ url: String) -> Bool {
         guard let parsed = URL(string: url) else { return false }
         return formats.contains(parsed.pathExtension.lowercased())
     }
 }
 
-/// mpv 播放内核（libmpv，Metal 画面）。系统播放器放不了的格式用它播，
-/// 系统播放器播放失败时也会自动换成它再试一次
+/// 视频播放内核（libmpv，Metal 画面）
 @MainActor
 final class MPVPlayback: ObservableObject {
     struct Track: Identifiable, Equatable, Sendable {

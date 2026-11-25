@@ -26,16 +26,7 @@ struct SettingsView: View {
                 NavigationLink {
                     PromoListView()
                 } label: {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("更多插件")
-                            Text("作者做的其他插件")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: "sparkles")
-                    }
+                    Label("更多插件", systemImage: "sparkles")
                 }
             }
 
@@ -77,13 +68,11 @@ struct SettingsView: View {
                     }
                 }
                 Toggle(isOn: $filterAdult) {
-                    Label("过滤成人内容", systemImage: "eye.slash")
+                    Label("隐藏标记的成人内容", systemImage: "eye.slash")
                 }
                 .selectionFeedback(trigger: filterAdult)
             } header: {
                 Text("片源")
-            } footer: {
-                Text("Kazumi 规则和采集站在同一个列表里排优先级。网盘资源兼容 uz 影视的扩展订阅，资源站搜到的网盘分享当片源用。详情页找到的片源按片名匹配和「片源大类顺序」排列（默认猫影视优先）。过滤成人内容会按分类名隐藏采集站里的相关结果。")
             }
 
             Section {
@@ -94,8 +83,6 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("漫画")
-            } footer: {
-                Text("线路、图片分流和账号。有些本子需要登录才能看。")
             }
 
             NovelSettingsSection()
@@ -117,8 +104,6 @@ struct SettingsView: View {
                 .selectionFeedback(trigger: hlsAdFilter)
             } header: {
                 Text("播放")
-            } footer: {
-                Text("mpv 播放器的默认倍速也可以在播放页悬浮控制栏里随时修改。跳过广告会识别并去掉 m3u8 播放列表里插入的广告片段（片头 / 中插），万一导致某个视频放不了会自动改用原始播放列表重试。")
             }
 
             Section {
@@ -146,8 +131,6 @@ struct SettingsView: View {
                 .selectionFeedback(trigger: nativeModeMenu)
             } header: {
                 Text("外观")
-            } footer: {
-                Text("首页左上角的模式切换菜单，打开后每一项下面显示说明，播放音乐时点按、滑选也更稳定。")
             }
 
             Section {
@@ -158,8 +141,6 @@ struct SettingsView: View {
                 }
             } header: {
                 Text("数据")
-            } footer: {
-                Text("片源、书源、音源、书架、收藏、历史和设置一起导出成一个文件，换包名或换设备时在新 App 里导入即可。")
             }
 
             DiagnosticSettingsSection()
@@ -178,7 +159,7 @@ struct SettingsView: View {
             } header: {
                 Text("关于")
             } footer: {
-                Text("Astra 是 Kazumi 的 SwiftUI 移植版，规则格式与原版兼容，按 GPL-3.0 协议开源。影视模式参考 LibreTV 的思路用 Swift 重新实现。番剧信息来自 Bangumi，影视推荐来自豆瓣。应用本身不提供任何视频内容。")
+                Text("Astra 以 GPL-3.0 开源，不提供视频内容。")
             }
         }
         .navigationTitle("我的")

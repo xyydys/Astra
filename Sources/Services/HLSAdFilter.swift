@@ -1,4 +1,3 @@
-import AVFoundation
 import Foundation
 
 /// m3u8 广告段过滤。采集站常把广告作为单独的 DISCONTINUITY 段插进正片，这里按段整体剔除
@@ -112,29 +111,13 @@ enum M3U8AdFilter {
     }
 }
 
-/// 播放列表改写：相对地址补全为绝对地址，子播放列表继续走自定义协议（这样也能被过滤），
-/// 分片、密钥保持原始 http(s) 地址由 AVPlayer 直接请求
+/// 播放列表改写：相对地址补全；变体和字幕 / 音轨播放列表继续走本机代理，
+/// 分片、密钥和初始化段仍由 mpv 直接向来源服务器请求。
 enum HLSPlaylistRewriter {
-    static let schemePrefix = "kgad"
+    private static let uriAttribute = try? NSRegularExpression(pattern: #"URI="([^"]*)""#)
 
-    static func wrap(_ url: URL) -> URL? {
-        guard var comps = URLComponents(url: url, resolvingAgainstBaseURL: true), let scheme = comps.scheme,
-              ["http", "https"].contains(scheme.lowercased()) else { return nil }
-        comps.scheme = schemePrefix + scheme.lowercased()
-        return comps.url
-    }
-
-    static func unwrap(_ url: URL) -> URL? {
-        guard var comps = URLComponents(url: url, resolvingAgainstBaseURL: true), let scheme = comps.scheme,
-              scheme.lowercased().hasPrefix(schemePrefix) else { return nil }
-        comps.scheme = String(scheme.dropFirst(schemePrefix.count))
-        return comps.url
-    }
-
-    private static let uriAttribute = try? NSRegularExpression(pattern: "URI=\"([^\"]*)\"")
-
-    static func rewrite(_ text: String, base: URL, filterAds: Bool) -> M3U8AdFilter.Outcome {
-        let isMaster = text.contains("#EXT-X-STREAM-INF")
+    static func rewrite(_ text: String, base: URL, playlistURL: (URL) -> URL) -> M3U8AdFilter.Outcome {
+        let isMaster = text.contains("#EXT-X-STREAM-INF:") || text.contains("#EXT-X-I-FRAME-STREAM-INF:")
         let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
         var output: [String] = []
         output.reserveCapacity(lines.count)
@@ -143,111 +126,117 @@ enum HLSPlaylistRewriter {
             if t.isEmpty {
                 output.append(line)
             } else if t.hasPrefix("#") {
-                output.append(rewriteAttributes(t, base: base))
+                output.append(rewriteAttributes(t, base: base, playlistURL: playlistURL))
             } else if let absolute = resolve(t, base: base) {
-                output.append((isMaster ? wrap(absolute) ?? absolute : absolute).absoluteString)
+                output.append((isMaster ? playlistURL(absolute) : absolute).absoluteString)
             } else {
                 output.append(t)
             }
         }
         let rewritten = output.joined(separator: "\n")
-        guard !isMaster, filterAds else { return M3U8AdFilter.Outcome(text: rewritten, removedSegments: 0) }
+        guard !isMaster else { return M3U8AdFilter.Outcome(text: rewritten, removedSegments: 0) }
         return M3U8AdFilter.filter(rewritten)
     }
 
-    private static func rewriteAttributes(_ tag: String, base: URL) -> String {
+    private static func rewriteAttributes(_ tag: String, base: URL, playlistURL: (URL) -> URL) -> String {
         guard let regex = uriAttribute,
               let match = regex.firstMatch(in: tag, range: NSRange(tag.startIndex..., in: tag)),
               let range = Range(match.range(at: 1), in: tag),
               let absolute = resolve(String(tag[range]), base: base) else { return tag }
-        // 音轨 / 字幕 / I 帧也是播放列表，继续走自定义协议；密钥和初始化分片直接请求
-        let isPlaylist = tag.hasPrefix("#EXT-X-MEDIA") || tag.hasPrefix("#EXT-X-I-FRAME-STREAM-INF")
-        let target = isPlaylist ? (wrap(absolute) ?? absolute) : absolute
+        let isPlaylist = tag.hasPrefix("#EXT-X-MEDIA:") || tag.hasPrefix("#EXT-X-I-FRAME-STREAM-INF:")
+            || tag.hasPrefix("#EXT-X-RENDITION-REPORT:")
+        let target = isPlaylist ? playlistURL(absolute) : absolute
         return tag.replacingCharacters(in: range, with: target.absoluteString)
     }
 
     private static func resolve(_ uri: String, base: URL) -> URL? {
-        if uri.hasPrefix("data:") || uri.hasPrefix("skd:") { return nil }
-        if let url = URL(string: uri, relativeTo: base)?.absoluteURL { return url }
         let encoded = uri.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.union(.urlPathAllowed)) ?? uri
-        return URL(string: encoded, relativeTo: base)?.absoluteURL
+        guard let url = (URL(string: uri, relativeTo: base) ?? URL(string: encoded, relativeTo: base))?.absoluteURL,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? "") else { return nil }
+        return url
     }
 }
 
-/// 播放列表请求经过这里：改写地址、过滤广告段；分片仍由 AVPlayer 直接下载
-final class HLSAdBlockLoader: NSObject, AVAssetResourceLoaderDelegate, @unchecked Sendable {
+/// 只在当前播放期间提供 m3u8；地址映射不向客户端暴露可任意请求的上游 URL。
+actor HLSAdBlockSession {
+    private static let maxPlaylistBytes = 4 * 1024 * 1024
+    private static let network: URLSession = {
+        let config = URLSessionConfiguration.ephemeral
+        config.httpShouldSetCookies = false
+        config.httpCookieStorage = nil
+        config.urlCache = nil
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        return URLSession(configuration: config)
+    }()
+
+    private let id: UUID
+    private let port: UInt16
     private let headers: [String: String]
-    private let queue = DispatchQueue(label: "Astra.HLSAdBlock")
-    /// 每次从播放列表里去掉广告分片时回调（在后台队列）
-    var onFiltered: (@Sendable (Int) -> Void)?
+    private let onFiltered: @Sendable (UUID, Int) -> Void
+    private var sources: [UUID: URL]
+    private var registered: [URL: UUID]
+    private var counted: Set<UUID> = []
 
-    init(headers: [String: String]) {
+    init(id: UUID, root: UUID, url: URL, port: UInt16, headers: [String: String],
+         onFiltered: @escaping @Sendable (UUID, Int) -> Void) {
+        self.id = id
+        self.port = port
         self.headers = headers
+        self.onFiltered = onFiltered
+        sources = [root: url]
+        registered = [url: root]
     }
 
-    /// 只拦截 m3u8，直链视频交给 AVPlayer 自己处理
     static func canHandle(_ url: URL) -> Bool {
-        url.absoluteString.lowercased().contains(".m3u8")
+        ["http", "https"].contains(url.scheme?.lowercased() ?? "") &&
+            url.absoluteString.lowercased().contains(".m3u8")
     }
 
-    func makeAsset(url: URL) -> AVURLAsset {
-        let wrapped = HLSPlaylistRewriter.wrap(url) ?? url
-        let asset = AVURLAsset(url: wrapped, options: ["AVURLAssetHTTPHeaderFieldsKey": headers])
-        asset.resourceLoader.setDelegate(self, queue: queue)
-        return asset
+    static func localURL(port: UInt16, session: UUID, playlist: UUID) -> URL {
+        URL(string: "http://127.0.0.1:\(port)/hls/\(session.uuidString)/\(playlist.uuidString).m3u8")!
     }
 
-    func resourceLoader(
-        _ resourceLoader: AVAssetResourceLoader,
-        shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest
-    ) -> Bool {
-        guard let url = loadingRequest.request.url, let real = HLSPlaylistRewriter.unwrap(url) else { return false }
-        var request = URLRequest(url: real, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
+    func response(for playlist: UUID) async throws -> Data? {
+        guard let source = sources[playlist] else { return nil }
+        var request = URLRequest(url: source, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
-        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
-            guard let self else {
-                loadingRequest.finishLoading(with: error ?? URLError(.cancelled))
-                return
-            }
-            self.queue.async {
-                self.respond(loadingRequest, real: real, data: data, response: response, error: error)
+        let (bytes, response) = try await Self.network.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        guard response.expectedContentLength <= Int64(Self.maxPlaylistBytes) else {
+            throw URLError(.dataLengthExceedsMaximum)
+        }
+        var body = Data()
+        for try await byte in bytes {
+            guard body.count < Self.maxPlaylistBytes else { throw URLError(.dataLengthExceedsMaximum) }
+            body.append(byte)
+            // 地址带 .m3u8 但返回文件、HTML 等时，及早交回给播放器直连尝试。
+            if body.count == 1024, !Self.decode(body).trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#EXTM3U") {
+                throw URLError(.cannotDecodeContentData)
             }
         }
-        task.resume()
-        return true
+        let text = Self.decode(body).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.hasPrefix("#EXTM3U") else { throw URLError(.cannotDecodeContentData) }
+        let result = HLSPlaylistRewriter.rewrite(text, base: response.url ?? source) { register($0) }
+        if result.removedSegments > 0, counted.insert(playlist).inserted {
+            onFiltered(id, result.removedSegments)
+        }
+        return Data(result.text.utf8)
     }
 
-    private func respond(
-        _ loadingRequest: AVAssetResourceLoadingRequest, real: URL,
-        data: Data?, response: URLResponse?, error: Error?
-    ) {
-        guard !loadingRequest.isCancelled, !loadingRequest.isFinished else { return }
-        if let error {
-            loadingRequest.finishLoading(with: error)
-            return
-        }
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            loadingRequest.finishLoading(with: URLError(.badServerResponse))
-            return
-        }
-        guard let data, let text = String(data: data, encoding: .utf8) ?? String(data: data, encoding: .isoLatin1),
-              text.trimmingCharacters(in: .whitespacesAndNewlines).hasPrefix("#EXTM3U") else {
-            // 不是播放列表（地址里带 m3u8 但其实是视频）：让播放器直接去请求原地址
-            loadingRequest.redirect = URLRequest(url: real)
-            loadingRequest.response = HTTPURLResponse(url: real, statusCode: 302, httpVersion: nil, headerFields: nil)
-            loadingRequest.finishLoading()
-            return
-        }
+    private static func decode(_ data: Data) -> String {
+        let text = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
+        return text.hasPrefix("\u{FEFF}") ? String(text.dropFirst()) : text
+    }
 
-        let result = HLSPlaylistRewriter.rewrite(text, base: response?.url ?? real, filterAds: true)
-        if result.removedSegments > 0 { onFiltered?(result.removedSegments) }
-        let body = Data(result.text.utf8)
-        if let info = loadingRequest.contentInformationRequest {
-            info.contentType = "public.m3u-playlist"
-            info.contentLength = Int64(body.count)
-            info.isByteRangeAccessSupported = false
-        }
-        loadingRequest.dataRequest?.respond(with: body)
-        loadingRequest.finishLoading()
+    private func register(_ url: URL) -> URL {
+        let target = registered[url] ?? UUID()
+        // 直播播放列表可能不断变化；只保留有限数量的变体映射。
+        guard registered[url] != nil || sources.count < 256 else { return url }
+        registered[url] = target
+        sources[target] = url
+        return Self.localURL(port: port, session: id, playlist: target)
     }
 }

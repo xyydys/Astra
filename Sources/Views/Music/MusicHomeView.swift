@@ -245,8 +245,7 @@ private struct MusicControls: View {
 
 // MARK: 特效切换（右上角，和左上角的模式切换一样是原生下拉菜单）
 
-/// iOS 26 用真导航栏玻璃按钮（UINavigationBar + UIBarButtonItem(menu:)），展开菜单与按钮深浅完美互通；
-/// 播放时菜单独立于 SwiftUI 刷新，点按和滑选始终稳定
+/// iOS 26 与模式切换共用播放器同材质玻璃；菜单独立于 SwiftUI 刷新。
 private struct FoliaEffectMenu: View {
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue

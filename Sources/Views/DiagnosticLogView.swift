@@ -77,7 +77,9 @@ struct DiagnosticSettingsSection: View {
         } header: {
             Text("反馈")
         } footer: {
-            Text("打开后记录页面切换、底栏颜色、音乐页加载用时和主线程卡顿。复现一次问题，再在这里复制或分享日志发给开发者。日志只在内存里，退出 App 就清空。")
+            if enabled {
+                Text("退出 App 后日志清空。")
+            }
         }
     }
 }
