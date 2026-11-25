@@ -343,6 +343,46 @@ final class MPVSurfaceView: UIView {
 
     var metalLayer: MPVMetalLayer { layer as! MPVMetalLayer }
 
+    enum Host: Equatable { case embedded, fullscreen }
+
+    private weak var embeddedHost: MPVContainerView?
+    private weak var fullscreenHost: MPVContainerView?
+    private var wantsFullscreen = false
+
+    func preferFullscreen(_ fullscreen: Bool) {
+        wantsFullscreen = fullscreen
+        updateHost()
+    }
+
+    fileprivate func register(_ container: MPVContainerView, as host: Host) {
+        switch host {
+        case .embedded: embeddedHost = container
+        case .fullscreen: fullscreenHost = container
+        }
+        updateHost()
+    }
+
+    fileprivate func unregister(_ container: MPVContainerView) {
+        // SwiftUI 可能先挂上新容器、再销毁之前的容器；旧回调不能撤销新登记。
+        if embeddedHost === container { embeddedHost = nil }
+        if fullscreenHost === container { fullscreenHost = nil }
+        updateHost()
+    }
+
+    fileprivate func updateHost() {
+        let preferred = wantsFullscreen ? fullscreenHost : embeddedHost
+        let alternate = wantsFullscreen ? embeddedHost : fullscreenHost
+        guard let next = [preferred, alternate].compactMap({ $0 }).first(where: { $0.isReadyForSurface }),
+              superview !== next else { return }
+
+        // addSubview 自行重新挂载。不要先 removeFromSuperview，也不要交给
+        // 还没上窗或还没有实际大小的 UIHostingController。
+        UIView.performWithoutAnimation {
+            next.position(self)
+            next.addSubview(self)
+        }
+    }
+
     /// 画面尺寸（点）
     private(set) var renderSize = MPVSurfaceView.size(forAspect: 16.0 / 9.0)
 
@@ -390,14 +430,44 @@ final class MPVSurfaceView: UIView {
 
 /// 装 mpv 画面的容器：画面尺寸不变，按容器大小等比缩放、居中
 final class MPVContainerView: UIView {
+    private weak var surface: MPVSurfaceView?
+    private var host: MPVSurfaceView.Host?
+
+    fileprivate var isReadyForSurface: Bool {
+        window != nil && bounds.width > 0 && bounds.height > 0
+    }
+
+    func bind(_ surface: MPVSurfaceView, as host: MPVSurfaceView.Host) {
+        guard self.surface !== surface || self.host != host else { return }
+        unbind()
+        self.surface = surface
+        self.host = host
+        surface.register(self, as: host)
+    }
+
+    func unbind() {
+        surface?.unregister(self)
+        surface = nil
+        host = nil
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        surface?.updateHost()
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
-        for case let surface as MPVSurfaceView in subviews {
-            let size = surface.renderSize
-            surface.center = CGPoint(x: bounds.midX, y: bounds.midY)
-            let scale = min(bounds.width / size.width, bounds.height / size.height)
-            surface.transform = scale.isFinite && scale > 0 ? CGAffineTransform(scaleX: scale, y: scale) : .identity
-        }
+        // 有些 SwiftUI 承载先收到 didMoveToWindow、再拿到非零 bounds。
+        surface?.updateHost()
+        if let surface, surface.superview === self { position(surface) }
+    }
+
+    fileprivate func position(_ surface: MPVSurfaceView) {
+        let size = surface.renderSize
+        surface.center = CGPoint(x: bounds.midX, y: bounds.midY)
+        let scale = min(bounds.width / size.width, bounds.height / size.height)
+        surface.transform = scale.isFinite && scale > 0 ? CGAffineTransform(scaleX: scale, y: scale) : .identity
     }
 }
 

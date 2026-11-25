@@ -71,7 +71,7 @@ private struct PlayerContent: View {
         ZStack {
             Color.black
             Group {
-                MPVVideoHost(surface: model.mpv.surface, claim: !model.isMPVFullscreen)
+                MPVVideoHost(surface: model.mpv.surface, host: .embedded)
                 if !model.isMPVFullscreen {
                     MPVControls(mpv: model.mpv, isFullscreen: false) { model.setMPVFullscreen(true) }
                 }

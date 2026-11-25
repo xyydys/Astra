@@ -157,10 +157,13 @@ struct RootView: View {
         let styled = content
             .tint(AppAccent.color(accentHex))
             .accentColor(AppAccent.color(accentHex))
-        if #available(iOS 26, *), mode != .music {
-            // 其他模式仍去掉底边遮罩。音乐模式保留原生滚动边，
-            // 让系统在黑色首页与浅色标签页之间自行重新采样。
-            styled.scrollEdgeEffectHidden(true, for: .bottom)
+        if #available(iOS 26, *) {
+            if mode == .music {
+                // 保留系统的底边效果，只选较柔和的原生样式。
+                styled.scrollEdgeEffectStyle(.soft, for: .bottom)
+            } else {
+                styled.scrollEdgeEffectHidden(true, for: .bottom)
+            }
         } else {
             styled
         }

@@ -5,28 +5,25 @@ import UIKit
 
 // MARK: - 画面容器
 
-/// mpv 的画面只有一个，在内嵌和全屏之间搬：claim 为 true 的容器持有它
+/// 内嵌和全屏分别登记一个容器；由同一个画面对象决定何时交接。
 struct MPVVideoHost: UIViewRepresentable {
     let surface: MPVSurfaceView
-    let claim: Bool
+    let host: MPVSurfaceView.Host
 
     func makeUIView(context: Context) -> MPVContainerView {
         let container = MPVContainerView()
         container.backgroundColor = .black
         container.clipsToBounds = true
-        if claim { Self.attach(surface, to: container) }
+        container.bind(surface, as: host)
         return container
     }
 
     func updateUIView(_ container: MPVContainerView, context: Context) {
-        if claim, surface.superview !== container { Self.attach(surface, to: container) }
+        container.bind(surface, as: host)
     }
 
-    /// 画面尺寸不变，容器按自己的大小缩放、居中（见 MPVContainerView）
-    private static func attach(_ surface: MPVSurfaceView, to container: MPVContainerView) {
-        surface.removeFromSuperview()
-        container.addSubview(surface)
-        container.setNeedsLayout()
+    static func dismantleUIView(_ container: MPVContainerView, coordinator: ()) {
+        container.unbind()
     }
 }
 
@@ -424,122 +421,106 @@ struct MPVControls: View {
                     .frame(minWidth: 42, alignment: .trailing)
             }
 
-            // 左右各是一组：只调整整行的边缘留白，不单独偏移工具按钮。
-            GlassGroup(spacing: isFullscreen ? 10 : 8) {
-                HStack(spacing: 0) {
-                    if isFullscreen {
-                        HStack(spacing: 10) {
-                            if #available(iOS 26, *) {
-                                BarGlassIconButton(
-                                    systemImage: mpv.isPaused ? "play.fill" : "pause.fill",
-                                    pointSize: 14,
-                                    diameter: 36,
-                                    tone: .dark,
-                                    accessibilityLabel: mpv.isPaused ? "播放" : "暂停"
-                                ) {
-                                    Haptics.tap()
-                                    mpv.togglePause()
-                                    scheduleHide()
-                                }
-                            } else {
-                                Button {
-                                    Haptics.tap()
-                                    mpv.togglePause()
-                                    scheduleHide()
-                                } label: {
-                                    Image(systemName: mpv.isPaused ? "play.fill" : "pause.fill")
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .frame(width: 36, height: 36)
-                                        .contentShape(Circle())
-                                }
-                                .playerButtonStyle()
-                                .playerGlass(interactive: true, in: Circle())
-                                .accessibilityLabel(mpv.isPaused ? "播放" : "暂停")
-                            }
-
-                            if let onNextEpisode {
-                                if #available(iOS 26, *) {
-                                    BarGlassPillButton(
-                                        title: "下一集",
-                                        systemImage: "forward.end.fill",
-                                        fontSize: 12,
-                                        iconSize: 12,
-                                        height: 36,
-                                        horizontalPadding: 13,
-                                        tone: .dark,
-                                        accessibilityLabel: "播放下一集"
-                                    ) {
-                                        Haptics.tap()
-                                        onNextEpisode()
-                                        scheduleHide()
-                                    }
-                                } else {
-                                    Button {
-                                        Haptics.tap()
-                                        onNextEpisode()
-                                        scheduleHide()
-                                    } label: {
-                                        HStack(spacing: 5) {
-                                            Image(systemName: "forward.end.fill")
-                                                .font(.system(size: 12, weight: .semibold))
-                                            Text("下一集")
-                                                .font(.caption.weight(.semibold))
-                                        }
-                                        .padding(.horizontal, 13)
-                                        .frame(height: 36)
-                                        .contentShape(Capsule())
-                                    }
-                                    .playerButtonStyle()
-                                    .playerGlass(interactive: true, in: Capsule())
-                                    .accessibilityLabel("播放下一集")
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(minLength: 0)
-
-                    HStack(spacing: isFullscreen ? 10 : 8) {
-                        speedMenu
-                        optionsMenu
-
-                        if #available(iOS 26, *) {
-                            BarGlassIconButton(
-                                systemImage: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                                pointSize: isFullscreen ? 14 : 13,
-                                diameter: isFullscreen ? 36 : 32,
-                                tone: .dark,
-                                accessibilityLabel: isFullscreen ? "退出全屏" : "全屏"
-                            ) {
-                                if isFullscreen {
-                                    exitFullscreen()
-                                } else {
-                                    toggleFullscreen()
-                                }
-                            }
-                        } else {
-                            Button {
-                                if isFullscreen {
-                                    exitFullscreen()
-                                } else {
-                                    toggleFullscreen()
-                                }
-                            } label: {
-                                Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
-                                    .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
-                                    .frame(width: isFullscreen ? 36 : 32, height: isFullscreen ? 36 : 32)
-                                    .contentShape(Circle())
-                            }
-                            .playerButtonStyle()
-                            .playerGlass(interactive: true, in: Circle())
-                            .accessibilityLabel(isFullscreen ? "退出全屏" : "全屏")
-                        }
-                    }
-                }
+            if isFullscreen {
+                fullscreenTools
+            } else {
+                inlineTools
             }
         }
         .padding(.horizontal, isFullscreen ? Self.fullscreenEdgePadding : 12)
         .padding(.bottom, isFullscreen ? 8 : 6)
+    }
+
+    private var fullscreenTools: some View {
+        // 玻璃两侧各有 4pt 的点击留白，组内 2pt 槽距就是 10pt 玻璃间距。
+        // 按钮按最终宽高直接画。导航栏玻璃的异步测量不能再改变任何按钮的位置。
+        HStack(spacing: 0) {
+            HStack(spacing: 2) {
+                fullscreenCircleButton(
+                    mpv.isPaused ? "play.fill" : "pause.fill",
+                    pointSize: 14,
+                    label: mpv.isPaused ? "播放" : "暂停"
+                ) {
+                    Haptics.tap()
+                    mpv.togglePause()
+                    scheduleHide()
+                }
+
+                if let onNextEpisode {
+                    Button {
+                        Haptics.tap()
+                        onNextEpisode()
+                        scheduleHide()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "forward.end.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                            Text("下一集")
+                                .font(.system(size: 12, weight: .semibold))
+                        }
+                        .lineLimit(1)
+                        .frame(width: 76, height: Self.fullscreenIconDiameter)
+                        .playerGlass(interactive: true, in: Capsule())
+                        .frame(width: 84, height: Self.fullscreenIconHitSize)
+                        .contentShape(Rectangle())
+                    }
+                    .playerButtonStyle()
+                    .accessibilityLabel("播放下一集")
+                }
+            }
+            .fixedSize()
+
+            Spacer(minLength: 0)
+
+            HStack(spacing: 2) {
+                // 倍速胶囊只向左顺延，可变文字不会推动字幕或退出按钮。
+                speedMenu
+                    .padding(.horizontal, 4)
+                    .frame(height: Self.fullscreenIconHitSize)
+                optionsMenu
+                    .padding(.horizontal, 4)
+                    .frame(height: Self.fullscreenIconHitSize)
+                fullscreenCircleButton(
+                    "arrow.down.right.and.arrow.up.left",
+                    pointSize: 14,
+                    label: "退出全屏",
+                    action: exitFullscreen
+                )
+            }
+            .fixedSize()
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private var inlineTools: some View {
+        GlassGroup(spacing: 8) {
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+                speedMenu
+                optionsMenu
+
+                if #available(iOS 26, *) {
+                    BarGlassIconButton(
+                        systemImage: "arrow.up.left.and.arrow.down.right",
+                        pointSize: 13,
+                        diameter: 32,
+                        tone: .dark,
+                        accessibilityLabel: "全屏",
+                        action: toggleFullscreen
+                    )
+                } else {
+                    Button(action: toggleFullscreen) {
+                        Image(systemName: "arrow.up.left.and.arrow.down.right")
+                            .font(.system(size: 13, weight: .semibold))
+                            .frame(width: 32, height: 32)
+                            .contentShape(Circle())
+                    }
+                    .playerButtonStyle()
+                    .playerGlass(interactive: true, in: Circle())
+                    .accessibilityLabel("全屏")
+                }
+            }
+        }
     }
 
     // MARK: 倍速与默认倍速菜单
@@ -1625,7 +1606,7 @@ struct MPVFullscreenPlayer: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            MPVVideoHost(surface: model.mpv.surface, claim: model.isMPVFullscreen)
+            MPVVideoHost(surface: model.mpv.surface, host: .fullscreen)
                 .ignoresSafeArea()
             MPVControls(
                 mpv: model.mpv,
@@ -1735,7 +1716,8 @@ final class MPVFullscreenManager {
         let rotatesAfterPresentation = isPhone && startsLandscape != wantsLandscape
         let controller = MPVFullscreenHostingController(rootView: MPVFullscreenPlayer(model: model))
         controller.allowedOrientations = initialMode == .landscape ? .landscape : .portrait
-        controller.modalPresentationStyle = .fullScreen
+        // 底下的内嵌承载保留在同一个 window 内，退出时可先交还 Metal 画面。
+        controller.modalPresentationStyle = .overFullScreen
         controller.modalTransitionStyle = .crossDissolve
         controller.modalPresentationCapturesStatusBarAppearance = true
         controller.overrideUserInterfaceStyle = .dark
@@ -1846,6 +1828,9 @@ final class MPVFullscreenManager {
             ScreenOrientation.set(.portrait, in: scene)
         }
         if let presenting = controller.presentingViewController {
+            // 旋转结束后再交还。正常退出时两个容器仍在 window 内，
+            // 不等全屏被移除才从已脱窗的层级里取回 Metal 画面。
+            model?.mpv.surface.preferFullscreen(false)
             presenting.dismiss(animated: animated, completion: finish)
         } else {
             finish()
