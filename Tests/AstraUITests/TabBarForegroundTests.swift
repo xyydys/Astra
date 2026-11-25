@@ -1,3 +1,4 @@
+import Foundation
 import XCTest
 
 final class TabBarForegroundTests: XCTestCase {
@@ -25,11 +26,19 @@ final class TabBarForegroundTests: XCTestCase {
         }
 
         XCUIDevice.shared.press(.home)
-        sleep(2)
-        XCTAssertTrue(app.state == .runningBackground || app.state == .runningBackgroundSuspended)
+        let didEnterBackground = NSPredicate { _, _ in
+            let state = app.state
+            return state == .runningBackground || state == .runningBackgroundSuspended
+        }
+        let backgroundResult = XCTWaiter.wait(
+            for: [XCTNSPredicateExpectation(predicate: didEnterBackground, object: nil)],
+            timeout: 18
+        )
+        print("TAB FOREGROUND: \(label) background wait \(backgroundResult), state \(app.state.rawValue)")
         app.activate()
         sleep(3)
-        snap("\(label)-02-resumed-home")
+        snap(backgroundResult == .completed ? "\(label)-02-resumed-home" : "\(label)-02-background-unverified")
+        // A missed lifecycle transition must not prevent the primary tab-switch comparison.
         tap(0.68, 0.948)
         sleep(3)
         snap("\(label)-03-my")
@@ -43,7 +52,7 @@ final class TabBarForegroundTests: XCTestCase {
     }
 
     private func snap(_ name: String) {
-        print("TAB FOREGROUND: \(name)")
+        print("TAB FOREGROUND: \(name), uptime \(ProcessInfo.processInfo.systemUptime)")
         let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
         attachment.name = name
         attachment.lifetime = .keepAlways
