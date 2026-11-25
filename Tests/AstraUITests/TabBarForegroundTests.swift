@@ -26,7 +26,9 @@ final class TabBarForegroundTests: XCTestCase {
         app.launch()
 
         let home = app.staticTexts[homeLabel].firstMatch
-        let profile = app.staticTexts[profileLabel].firstMatch
+        let profile = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label BEGINSWITH %@", profileLabel))
+            .firstMatch
         XCTAssertTrue(home.waitForExistence(timeout: 15), "Expected Home on fresh launch")
         sleep(2)
         snap("\(label)-01-cold-home")

@@ -14,6 +14,7 @@ enum UITestScenario {
     static func prepare() {
         guard let scenario = current else { return }
         resetReaderSettings()
+        guard #available(iOS 26, *) else { return }
         switch scenario {
         case "novelDetailDark":
             NovelDetailScenario.seed(tint: PosterTint(red: 0.20, green: 0.17, blue: 0.16))
