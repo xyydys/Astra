@@ -1111,153 +1111,175 @@ struct BarGlassIconMenuButton: View {
     }
 }
 
-/// 首页菜单的交互仍由 UIKit 提供，底板与播放器共用同一个玻璃渲染器。
-/// 底板直接使用最终尺寸，不通过缩放导航栏来调整高度。
+// MARK: - 首页原生导航栏玻璃菜单
+
 @available(iOS 26.0, *)
-struct HomeGlassPillMenuButton: UIViewRepresentable {
-    let title: String
-    let systemImage: String
-    var menuTitle: String = ""
-    let accessibilityLabel: String
-    let menuElements: () -> [UIMenuElement]
+struct AstraHomeGlassMenuBar: UIViewRepresentable {
+    struct Menu {
+        let title: String
+        let systemImage: String
+        var menuTitle = ""
+        let accessibilityLabel: String
+        let elements: @MainActor () -> [UIMenuElement]
+    }
 
-    final class Container: UIView {
-        let button = UIButton(type: .system)
-        private let glass = AstraBarMatchedGlassContainerView()
-        private let sampleViewport = UIView()
-        private let sampleBar = AstraItemOnlyNavigationBar(frame: CGRect(x: 0, y: 0, width: 200, height: 56))
-        private var refreshTask: Task<Void, Never>?
-        private var observations: [NSObjectProtocol] = []
+    static let height: CGFloat = AstraBarGlassMeasure.nominalGlass
 
+    let leading: Menu
+    var trailing: Menu?
+    var darkBackground: Bool
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeUIView(context: Context) -> ChromeView {
+        ChromeView(frame: .zero)
+    }
+
+    func updateUIView(_ view: ChromeView, context: Context) {
+        let edgeStyle: UIUserInterfaceStyle = darkBackground || colorScheme == .dark ? .dark : .light
+        view.configure(leading: leading, trailing: trailing, edgeStyle: edgeStyle)
+    }
+
+    /// 透明导航栏只拦截栏按钮，不挡住两颗按钮之间的首页内容。
+    private final class MenuNavigationBar: UINavigationBar {
         override init(frame: CGRect) {
             super.init(frame: frame)
-            isOpaque = false
-            backgroundColor = .clear
-            // 导航栏样本只有布局尺寸，无可见区域和点击区域。
-            sampleViewport.clipsToBounds = true
-            sampleViewport.isUserInteractionEnabled = false
-            sampleViewport.accessibilityElementsHidden = true
-            sampleViewport.frame = CGRect(x: -1, y: -1, width: 1, height: 1)
-            sampleBar.overrideUserInterfaceStyle = .dark
-            let item = UINavigationItem(title: "")
-            let sampleItem = UIBarButtonItem(primaryAction: UIAction(
-                title: "", image: UIImage(systemName: "circle")
-            ) { _ in })
-            item.leftBarButtonItem = sampleItem
-            sampleBar.setItems([item], animated: false)
-            sampleViewport.addSubview(sampleBar)
-            addSubview(sampleViewport)
-
-            glass.configure(interactive: false, corner: .capsule, style: .dark)
-            addSubview(glass)
-            button.showsMenuAsPrimaryAction = true
-            addSubview(button)
-
-            for name in [
-                UIApplication.didBecomeActiveNotification,
-                UIAccessibility.reduceTransparencyStatusDidChangeNotification
-            ] {
-                let observation = NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                    Task { @MainActor in self?.scheduleSample() }
-                }
-                observations.append(observation)
-            }
+            astraClearNavigationBar(self)
         }
 
         required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-        deinit {
-            refreshTask?.cancel()
-            observations.forEach { NotificationCenter.default.removeObserver($0) }
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window != nil { astraClearNavigationBar(self) }
         }
 
-        override var intrinsicContentSize: CGSize {
-            button.intrinsicContentSize
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard let hit = super.hitTest(point, with: event), hit !== self,
+                  hit.convert(hit.bounds, to: self).width < bounds.width * 0.9
+            else { return nil }
+            return hit
+        }
+    }
+
+    final class ChromeView: UIView {
+        @MainActor
+        private final class Slot {
+            private let menuTitle: String
+            private var elements: @MainActor () -> [UIMenuElement]
+            private var label: (title: String, symbol: String, scale: CGFloat)?
+
+            init(menu: Menu) {
+                menuTitle = menu.menuTitle
+                elements = menu.elements
+            }
+
+            private(set) lazy var item: UIBarButtonItem = {
+                let deferred = UIDeferredMenuElement.uncached { [weak self] completion in
+                    completion(self?.elements() ?? [])
+                }
+                // 栏按钮自己画玻璃、显示图标和文字，也是系统展开和收回菜单的源视图。
+                return UIBarButtonItem(title: nil, image: nil, primaryAction: nil,
+                                       menu: UIMenu(title: menuTitle, children: [deferred]))
+            }()
+
+            func matches(_ menu: Menu) -> Bool { menu.menuTitle == menuTitle }
+
+            func update(_ menu: Menu, displayScale: CGFloat) {
+                elements = menu.elements
+                item.accessibilityLabel = menu.accessibilityLabel
+                guard label?.title != menu.title ||
+                        label?.symbol != menu.systemImage ||
+                        label?.scale != displayScale
+                else { return }
+                label = (menu.title, menu.systemImage, displayScale)
+                // 文字只作为系统栏按钮的模板图内容，不能单独承担按钮或菜单。
+                item.image = AstraBarGlassMeasure.renderPillGlyph(
+                    symbol: menu.systemImage, title: menu.title, showsChevron: true,
+                    fontSize: 14.5, iconPointSize: 13.5, horizontalPadding: 14,
+                    layoutScale: 1, renderScale: 1, displayScale: displayScale, monospacedDigits: false
+                )
+            }
         }
 
-        override func layoutSubviews() {
-            super.layoutSubviews()
-            glass.frame = bounds
-            button.frame = bounds
+        private let edge = AstraGlassEdge.makeEdgeScrollView()
+        private let bar = MenuNavigationBar()
+        private let navigationItem = UINavigationItem(title: "")
+        private var leadingSlot: Slot?
+        private var trailingSlot: Slot?
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            backgroundColor = .clear
+            clipsToBounds = false
+            overrideUserInterfaceStyle = .dark
+            bar.tintColor = .label
+            bar.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16)
+            bar.setItems([navigationItem], animated: false)
+            addSubview(edge)
+            addSubview(bar)
+            // 对应独立顶栏的隐藏顶部滚动边；不触碰页面滚动视图或 TabBar。
+            AstraGlassEdge.register(self, scrollView: edge, edge: .top)
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        fileprivate func configure(leading: Menu, trailing: Menu?, edgeStyle: UIUserInterfaceStyle) {
+            if edge.overrideUserInterfaceStyle != edgeStyle {
+                edge.overrideUserInterfaceStyle = edgeStyle
+            }
+            let scale = max(1, traitCollection.displayScale)
+            if leadingSlot?.matches(leading) != true {
+                leadingSlot = Slot(menu: leading)
+            }
+            leadingSlot?.update(leading, displayScale: scale)
+            if navigationItem.leftBarButtonItem !== leadingSlot?.item {
+                navigationItem.leftBarButtonItem = leadingSlot?.item
+            }
+
+            if let trailing {
+                if trailingSlot?.matches(trailing) != true {
+                    trailingSlot = Slot(menu: trailing)
+                }
+                trailingSlot?.update(trailing, displayScale: scale)
+            } else {
+                trailingSlot = nil
+            }
+            if navigationItem.rightBarButtonItem !== trailingSlot?.item {
+                navigationItem.rightBarButtonItem = trailingSlot?.item
+            }
         }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
-            scheduleSample()
-        }
-
-        private func scheduleSample() {
-            refreshTask?.cancel()
             guard window != nil else { return }
-            refreshTask = Task { @MainActor [weak self] in
-                for delay in [UInt64(20_000_000), 160_000_000] {
-                    try? await Task.sleep(nanoseconds: delay)
-                    guard !Task.isCancelled, let self, self.window != nil else { return }
-                    self.sampleBar.layoutIfNeeded()
-                    AstraGlassMaterialPool.shared.captureFromNavigationBar(self.sampleBar)
-                }
+            setNeedsLayout()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
+                guard let self, self.window != nil else { return }
+                // 用真正可见的系统栏按钮给播放器采样，不再创建隐藏的样本导航栏。
+                AstraGlassMaterialPool.shared.captureFromNavigationBar(self.bar)
             }
         }
-    }
 
-    final class Coordinator {
-        var menuElements: () -> [UIMenuElement]
-        var installedMenuTitle: String?
-        var installedTitle: String?
-        var installedSymbol: String?
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard bounds.width > 0 else { return }
+            let edgeFrame = window.map { $0.convert($0.bounds, to: self) } ?? bounds
+            if edge.frame != edgeFrame { edge.frame = edgeFrame }
 
-        init(menuElements: @escaping () -> [UIMenuElement]) {
-            self.menuElements = menuElements
+            // 用导航栏自己的高度和原始比例，不用 measure/scale 追着按压的玻璃改尺寸。
+            let size = bar.sizeThatFits(CGSize(width: bounds.width, height: 200))
+            let barBounds = CGRect(x: 0, y: 0, width: bounds.width, height: max(44, size.height))
+            let center = CGPoint(x: bounds.midX, y: bounds.midY)
+            if bar.bounds != barBounds { bar.bounds = barBounds }
+            if bar.center != center { bar.center = center }
+            bar.layoutIfNeeded()
         }
-    }
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator(menuElements: menuElements)
-    }
-
-    func makeUIView(context: Context) -> Container {
-        Container(frame: .zero)
-    }
-
-    func updateUIView(_ view: Container, context: Context) {
-        let button = view.button
-        let coordinator = context.coordinator
-        coordinator.menuElements = menuElements
-        if coordinator.installedMenuTitle != menuTitle {
-            let deferred = UIDeferredMenuElement.uncached { [weak coordinator] completion in
-                completion(coordinator?.menuElements() ?? [])
-            }
-            button.menu = UIMenu(title: menuTitle, children: [deferred])
-            coordinator.installedMenuTitle = menuTitle
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            guard !isHidden, alpha > 0.01, isUserInteractionEnabled else { return nil }
+            return bar.hitTest(convert(point, to: bar), with: event)
         }
-        button.accessibilityLabel = accessibilityLabel
-        if coordinator.installedTitle != title || coordinator.installedSymbol != systemImage {
-            var configuration = UIButton.Configuration.plain()
-            configuration.baseForegroundColor = .white
-            configuration.cornerStyle = .capsule
-            configuration.title = title
-            configuration.image = UIImage(
-                systemName: systemImage,
-                withConfiguration: UIImage.SymbolConfiguration(pointSize: 13.5, weight: .semibold)
-            )
-            configuration.imagePadding = 6
-            configuration.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14)
-            configuration.indicator = .popup
-            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
-                var attributes = incoming
-                attributes.font = UIFont.systemFont(ofSize: 14.5, weight: .semibold)
-                return attributes
-            }
-            coordinator.installedTitle = title
-            coordinator.installedSymbol = systemImage
-            button.configuration = configuration
-            view.invalidateIntrinsicContentSize()
-        }
-    }
-
-    func sizeThatFits(_ proposal: ProposedViewSize, uiView: Container, context: Context) -> CGSize? {
-        let size = uiView.intrinsicContentSize
-        return CGSize(width: ceil(max(44, size.width)), height: max(35, ceil(size.height)))
     }
 }
 

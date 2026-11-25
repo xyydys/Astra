@@ -152,10 +152,18 @@ struct RootView: View {
     }
 
     // 强调色仅用于页面内容，不设置 TabView 或窗口的 tint。
+    @ViewBuilder
     private func withContentAccent<Content: View>(_ content: Content) -> some View {
-        content
+        let styled = content
             .tint(AppAccent.color(accentHex))
             .accentColor(AppAccent.color(accentHex))
+        if #available(iOS 26, *) {
+            // 只关闭标签页内容延伸到底栏后方时的底边遮罩。
+            // 保留原生 TabView、滚动收缩和顶部滚动边效果。
+            styled.scrollEdgeEffectHidden(true, for: .bottom)
+        } else {
+            styled
+        }
     }
 
     /// iOS 18 起的 Tab 写法：iOS 26 上搜索是底栏右侧单独的圆形按钮
@@ -205,7 +213,6 @@ struct RootView: View {
             }
             .overlay(alignment: .topLeading) {
                 ContentModeMenu()
-                    .padding(.leading, 16)
                     .padding(.top, 4)
             }
         }
@@ -266,73 +273,35 @@ struct ContentModeMenu: View {
     @AppStorage("comicAgeConfirmed") private var ageConfirmed = false
     @State private var askAge = false
 
-    /// 设置里可以改成 UIKit 菜单（音乐播放时更稳），默认是原来的 SwiftUI 菜单
+    /// 低系统可切换成 UIKit 菜单；iOS 26 始终用原生栏按钮，可以切换选项副标题。
     @AppStorage(ContentModeMenu.nativeKey) private var native = false
+    private var effects = FoliaEffectMenuOptions()
 
     static let nativeKey = "contentModeMenuNative"
+
+    private var modeLabel: String { "切换内容：当前\(mode.title)" }
 
     var body: some View {
         Group {
             if #available(iOS 26, *) {
-                HomeGlassPillMenuButton(
-                    title: mode.title,
-                    systemImage: mode.icon,
-                    accessibilityLabel: "切换内容：当前\(mode.title)"
-                ) {
-                    [
-                        UIMenu.picker(
-                            options: ContentMode.allCases.map {
-                                MenuOption(
-                                    value: $0,
-                                    title: $0.title,
-                                    subtitle: native ? $0.subtitle : nil,
-                                    systemImage: $0.icon
-                                )
-                            },
-                            selected: mode
-                        ) { select($0) }
-                    ]
-                }
-            } else if native {
-                MenuButton(title: mode.title, systemImage: mode.icon, menuKey: mode) {
-                    UIMenu.picker(
-                        options: ContentMode.allCases.map { MenuOption(value: $0, title: $0.title, subtitle: $0.subtitle, systemImage: $0.icon) },
-                        selected: mode
-                    ) { select($0) }
-                }
-                .fixedSize()
-                .glass(in: Capsule())
+                AstraHomeGlassMenuBar(
+                    leading: .init(title: mode.title, systemImage: mode.icon, accessibilityLabel: modeLabel) {
+                        [modePicker(subtitles: native, allowNativeDismissal: true)]
+                    },
+                    trailing: mode == .music ? .init(
+                        title: effects.title, systemImage: effects.systemImage, menuTitle: effects.menuTitle,
+                        accessibilityLabel: effects.accessibilityLabel, elements: { effects.menuElements(allowNativeDismissal: true) }
+                    ) : nil,
+                    darkBackground: mode == .music
+                )
+                .frame(maxWidth: .infinity)
+                .frame(height: AstraHomeGlassMenuBar.height)
             } else {
-                Menu {
-                    Picker("内容", selection: Binding(get: { mode }, set: { select($0) })) {
-                        ForEach(ContentMode.allCases) { item in
-                            Label {
-                                Text(item.title)
-                                Text(item.subtitle)
-                            } icon: {
-                                Image(systemName: item.icon)
-                            }
-                            .tag(item)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                } label: {
-                    HStack(spacing: 6) {
-                        Image(systemName: mode.icon)
-                        Text(mode.title)
-                        Image(systemName: "chevron.down")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .font(.subheadline.weight(.semibold))
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 9)
-                    .contentShape(Capsule())
-                }
-                .buttonStyle(.plain)
-                .glass(interactive: true, in: Capsule())
+                legacyModeMenu
+                    .accessibilityLabel(modeLabel)
+                    .padding(.leading, 16)
             }
         }
-        .accessibilityLabel("切换内容：当前\(mode.title)")
         .alert("成人内容提示", isPresented: $askAge) {
             Button("取消", role: .cancel) {}
             Button("我已满 18 岁") {
@@ -341,6 +310,61 @@ struct ContentModeMenu: View {
             }
         } message: {
             Text("漫画模式的资源来自禁漫天堂，含有成人内容，仅限已满 18 岁的用户使用。请先了解当地法律。")
+        }
+    }
+
+    @ViewBuilder
+    private var legacyModeMenu: some View {
+        if native {
+            MenuButton(title: mode.title, systemImage: mode.icon, menuKey: mode) {
+                modePicker(subtitles: true, allowNativeDismissal: false)
+            }
+            .fixedSize()
+            .glass(in: Capsule())
+        } else {
+            Menu {
+                Picker("内容", selection: Binding(get: { mode }, set: { select($0) })) {
+                    ForEach(ContentMode.allCases) { item in
+                        Label {
+                            Text(item.title)
+                            Text(item.subtitle)
+                        } icon: {
+                            Image(systemName: item.icon)
+                        }
+                        .tag(item)
+                    }
+                }
+                .pickerStyle(.inline)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: mode.icon)
+                    Text(mode.title)
+                    Image(systemName: "chevron.down")
+                        .font(.caption2.weight(.bold))
+                }
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .contentShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .glass(interactive: true, in: Capsule())
+        }
+    }
+
+    private func modePicker(subtitles: Bool, allowNativeDismissal: Bool) -> UIMenu {
+        UIMenu.picker(
+            options: ContentMode.allCases.map {
+                MenuOption(value: $0, title: $0.title, subtitle: subtitles ? $0.subtitle : nil, systemImage: $0.icon)
+            },
+            selected: mode
+        ) { newMode in
+            if allowNativeDismissal {
+                // 先让菜单从原栏按钮收起，再切换页面和右侧栏按钮。
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { select(newMode) }
+            } else {
+                select(newMode)
+            }
         }
     }
 

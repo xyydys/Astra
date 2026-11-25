@@ -41,9 +41,11 @@ struct MusicHomeView: View {
             .environment(\.colorScheme, .dark)
         }
         .overlay(alignment: .topTrailing) {
-            FoliaEffectMenu()
-                .padding(.trailing, 16)
-                .padding(.top, 4)
+            if #unavailable(iOS 26) {
+                LegacyFoliaEffectMenu()
+                    .padding(.trailing, 16)
+                    .padding(.top, 4)
+            }
         }
         .navigationBarHiddenCompat()
         .task(id: player.current?.cover) {
@@ -245,48 +247,52 @@ private struct MusicControls: View {
 
 // MARK: 特效切换（右上角，和左上角的模式切换一样是原生下拉菜单）
 
-/// iOS 26 与模式切换共用播放器同材质玻璃；菜单独立于 SwiftUI 刷新。
-private struct FoliaEffectMenu: View {
+private struct LegacyFoliaEffectMenu: View {
+    private var effects = FoliaEffectMenuOptions()
+
+    var body: some View {
+        BarGlassPillMenuButton(
+            title: effects.title, systemImage: effects.systemImage, menuTitle: effects.menuTitle,
+            accessibilityLabel: effects.accessibilityLabel, menuElements: { effects.menuElements() }
+        )
+    }
+}
+
+/// 特效菜单选项在打开时读取，不介入顶栏玻璃或系统菜单过场。
+struct FoliaEffectMenuOptions: DynamicProperty {
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
 
     private var mode: FoliaMode { FoliaMode(rawValue: modeRaw) ?? .classic }
     private var background: FoliaBackground { FoliaBackground(rawValue: backgroundRaw) ?? .latent }
 
-    var body: some View {
-        if #available(iOS 26.0, *) {
-            HomeGlassPillMenuButton(
-                title: mode.name,
-                systemImage: "wand.and.sparkles",
-                menuTitle: "歌词特效",
-                accessibilityLabel: "切换歌词特效：当前\(mode.name)",
-                menuElements: menuElements
-            )
-        } else {
-            BarGlassPillMenuButton(
-                title: mode.name,
-                systemImage: "wand.and.sparkles",
-                menuTitle: "歌词特效",
-                accessibilityLabel: "切换歌词特效：当前\(mode.name)",
-                menuElements: menuElements
-            )
-        }
-    }
+    var title: String { mode.name }
+    let systemImage = "wand.and.sparkles"
+    let menuTitle = "歌词特效"
+    var accessibilityLabel: String { "切换歌词特效：当前\(title)" }
 
-    private func menuElements() -> [UIMenuElement] {
+    @MainActor func menuElements(allowNativeDismissal: Bool = false) -> [UIMenuElement] {
+        let setMode: (String) -> Void = { value in
+            if allowNativeDismissal {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { modeRaw = value }
+            } else {
+                modeRaw = value
+            }
+        }
         func option(_ mode: FoliaMode) -> MenuOption<String> {
             MenuOption(value: mode.rawValue, title: mode.name, systemImage: mode.icon)
         }
-        let modes = UIMenu.picker(options: FoliaMode.folia.map(option), selected: modeRaw) { modeRaw = $0 }
+        let modes = UIMenu.picker(options: FoliaMode.folia.map(option), selected: modeRaw, onSelect: setMode)
         // 仿 Apple Music 直接放一项；Mineradio 的特效多，收进二级菜单
-        let amll = UIMenu.picker(options: [option(.amll)], selected: modeRaw) { modeRaw = $0 }
+        let amll = UIMenu.picker(options: [option(.amll)], selected: modeRaw, onSelect: setMode)
         let mineradio = UIMenu.picker(
             title: mode.isMineradio ? "Mineradio：\(mode.name)" : "Mineradio 粒子",
             image: UIImage(systemName: "circle.hexagongrid"),
             inline: false,
             options: FoliaMode.mineradio.map(option),
-            selected: modeRaw
-        ) { modeRaw = $0 }
+            selected: modeRaw,
+            onSelect: setMode
+        )
         var children: [UIMenuElement] = [modes, UIMenu(options: .displayInline, children: amll.children + [mineradio])]
         if mode.isFolia {
             children.append(UIMenu.picker(

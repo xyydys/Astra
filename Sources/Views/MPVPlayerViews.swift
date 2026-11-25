@@ -424,90 +424,116 @@ struct MPVControls: View {
                     .frame(minWidth: 42, alignment: .trailing)
             }
 
-            // 工具按钮行
+            // 左右各是一组：只调整整行的边缘留白，不单独偏移工具按钮。
             GlassGroup(spacing: isFullscreen ? 10 : 8) {
-                HStack(spacing: isFullscreen ? 10 : 8) {
+                HStack(spacing: 0) {
                     if isFullscreen {
-                        fullscreenCircleButton(
-                            mpv.isPaused ? "play.fill" : "pause.fill",
-                            pointSize: 14,
-                            label: mpv.isPaused ? "播放" : "暂停"
-                        ) {
-                            Haptics.tap()
-                            mpv.togglePause()
-                            scheduleHide()
-                        }
-
-                        if let onNextEpisode {
+                        HStack(spacing: 10) {
                             if #available(iOS 26, *) {
-                                BarGlassPillButton(
-                                    title: "下一集",
-                                    systemImage: "forward.end.fill",
-                                    fontSize: 12,
-                                    iconSize: 12,
-                                    height: 36,
-                                    horizontalPadding: 13,
+                                BarGlassIconButton(
+                                    systemImage: mpv.isPaused ? "play.fill" : "pause.fill",
+                                    pointSize: 14,
+                                    diameter: 36,
                                     tone: .dark,
-                                    accessibilityLabel: "播放下一集"
+                                    accessibilityLabel: mpv.isPaused ? "播放" : "暂停"
                                 ) {
                                     Haptics.tap()
-                                    onNextEpisode()
+                                    mpv.togglePause()
                                     scheduleHide()
                                 }
                             } else {
                                 Button {
                                     Haptics.tap()
-                                    onNextEpisode()
+                                    mpv.togglePause()
                                     scheduleHide()
                                 } label: {
-                                    HStack(spacing: 5) {
-                                        Image(systemName: "forward.end.fill")
-                                            .font(.system(size: 12, weight: .semibold))
-                                        Text("下一集")
-                                            .font(.caption.weight(.semibold))
-                                    }
-                                    .padding(.horizontal, 13)
-                                    .frame(height: 36)
-                                    .contentShape(Capsule())
+                                    Image(systemName: mpv.isPaused ? "play.fill" : "pause.fill")
+                                        .font(.system(size: 14, weight: .semibold))
+                                        .frame(width: 36, height: 36)
+                                        .contentShape(Circle())
                                 }
                                 .playerButtonStyle()
-                                .playerGlass(interactive: true, in: Capsule())
-                                .accessibilityLabel("播放下一集")
+                                .playerGlass(interactive: true, in: Circle())
+                                .accessibilityLabel(mpv.isPaused ? "播放" : "暂停")
+                            }
+
+                            if let onNextEpisode {
+                                if #available(iOS 26, *) {
+                                    BarGlassPillButton(
+                                        title: "下一集",
+                                        systemImage: "forward.end.fill",
+                                        fontSize: 12,
+                                        iconSize: 12,
+                                        height: 36,
+                                        horizontalPadding: 13,
+                                        tone: .dark,
+                                        accessibilityLabel: "播放下一集"
+                                    ) {
+                                        Haptics.tap()
+                                        onNextEpisode()
+                                        scheduleHide()
+                                    }
+                                } else {
+                                    Button {
+                                        Haptics.tap()
+                                        onNextEpisode()
+                                        scheduleHide()
+                                    } label: {
+                                        HStack(spacing: 5) {
+                                            Image(systemName: "forward.end.fill")
+                                                .font(.system(size: 12, weight: .semibold))
+                                            Text("下一集")
+                                                .font(.caption.weight(.semibold))
+                                        }
+                                        .padding(.horizontal, 13)
+                                        .frame(height: 36)
+                                        .contentShape(Capsule())
+                                    }
+                                    .playerButtonStyle()
+                                    .playerGlass(interactive: true, in: Capsule())
+                                    .accessibilityLabel("播放下一集")
+                                }
                             }
                         }
                     }
 
                     Spacer(minLength: 0)
 
-                    speedMenu
-                    optionsMenu
+                    HStack(spacing: isFullscreen ? 10 : 8) {
+                        speedMenu
+                        optionsMenu
 
-                    if isFullscreen {
-                        fullscreenCircleButton(
-                            "arrow.down.right.and.arrow.up.left",
-                            pointSize: 14,
-                            label: "退出全屏",
-                            action: exitFullscreen
-                        )
-                    } else if #available(iOS 26, *) {
-                        BarGlassIconButton(
-                            systemImage: "arrow.up.left.and.arrow.down.right",
-                            pointSize: 13,
-                            diameter: 32,
-                            tone: .dark,
-                            accessibilityLabel: "全屏",
-                            action: toggleFullscreen
-                        )
-                    } else {
-                        Button(action: toggleFullscreen) {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 13, weight: .semibold))
-                                .frame(width: 32, height: 32)
-                                .contentShape(Circle())
+                        if #available(iOS 26, *) {
+                            BarGlassIconButton(
+                                systemImage: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                pointSize: isFullscreen ? 14 : 13,
+                                diameter: isFullscreen ? 36 : 32,
+                                tone: .dark,
+                                accessibilityLabel: isFullscreen ? "退出全屏" : "全屏"
+                            ) {
+                                if isFullscreen {
+                                    exitFullscreen()
+                                } else {
+                                    toggleFullscreen()
+                                }
+                            }
+                        } else {
+                            Button {
+                                if isFullscreen {
+                                    exitFullscreen()
+                                } else {
+                                    toggleFullscreen()
+                                }
+                            } label: {
+                                Image(systemName: isFullscreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                                    .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
+                                    .frame(width: isFullscreen ? 36 : 32, height: isFullscreen ? 36 : 32)
+                                    .contentShape(Circle())
+                            }
+                            .playerButtonStyle()
+                            .playerGlass(interactive: true, in: Circle())
+                            .accessibilityLabel(isFullscreen ? "退出全屏" : "全屏")
                         }
-                        .playerButtonStyle()
-                        .playerGlass(interactive: true, in: Circle())
-                        .accessibilityLabel("全屏")
                     }
                 }
             }
