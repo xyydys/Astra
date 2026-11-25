@@ -41,11 +41,9 @@ struct MusicHomeView: View {
             .environment(\.colorScheme, .dark)
         }
         .overlay(alignment: .topTrailing) {
-            if #unavailable(iOS 26) {
-                LegacyFoliaEffectMenu()
-                    .padding(.trailing, 16)
-                    .padding(.top, 4)
-            }
+            FoliaEffectMenu()
+                .padding(.trailing, 16)
+                .padding(.top, 4)
         }
         .navigationBarHiddenCompat()
         .task(id: player.current?.cover) {
@@ -70,6 +68,8 @@ struct MusicHomeView: View {
 // MARK: 歌词动画
 
 private struct MusicLyricsArea: View {
+    // This switch belongs to the device diagnostic build only.
+    @AppStorage("astraDeviceProbeStaticLyrics") private var useStaticLyrics = false
     let mode: FoliaMode
     let background: FoliaBackground
     let theme: FoliaTheme
@@ -78,7 +78,18 @@ private struct MusicLyricsArea: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        if FoliaSchemeHandler.isAvailable {
+        if useStaticLyrics {
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay { emptyHint }
+                .overlay(alignment: .bottom) {
+                    Text("底栏测试：静态画布")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 24)
+                        .allowsHitTesting(false)
+                }
+        } else if FoliaSchemeHandler.isAvailable {
             FoliaLyricsView(
                 player: player, mode: mode, background: background, theme: theme,
                 songRevision: player.songRevision, clockRevision: player.clockRevision,
@@ -247,63 +258,61 @@ private struct MusicControls: View {
 
 // MARK: 特效切换（右上角，和左上角的模式切换一样是原生下拉菜单）
 
-private struct LegacyFoliaEffectMenu: View {
-    private var effects = FoliaEffectMenuOptions()
-
-    var body: some View {
-        BarGlassPillMenuButton(
-            title: effects.title, systemImage: effects.systemImage, menuTitle: effects.menuTitle,
-            accessibilityLabel: effects.accessibilityLabel, menuElements: { effects.menuElements() }
-        )
-    }
-}
-
-/// 特效菜单选项在打开时读取，不介入顶栏玻璃或系统菜单过场。
-struct FoliaEffectMenuOptions: DynamicProperty {
+/// iOS 26 用真导航栏玻璃按钮（UINavigationBar + UIBarButtonItem(menu:)），展开菜单与按钮深浅完美互通；
+/// 播放时菜单独立于 SwiftUI 刷新，点按和滑选始终稳定
+private struct FoliaEffectMenu: View {
+    @AppStorage("astraDeviceProbeStaticLyrics") private var useStaticLyrics = false
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
 
     private var mode: FoliaMode { FoliaMode(rawValue: modeRaw) ?? .classic }
     private var background: FoliaBackground { FoliaBackground(rawValue: backgroundRaw) ?? .latent }
 
-    var title: String { mode.name }
-    let systemImage = "wand.and.sparkles"
-    let menuTitle = "歌词特效"
-    var accessibilityLabel: String { "切换歌词特效：当前\(title)" }
-
-    @MainActor func menuElements(allowNativeDismissal: Bool = false) -> [UIMenuElement] {
-        let setMode: (String) -> Void = { value in
-            if allowNativeDismissal {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) { modeRaw = value }
-            } else {
-                modeRaw = value
+    var body: some View {
+        BarGlassPillMenuButton(
+            title: mode.name,
+            systemImage: "wand.and.sparkles",
+            showsChevron: true,
+            fontSize: 14.5,
+            iconSize: 13.5,
+            height: 35,
+            horizontalPadding: 14,
+            tone: .dark,
+            menuTitle: "歌词特效",
+            accessibilityLabel: "切换歌词特效：当前\(mode.name)"
+        ) {
+            func option(_ mode: FoliaMode) -> MenuOption<String> {
+                MenuOption(value: mode.rawValue, title: mode.name, systemImage: mode.icon)
             }
-        }
-        func option(_ mode: FoliaMode) -> MenuOption<String> {
-            MenuOption(value: mode.rawValue, title: mode.name, systemImage: mode.icon)
-        }
-        let modes = UIMenu.picker(options: FoliaMode.folia.map(option), selected: modeRaw, onSelect: setMode)
-        // 仿 Apple Music 直接放一项；Mineradio 的特效多，收进二级菜单
-        let amll = UIMenu.picker(options: [option(.amll)], selected: modeRaw, onSelect: setMode)
-        let mineradio = UIMenu.picker(
-            title: mode.isMineradio ? "Mineradio：\(mode.name)" : "Mineradio 粒子",
-            image: UIImage(systemName: "circle.hexagongrid"),
-            inline: false,
-            options: FoliaMode.mineradio.map(option),
-            selected: modeRaw,
-            onSelect: setMode
-        )
-        var children: [UIMenuElement] = [modes, UIMenu(options: .displayInline, children: amll.children + [mineradio])]
-        if mode.isFolia {
-            children.append(UIMenu.picker(
-                title: "背景：\(background.name)",
-                image: UIImage(systemName: "circle.lefthalf.filled"),
+            let modes = UIMenu.picker(options: FoliaMode.folia.map(option), selected: modeRaw) { modeRaw = $0 }
+            // 仿 Apple Music 直接放一项；Mineradio 的特效多，收进二级菜单
+            let amll = UIMenu.picker(options: [option(.amll)], selected: modeRaw) { modeRaw = $0 }
+            let mineradio = UIMenu.picker(
+                title: mode.isMineradio ? "Mineradio：\(mode.name)" : "Mineradio 粒子",
+                image: UIImage(systemName: "circle.hexagongrid"),
                 inline: false,
-                options: FoliaBackground.allCases.map { MenuOption(value: $0.rawValue, title: $0.name) },
-                selected: backgroundRaw
-            ) { backgroundRaw = $0 })
+                options: FoliaMode.mineradio.map(option),
+                selected: modeRaw
+            ) { modeRaw = $0 }
+            var children: [UIMenuElement] = [modes, UIMenu(options: .displayInline, children: amll.children + [mineradio])]
+            if mode.isFolia {
+                children.append(UIMenu.picker(
+                    title: "背景：\(background.name)",
+                    image: UIImage(systemName: "circle.lefthalf.filled"),
+                    inline: false,
+                    options: FoliaBackground.allCases.map { MenuOption(value: $0.rawValue, title: $0.name) },
+                    selected: backgroundRaw
+                ) { backgroundRaw = $0 })
+            }
+            children.append(UIMenu(options: .displayInline, children: [
+                UIAction(
+                    title: "底栏对照：静态画布",
+                    image: UIImage(systemName: "rectangle"),
+                    state: useStaticLyrics ? .on : .off
+                ) { _ in useStaticLyrics.toggle() }
+            ]))
+            return children
         }
-        return children
     }
 }
 
@@ -373,11 +382,9 @@ struct MusicTrackListView: View {
                     player.play(track, in: tracks)
                 } label: {
                     MusicTrackRow(track: track, isCurrent: player.current?.id == track.id)
-                        .libraryGlassCard()
                 }
                 .buttonStyle(.plain)
                 .contextMenu { MusicTrackMenu(track: track) }
-                .libraryGlassListRow()
             }
             .onDelete { offsets in
                 if kind == .favorites { library.removeFavorites(at: offsets) } else { library.removeHistory(at: offsets) }
