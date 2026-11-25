@@ -2,7 +2,7 @@ name: Build IPA
 
 on:
   push:
-    branches-ignore: ["diagnostic/native-tab-bar-foreground"]
+    branches-ignore: ["diagnostic/native-tab-bar-foreground", "diagnostic/music-home-top-glass"]
   workflow_dispatch:
     inputs:
       bundle_id:
