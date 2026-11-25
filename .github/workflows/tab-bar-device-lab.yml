@@ -32,7 +32,7 @@ jobs:
           app="$RUNNER_TEMP/astra-tab-ab/Build/Products/Release-iphoneos/AstraTabBarLab.app"
           test "$(/usr/libexec/PlistBuddy -c 'Print CFBundleIdentifier' "$app/Info.plist")" = "xyy.astra.tablab"
           test -x "$app/AstraTabBarLab"
-          lipo -verify_arch arm64 "$app/AstraTabBarLab"
+          lipo "$app/AstraTabBarLab" -verify_arch arm64
           mkdir Payload
           cp -R "$app" Payload/
           /usr/bin/zip -qry Astra-TabBar-AB.ipa Payload
