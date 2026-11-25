@@ -105,21 +105,6 @@ struct RootView: View {
         .onAppear {
             updateDiagnosticContext()
         }
-        #if DEBUG
-        .task {
-            guard ProcessInfo.processInfo.arguments.contains("--astra-ab-drive-tabs") else { return }
-            // Give the shell time for the real background/foreground cycle first.
-            print("ASTRA_AB_HOME_READY")
-            try? await Task.sleep(nanoseconds: 15_000_000_000)
-            guard !Task.isCancelled else { return }
-            tab = .settings
-            print("ASTRA_AB_SELECTED_MY")
-            try? await Task.sleep(nanoseconds: 7_000_000_000)
-            guard !Task.isCancelled else { return }
-            tab = .home
-            print("ASTRA_AB_SELECTED_HOME")
-        }
-        #endif
         .onOpenURL { url in
             Task {
                 switch await IncomingFile.handle(url, rules: ruleStore) {

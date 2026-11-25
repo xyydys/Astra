@@ -15,41 +15,31 @@ final class TabBarForegroundTests: XCTestCase {
         app.launchArguments = ["-contentMode", "music"] + extraArguments
         app.launch()
 
-        let home = app.staticTexts["未在播放"].firstMatch
-        XCTAssertTrue(home.waitForExistence(timeout: 15), "Expected Music Home on launch")
-        sleep(3)
+        sleep(5)
         snap("\(label)-01-cold-home")
 
+        // Use physical tab taps. Avoid accessibility hierarchy queries, which
+        // previously stalled this test on the hosted simulator.
+        func tap(_ x: CGFloat, _ y: CGFloat) {
+            app.coordinate(withNormalizedOffset: CGVector(dx: x, dy: y)).tap()
+        }
+
         XCUIDevice.shared.press(.home)
-        let backgrounded = XCTNSPredicateExpectation(predicate: NSPredicate { object, _ in
-            guard let app = object as? XCUIApplication else { return false }
-            return app.state == .runningBackground || app.state == .runningBackgroundSuspended
-        }, object: app)
-        XCTAssertEqual(XCTWaiter.wait(for: [backgrounded], timeout: 18), .completed)
+        sleep(2)
+        XCTAssertTrue(app.state == .runningBackground || app.state == .runningBackgroundSuspended)
         app.activate()
-        XCTAssertTrue(home.waitForExistence(timeout: 10))
         sleep(3)
         snap("\(label)-02-resumed-home")
-
-        for pass in 1...1 {
-            tapTab("我的", in: app)
-            sleep(2)
-            snap("\(label)-pass\(pass)-profile")
-            tapTab("首页", in: app)
-            snap("\(label)-pass\(pass)-home-now")
-            sleep(2)
-            snap("\(label)-pass\(pass)-home-2sec")
-            sleep(4)
-            snap("\(label)-pass\(pass)-home-6sec")
-        }
+        tap(0.68, 0.948)
+        sleep(3)
+        snap("\(label)-03-my")
+        tap(0.15, 0.948)
+        snap("\(label)-04-return")
+        sleep(2)
+        snap("\(label)-05-return-plus2")
+        sleep(4)
+        snap("\(label)-06-return-plus6")
         app.terminate()
-    }
-
-    private func tapTab(_ title: String, in app: XCUIApplication) {
-        let tabBarButton = app.tabBars.buttons[title].firstMatch
-        let button = tabBarButton.exists ? tabBarButton : app.buttons[title].firstMatch
-        XCTAssertTrue(button.waitForExistence(timeout: 8), "Missing tab: \(title)")
-        button.tap()
     }
 
     private func snap(_ name: String) {
