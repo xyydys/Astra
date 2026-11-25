@@ -524,6 +524,8 @@ final class AstraBarGlassButtonView: UIView {
     private var contentFrame = CGRect.zero
     private var reportedSize = CGSize(width: 44, height: 44)
     private weak var measuredControl: UIView?
+    var visualCenterOffsetChanged: ((CGFloat) -> Void)?
+    private var reportedVisualCenterOffset: CGFloat?
 
     override init(frame: CGRect) {
         edgeScrollView = AstraGlassEdge.makeEdgeScrollView(style: .dark)
@@ -713,6 +715,7 @@ final class AstraBarGlassButtonView: UIView {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { [weak self] in
                 guard let self, self.window != nil else { return }
                 AstraGlassMaterialPool.shared.captureFromNavigationBar(self.bar)
+                self.reportVisualCenterIfNeeded()
             }
         }
     }
@@ -791,6 +794,8 @@ final class AstraBarGlassButtonView: UIView {
             height: target
         )
 
+        reportVisualCenterIfNeeded()
+
         let measuredSize = content.isCircle
             ? CGSize(width: target, height: target)
             : CGSize(width: ceil(glassWidth), height: target)
@@ -800,6 +805,22 @@ final class AstraBarGlassButtonView: UIView {
             DispatchQueue.main.async { [weak self] in
                 self?.invalidateIntrinsicContentSize()
             }
+        }
+    }
+
+    private func reportVisualCenterIfNeeded() {
+        guard visualCenterOffsetChanged != nil, window != nil, !isInteracting,
+              let control = liveControl() else { return }
+        // 读最终变换之后实际玻璃的位置，而不是拿 SwiftUI 预留框当视觉中心。
+        let glass = AstraBarGlassMeasure.glassFrame(around: control, in: bar).frame
+        let offset = bar.convert(glass, to: self).midX - bounds.midX
+        guard offset.isFinite, abs(offset) <= bounds.width,
+              reportedVisualCenterOffset.map({ abs($0 - offset) > 0.25 }) ?? true
+        else { return }
+        reportedVisualCenterOffset = offset
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.reportedVisualCenterOffset == offset, self.window != nil else { return }
+            self.visualCenterOffsetChanged?(offset)
         }
     }
 
@@ -918,6 +939,7 @@ private struct AstraBarGlassRepresentable: UIViewRepresentable {
     let primaryHandler: (() -> Void)?
     let menuTitle: String
     let menuProvider: (() -> [UIMenuElement])?
+    var onVisualCenterOffsetChange: ((CGFloat) -> Void)? = nil
 
     @Environment(\.colorScheme) private var systemScheme
 
@@ -944,6 +966,7 @@ private struct AstraBarGlassRepresentable: UIViewRepresentable {
     }
 
     private func apply(to view: AstraBarGlassButtonView) {
+        view.visualCenterOffsetChanged = onVisualCenterOffsetChange
         view.configure(
             content: content,
             style: resolvedStyle,
@@ -969,6 +992,7 @@ struct BarGlassIconButton: View {
     var isLoading = false
     var isDisabled = false
     var accessibilityLabel: String? = nil
+    var onVisualCenterOffsetChange: ((CGFloat) -> Void)? = nil
     let action: () -> Void
 
     var body: some View {
@@ -982,7 +1006,8 @@ struct BarGlassIconButton: View {
                 accessibilityLabel: accessibilityLabel,
                 primaryHandler: action,
                 menuTitle: "",
-                menuProvider: nil
+                menuProvider: nil,
+                onVisualCenterOffsetChange: onVisualCenterOffsetChange
             )
             .frame(width: diameter, height: diameter)
         } else {

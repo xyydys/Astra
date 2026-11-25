@@ -37,6 +37,7 @@ struct MPVControls: View {
     let toggleFullscreen: () -> Void
 
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.layoutDirection) private var layoutDirection
     @AppStorage(AppSettings.defaultPlaybackSpeedKey) private var defaultSpeed: Double = 1.0
     @AppStorage(AppAccent.key) private var accentHex = ""
 
@@ -53,6 +54,7 @@ struct MPVControls: View {
     @State private var lockHideTask: Task<Void, Never>?
     @State private var pulseHideTask: Task<Void, Never>?
     @State private var boostPulse = false
+    @State private var fullscreenExitVisualCenterOffset: CGFloat = 0
 
     private static let fullscreenEdgePadding: CGFloat = 14
     private static let fullscreenIconDiameter: CGFloat = 36
@@ -472,12 +474,20 @@ struct MPVControls: View {
 
             Spacer(minLength: 0)
 
-            // 右下三个控件统一使用同一种栏按钮布局；不再把两套玻璃几何混排。
+            // 统一移动整个右下组；以右上锁键的 44pt 点击框中心为对齐线。
+            // 不改三颗按钮之间的间距，也不改原生菜单锚点。
             trailingTools
                 .fixedSize()
                 .frame(height: Self.fullscreenIconHitSize)
+                .offset(x: fullscreenTrailingCorrection)
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var fullscreenTrailingCorrection: CGFloat {
+        let inset = (Self.fullscreenIconHitSize - Self.fullscreenIconDiameter) / 2
+        let inward: CGFloat = layoutDirection == .rightToLeft ? inset : -inset
+        return inward - fullscreenExitVisualCenterOffset
     }
 
     private var inlineTools: some View {
@@ -518,6 +528,7 @@ struct MPVControls: View {
                 diameter: diameter,
                 tone: .dark,
                 accessibilityLabel: label,
+                onVisualCenterOffsetChange: isFullscreen ? { fullscreenExitVisualCenterOffset = $0 } : nil,
                 action: action
             )
         } else {
