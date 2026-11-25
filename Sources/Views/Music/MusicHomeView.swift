@@ -68,6 +68,8 @@ struct MusicHomeView: View {
 // MARK: 歌词动画
 
 private struct MusicLyricsArea: View {
+    // This switch belongs to the device diagnostic build only.
+    @AppStorage("astraDeviceProbeStaticLyrics") private var useStaticLyrics = false
     let mode: FoliaMode
     let background: FoliaBackground
     let theme: FoliaTheme
@@ -76,7 +78,18 @@ private struct MusicLyricsArea: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        if FoliaSchemeHandler.isAvailable {
+        if useStaticLyrics {
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay { emptyHint }
+                .overlay(alignment: .bottom) {
+                    Text("底栏测试：静态画布")
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.bottom, 24)
+                        .allowsHitTesting(false)
+                }
+        } else if FoliaSchemeHandler.isAvailable {
             FoliaLyricsView(
                 player: player, mode: mode, background: background, theme: theme,
                 songRevision: player.songRevision, clockRevision: player.clockRevision,
@@ -248,6 +261,7 @@ private struct MusicControls: View {
 /// iOS 26 用真导航栏玻璃按钮（UINavigationBar + UIBarButtonItem(menu:)），展开菜单与按钮深浅完美互通；
 /// 播放时菜单独立于 SwiftUI 刷新，点按和滑选始终稳定
 private struct FoliaEffectMenu: View {
+    @AppStorage("astraDeviceProbeStaticLyrics") private var useStaticLyrics = false
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
 
@@ -290,6 +304,13 @@ private struct FoliaEffectMenu: View {
                     selected: backgroundRaw
                 ) { backgroundRaw = $0 })
             }
+            children.append(UIMenu(options: .displayInline, children: [
+                UIAction(
+                    title: "底栏对照：静态画布",
+                    image: UIImage(systemName: "rectangle"),
+                    state: useStaticLyrics ? .on : .off
+                ) { _ in useStaticLyrics.toggle() }
+            ]))
             return children
         }
     }
