@@ -157,9 +157,9 @@ struct RootView: View {
         let styled = content
             .tint(AppAccent.color(accentHex))
             .accentColor(AppAccent.color(accentHex))
-        if #available(iOS 26, *) {
-            // 只关闭标签页内容延伸到底栏后方时的底边遮罩。
-            // 保留原生 TabView、滚动收缩和顶部滚动边效果。
+        if #available(iOS 26, *), mode != .music {
+            // 其他模式仍去掉底边遮罩。音乐模式保留原生滚动边，
+            // 让系统在黑色首页与浅色标签页之间自行重新采样。
             styled.scrollEdgeEffectHidden(true, for: .bottom)
         } else {
             styled
