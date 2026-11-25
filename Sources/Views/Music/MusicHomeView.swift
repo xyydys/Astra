@@ -255,43 +255,50 @@ private struct FoliaEffectMenu: View {
     private var background: FoliaBackground { FoliaBackground(rawValue: backgroundRaw) ?? .latent }
 
     var body: some View {
-        BarGlassPillMenuButton(
-            title: mode.name,
-            systemImage: "wand.and.sparkles",
-            showsChevron: true,
-            fontSize: 14.5,
-            iconSize: 13.5,
-            height: 35,
-            horizontalPadding: 14,
-            tone: .dark,
-            menuTitle: "歌词特效",
-            accessibilityLabel: "切换歌词特效：当前\(mode.name)"
-        ) {
-            func option(_ mode: FoliaMode) -> MenuOption<String> {
-                MenuOption(value: mode.rawValue, title: mode.name, systemImage: mode.icon)
-            }
-            let modes = UIMenu.picker(options: FoliaMode.folia.map(option), selected: modeRaw) { modeRaw = $0 }
-            // 仿 Apple Music 直接放一项；Mineradio 的特效多，收进二级菜单
-            let amll = UIMenu.picker(options: [option(.amll)], selected: modeRaw) { modeRaw = $0 }
-            let mineradio = UIMenu.picker(
-                title: mode.isMineradio ? "Mineradio：\(mode.name)" : "Mineradio 粒子",
-                image: UIImage(systemName: "circle.hexagongrid"),
-                inline: false,
-                options: FoliaMode.mineradio.map(option),
-                selected: modeRaw
-            ) { modeRaw = $0 }
-            var children: [UIMenuElement] = [modes, UIMenu(options: .displayInline, children: amll.children + [mineradio])]
-            if mode.isFolia {
-                children.append(UIMenu.picker(
-                    title: "背景：\(background.name)",
-                    image: UIImage(systemName: "circle.lefthalf.filled"),
-                    inline: false,
-                    options: FoliaBackground.allCases.map { MenuOption(value: $0.rawValue, title: $0.name) },
-                    selected: backgroundRaw
-                ) { backgroundRaw = $0 })
-            }
-            return children
+        if #available(iOS 26.0, *) {
+            HomeGlassPillMenuButton(
+                title: mode.name,
+                systemImage: "wand.and.sparkles",
+                menuTitle: "歌词特效",
+                accessibilityLabel: "切换歌词特效：当前\(mode.name)",
+                menuElements: menuElements
+            )
+        } else {
+            BarGlassPillMenuButton(
+                title: mode.name,
+                systemImage: "wand.and.sparkles",
+                menuTitle: "歌词特效",
+                accessibilityLabel: "切换歌词特效：当前\(mode.name)",
+                menuElements: menuElements
+            )
         }
+    }
+
+    private func menuElements() -> [UIMenuElement] {
+        func option(_ mode: FoliaMode) -> MenuOption<String> {
+            MenuOption(value: mode.rawValue, title: mode.name, systemImage: mode.icon)
+        }
+        let modes = UIMenu.picker(options: FoliaMode.folia.map(option), selected: modeRaw) { modeRaw = $0 }
+        // 仿 Apple Music 直接放一项；Mineradio 的特效多，收进二级菜单
+        let amll = UIMenu.picker(options: [option(.amll)], selected: modeRaw) { modeRaw = $0 }
+        let mineradio = UIMenu.picker(
+            title: mode.isMineradio ? "Mineradio：\(mode.name)" : "Mineradio 粒子",
+            image: UIImage(systemName: "circle.hexagongrid"),
+            inline: false,
+            options: FoliaMode.mineradio.map(option),
+            selected: modeRaw
+        ) { modeRaw = $0 }
+        var children: [UIMenuElement] = [modes, UIMenu(options: .displayInline, children: amll.children + [mineradio])]
+        if mode.isFolia {
+            children.append(UIMenu.picker(
+                title: "背景：\(background.name)",
+                image: UIImage(systemName: "circle.lefthalf.filled"),
+                inline: false,
+                options: FoliaBackground.allCases.map { MenuOption(value: $0.rawValue, title: $0.name) },
+                selected: backgroundRaw
+            ) { backgroundRaw = $0 })
+        }
+        return children
     }
 }
 
@@ -361,9 +368,11 @@ struct MusicTrackListView: View {
                     player.play(track, in: tracks)
                 } label: {
                     MusicTrackRow(track: track, isCurrent: player.current?.id == track.id)
+                        .libraryGlassCard()
                 }
                 .buttonStyle(.plain)
                 .contextMenu { MusicTrackMenu(track: track) }
+                .libraryGlassListRow()
             }
             .onDelete { offsets in
                 if kind == .favorites { library.removeFavorites(at: offsets) } else { library.removeHistory(at: offsets) }

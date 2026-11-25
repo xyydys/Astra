@@ -274,15 +274,9 @@ struct ContentModeMenu: View {
     var body: some View {
         Group {
             if #available(iOS 26, *) {
-                BarGlassPillMenuButton(
+                HomeGlassPillMenuButton(
                     title: mode.title,
                     systemImage: mode.icon,
-                    showsChevron: true,
-                    fontSize: 14.5,
-                    iconSize: 13.5,
-                    height: 35,
-                    horizontalPadding: 14,
-                    tone: .dark,
                     accessibilityLabel: "切换内容：当前\(mode.title)"
                 ) {
                     [

@@ -1112,6 +1112,78 @@ struct BarGlassIconMenuButton: View {
     }
 }
 
+/// 首页专用：采用系统 UIButton 玻璃，外观由系统当前方式渲染，不缩放玻璃。
+/// 播放器和其它玻璃继续使用原来的组件。
+@available(iOS 26.0, *)
+struct HomeGlassPillMenuButton: UIViewRepresentable {
+    let title: String
+    let systemImage: String
+    var menuTitle: String = ""
+    let accessibilityLabel: String
+    let menuElements: () -> [UIMenuElement]
+
+    final class Coordinator {
+        var menuElements: () -> [UIMenuElement]
+        var installedMenuTitle: String?
+        var installedTitle: String?
+        var installedSymbol: String?
+
+        init(menuElements: @escaping () -> [UIMenuElement]) {
+            self.menuElements = menuElements
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(menuElements: menuElements)
+    }
+
+    func makeUIView(context: Context) -> UIButton {
+        let button = UIButton(type: .system)
+        button.showsMenuAsPrimaryAction = true
+        button.automaticallyUpdatesConfiguration = true
+        return button
+    }
+
+    func updateUIView(_ button: UIButton, context: Context) {
+        let coordinator = context.coordinator
+        coordinator.menuElements = menuElements
+        if coordinator.installedMenuTitle != menuTitle {
+            let deferred = UIDeferredMenuElement.uncached { [weak coordinator] completion in
+                completion(coordinator?.menuElements() ?? [])
+            }
+            button.menu = UIMenu(title: menuTitle, children: [deferred])
+            coordinator.installedMenuTitle = menuTitle
+        }
+        button.accessibilityLabel = accessibilityLabel
+        if coordinator.installedTitle != title || coordinator.installedSymbol != systemImage {
+            var configuration = UIButton.Configuration.glass()
+            configuration.cornerStyle = .capsule
+            configuration.title = title
+            configuration.image = UIImage(
+                systemName: systemImage,
+                withConfiguration: UIImage.SymbolConfiguration(pointSize: 13.5, weight: .semibold)
+            )
+            configuration.imagePadding = 6
+            configuration.contentInsets = NSDirectionalEdgeInsets(top: 7, leading: 14, bottom: 7, trailing: 14)
+            configuration.indicator = .popup
+            configuration.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+                var attributes = incoming
+                attributes.font = UIFont.systemFont(ofSize: 14.5, weight: .semibold)
+                return attributes
+            }
+            coordinator.installedTitle = title
+            coordinator.installedSymbol = systemImage
+            button.configuration = configuration
+            button.invalidateIntrinsicContentSize()
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIButton, context: Context) -> CGSize? {
+        let size = uiView.intrinsicContentSize
+        return CGSize(width: ceil(max(44, size.width)), height: max(35, ceil(size.height)))
+    }
+}
+
 /// 胶囊真导航栏玻璃菜单按钮（用于首页顶部模式菜单、音乐首页右上角特效菜单、播放器倍速菜单）
 struct BarGlassPillMenuButton: View {
     let title: String

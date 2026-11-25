@@ -332,6 +332,28 @@ struct ComicFavoritesView: View {
     }
 }
 
+// MARK: - 收藏 / 历史玻璃卡片
+
+extension View {
+    /// 与小说首页「继续阅读」共用交互式玻璃，不把整张列表做成一块玻璃。
+    func libraryGlassCard() -> some View {
+        let shape = RoundedRectangle(cornerRadius: 26, style: .continuous)
+        return self
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .contentShape(shape)
+            .glass(interactive: true, in: shape)
+    }
+
+    func libraryGlassListRow() -> some View {
+        self
+            .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+    }
+}
+
 // MARK: - 历史
 
 struct HistoryView: View {
@@ -344,15 +366,14 @@ struct HistoryView: View {
         List {
             ForEach(records) { record in
                 // 漫画记录打开详情页（那里有「继续阅读」），影视 / 番剧直接续播
-                if record.isComic || record.isNovel {
-                    NavigationLink(destination: AppDestination(record.subject)) {
-                        HistoryRow(record: record)
-                    }
-                } else {
-                    NavigationLink(destination: AppDestination(record.playRequest)) {
-                        HistoryRow(record: record)
-                    }
+                let destination = record.isComic || record.isNovel
+                    ? AppDestination(record.subject) : AppDestination(record.playRequest)
+                NavigationLink(destination: destination) {
+                    HistoryRow(record: record)
+                        .libraryGlassCard()
                 }
+                .buttonStyle(.plain)
+                .libraryGlassListRow()
             }
             .onDelete { offsets in
                 library.removeRecords(Set(offsets.map { records[$0].subjectID }))
