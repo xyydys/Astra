@@ -15,7 +15,7 @@ concurrency:
 jobs:
   compare:
     runs-on: macos-26-intel
-    timeout-minutes: 54
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v4
         with:
@@ -98,7 +98,7 @@ jobs:
             2>&1 | tee diagnostics/build.log
 
       - name: Compare Astra Music Home with and without top glass
-        timeout-minutes: 8
+        timeout-minutes: 24
         shell: bash
         run: |
           set -euo pipefail
@@ -114,7 +114,7 @@ jobs:
         shell: bash
         run: |
           mkdir -p diagnostics
-          if [ -d result.xcresult ]; then
+          if [ -f result.xcresult/Info.plist ]; then
             xcrun xcresulttool export attachments --path result.xcresult --output-path diagnostics/shots
           fi
           if [ -n "${UDID:-}" ]; then

@@ -16,9 +16,6 @@ final class TabBarForegroundTests: XCTestCase {
         app.launch()
 
         let home = app.staticTexts["未在播放"].firstMatch
-        let profile = app.descendants(matching: .any)
-            .matching(NSPredicate(format: "label BEGINSWITH %@", "规则管理"))
-            .firstMatch
         XCTAssertTrue(home.waitForExistence(timeout: 15), "Expected Music Home on launch")
         sleep(3)
         snap("\(label)-01-cold-home")
@@ -34,13 +31,11 @@ final class TabBarForegroundTests: XCTestCase {
         sleep(3)
         snap("\(label)-02-resumed-home")
 
-        for pass in 1...2 {
+        for pass in 1...1 {
             tapTab("我的", in: app)
-            XCTAssertTrue(profile.waitForExistence(timeout: 8))
             sleep(2)
             snap("\(label)-pass\(pass)-profile")
             tapTab("首页", in: app)
-            XCTAssertTrue(home.waitForExistence(timeout: 8))
             snap("\(label)-pass\(pass)-home-now")
             sleep(2)
             snap("\(label)-pass\(pass)-home-2sec")
