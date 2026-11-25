@@ -131,6 +131,8 @@ struct UITestHarness: View {
 
     var body: some View {
         switch scenario {
+        case "tabBarForegroundControl":
+            TabBarForegroundControl()
         case "reader":
             ReaderScenario()
         case "readerInline":

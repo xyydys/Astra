@@ -2,6 +2,7 @@ name: Build IPA
 
 on:
   push:
+    branches-ignore: ["diagnostic/native-tab-bar-foreground"]
   workflow_dispatch:
     inputs:
       bundle_id:

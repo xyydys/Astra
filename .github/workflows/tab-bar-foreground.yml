@@ -1,0 +1,120 @@
+name: Tab Bar Foreground Diagnostic
+
+on:
+  push:
+    branches: ["diagnostic/native-tab-bar-foreground"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tab-bar-foreground-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compare:
+    runs-on: macos-26-intel
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Select Xcode with an installed iOS 26 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p diagnostics
+          for xcode in /Applications/Xcode_26.6.app /Applications/Xcode_26.5.app /Applications/Xcode_26.4.1.app /Applications/Xcode.app; do
+            [ -d "$xcode" ] || continue
+            export DEVELOPER_DIR="$xcode/Contents/Developer"
+            echo "Trying $DEVELOPER_DIR"
+            xcrun simctl list devices available -j > /tmp/astra-sim-devices.json || continue
+            UDID=$(python3 - /tmp/astra-sim-devices.json <<'PY'
+          import json
+          import sys
+          devices = json.load(open(sys.argv[1]))["devices"]
+          candidates = []
+          for runtime, entries in devices.items():
+              if not runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-26-"):
+                  continue
+              os_version = tuple(map(int, runtime.split("iOS-")[-1].split("-")))
+              for device in entries:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      rank = (os_version[:2] == (26, 6), os_version, device["name"] == "iPhone 17 Pro Max", "Pro" in device["name"])
+                      candidates.append((rank, device["udid"], device["name"], runtime))
+          if candidates:
+              _, udid, name, runtime = max(candidates)
+              print(udid)
+              print(f"{name} ({runtime})", file=sys.stderr)
+              if not runtime.startswith("com.apple.CoreSimulator.SimRuntime.iOS-26-6"):
+                  print("Using a comparison runtime, not the reported iOS 26.6 device version.", file=sys.stderr)
+          PY
+            )
+            [ -n "$UDID" ] || continue
+            {
+              xcodebuild -version
+              xcrun simctl list runtimes
+              xcrun simctl list devices available | grep -F "$UDID"
+            } | tee diagnostics/environment.txt
+            printf 'DEVELOPER_DIR=%s\nUDID=%s\n' "$DEVELOPER_DIR" "$UDID" >> "$GITHUB_ENV"
+            exit 0
+          done
+          echo "::error::No compatible iOS 26 iPhone Simulator found on runner"
+          exit 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Generate test project
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash Tools/FoliaEmbed/build.sh
+          mkdir -p Vendor
+          curl --fail --location --retry 3 -o /tmp/nodejs-mobile.zip https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-ios.zip
+          unzip -q -o /tmp/nodejs-mobile.zip 'NodeMobile.xcframework/*' -d Vendor
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Compare the Astra flow and stock SwiftUI tabs
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl ui "$UDID" appearance light
+          set +e
+          xcodebuild test -project Astra.xcodeproj -scheme Astra \
+            -destination "id=$UDID" -parallel-testing-enabled NO \
+            -resultBundlePath result.xcresult \
+            -only-testing:AstraUITests/TabBarForegroundTests \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            > diagnostics/xcodebuild.log 2>&1
+          status=$?
+          grep -E 'TAB FOREGROUND:|error:|Test Case .* (passed|failed)|\*\* TEST' diagnostics/xcodebuild.log | tail -120 || true
+          exit "$status"
+
+      - name: Collect app logs and screenshots
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p diagnostics
+          if [ -d result.xcresult ]; then
+            xcrun xcresulttool export attachments --path result.xcresult --output-path diagnostics/shots
+          fi
+          if [ -n "${UDID:-}" ]; then
+            data=$(xcrun simctl get_app_container "$UDID" xyy.astra data 2>/dev/null || true)
+            if [ -n "$data" ] && [ -f "$data/Documents/uitest.log" ]; then
+              grep -E '^=====|^BARS ' "$data/Documents/uitest.log" > diagnostics/bars.log || true
+            fi
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Astra-native-tab-foreground
+          path: diagnostics
+          retention-days: 7
+          if-no-files-found: warn
