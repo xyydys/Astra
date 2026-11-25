@@ -107,21 +107,6 @@ struct MPVControls: View {
             )
             .ignoresSafeAreaIf(isFullscreen)
 
-            // 缓冲指示器
-            if mpv.isBuffering, !hasActiveCenterHUD {
-                ZStack {
-                    if !visible || isLocked {
-                        Color.clear
-                            .frame(width: isFullscreen ? 64 : 52, height: isFullscreen ? 64 : 52)
-                            .playerGlass(prominent: true, in: Circle())
-                    }
-                    ProgressView()
-                        .tint(.white)
-                        .controlSize(isFullscreen ? .large : .regular)
-                }
-                .allowsHitTesting(false)
-            }
-
             // 播放信息面板
             if mpv.showStats, let stats = mpv.stats {
                 statsPanel(stats)
@@ -131,18 +116,20 @@ struct MPVControls: View {
                     .allowsHitTesting(false)
             }
 
-            // 主控制栏（保持在安全区内；隐藏时仅透明不移除，避免打开菜单时被收起）
+            // 顶部和底部控件独立布局，不参与中央控件的定位。
             VStack(spacing: 0) {
                 if isFullscreen { topBar }
-                Spacer(minLength: 0)
-                centerButtons
-                    .opacity(hasActiveCenterHUD ? 0 : 1)
                 Spacer(minLength: 0)
                 bottomBar
             }
             .foregroundStyle(.white)
             .opacity(visible && !isLocked ? 1 : 0)
             .allowsHitTesting(visible && !isLocked)
+
+            // 中央控件在画面中心独立布局。隐藏控制栏也用同一枚玻璃显示缓冲。
+            centerControls
+                .foregroundStyle(.white)
+                .ignoresSafeAreaIf(isFullscreen)
 
             // 锁屏状态下只显示解锁胶囊
             if isFullscreen, isLocked, lockBadgeVisible {
@@ -300,44 +287,66 @@ struct MPVControls: View {
 
     // MARK: 中央控制
 
-    private var centerButtons: some View {
-        GlassGroup(spacing: isFullscreen ? 48 : 32) {
-            HStack(spacing: isFullscreen ? 54 : 36) {
-                centerCircleButton(
-                    "gobackward.10",
-                    iconSize: isFullscreen ? 22 : 18,
-                    diameter: isFullscreen ? 52 : 44,
-                    label: "后退 10 秒"
-                ) {
-                    mpv.seek(by: -10)
-                }
+    private var centerControls: some View {
+        let shown = visible && !isLocked && !hasActiveCenterHUD
+        let buffering = mpv.isBuffering && !hasActiveCenterHUD
+        let diameter: CGFloat = isFullscreen ? 56 : 48
+        let spacing: CGFloat = isFullscreen ? 54 : 30
 
-                if mpv.isBuffering, scrub == nil, gestureSeekTarget == nil {
-                    Color.clear.frame(width: isFullscreen ? 68 : 56, height: isFullscreen ? 68 : 56)
+        // 相同尺寸的三格，无论快进按钮或缓冲提示显隐，中间都不会偏移。
+        return HStack(spacing: spacing) {
+            centerCircleButton(
+                "gobackward.10",
+                iconSize: isFullscreen ? 22 : 18,
+                diameter: diameter,
+                label: "后退 10 秒"
+            ) { mpv.seek(by: -10) }
+                .opacity(shown ? 1 : 0)
+                .allowsHitTesting(shown)
+                .accessibilityHidden(!shown)
+
+            ZStack {
+                if buffering {
+                    ProgressView()
+                        .tint(.white)
+                        .controlSize(isFullscreen ? .large : .regular)
+                        .accessibilityLabel("加载中")
                 } else {
-                    centerCircleButton(
-                        mpv.isPaused ? "play.fill" : "pause.fill",
-                        iconSize: isFullscreen ? 29 : 24,
-                        diameter: isFullscreen ? 68 : 56,
-                        label: mpv.isPaused ? "播放" : "暂停"
-                    ) {
+                    Button {
+                        Haptics.tap()
                         mpv.togglePause()
+                        scheduleHide()
+                    } label: {
+                        centerCircleLabel(
+                            mpv.isPaused ? "play.fill" : "pause.fill",
+                            iconSize: isFullscreen ? 29 : 24,
+                            diameter: diameter
+                        )
                     }
-                }
-
-                centerCircleButton(
-                    "goforward.10",
-                    iconSize: isFullscreen ? 22 : 18,
-                    diameter: isFullscreen ? 52 : 44,
-                    label: "前进 10 秒"
-                ) {
-                    mpv.seek(by: 10)
+                    .playerButtonStyle()
+                    .accessibilityLabel(mpv.isPaused ? "播放" : "暂停")
                 }
             }
+            .frame(width: diameter, height: diameter)
+            // 播放和缓冲只切换内层图标，外层玻璃不重建。
+            .playerGlass(interactive: true, in: Circle())
+            .opacity(shown || buffering ? 1 : 0)
+            .allowsHitTesting(shown && !buffering)
+            .accessibilityHidden(!shown && !buffering)
+
+            centerCircleButton(
+                "goforward.10",
+                iconSize: isFullscreen ? 22 : 18,
+                diameter: diameter,
+                label: "前进 10 秒"
+            ) { mpv.seek(by: 10) }
+                .opacity(shown ? 1 : 0)
+                .allowsHitTesting(shown)
+                .accessibilityHidden(!shown)
         }
+        .fixedSize()
     }
 
-    @ViewBuilder
     private func centerCircleButton(
         _ icon: String,
         iconSize: CGFloat,
@@ -345,34 +354,25 @@ struct MPVControls: View {
         label: String,
         action: @escaping () -> Void
     ) -> some View {
-        if #available(iOS 26, *) {
-            BarGlassIconButton(
-                systemImage: icon,
-                pointSize: iconSize,
-                diameter: diameter,
-                tone: .dark,
-                accessibilityLabel: label
-            ) {
-                Haptics.tap()
-                action()
-                scheduleHide()
-            }
-        } else {
-            Button {
-                Haptics.tap()
-                action()
-                scheduleHide()
-            } label: {
-                Image(systemName: icon)
-                    .font(.system(size: iconSize, weight: .semibold))
-                    .symbolReplaceTransition()
-                    .frame(width: diameter, height: diameter)
-                    .contentShape(Circle())
-            }
-            .playerButtonStyle()
-            .playerGlass(interactive: true, in: Circle())
-            .accessibilityLabel(label)
+        Button {
+            Haptics.tap()
+            action()
+            scheduleHide()
+        } label: {
+            centerCircleLabel(icon, iconSize: iconSize, diameter: diameter)
         }
+        .playerButtonStyle()
+        // 与缓冲状态共用 xyydy 对应的玻璃承载层，直接按最终尺寸绘制。
+        .playerGlass(interactive: true, in: Circle())
+        .accessibilityLabel(label)
+    }
+
+    private func centerCircleLabel(_ icon: String, iconSize: CGFloat, diameter: CGFloat) -> some View {
+        Image(systemName: icon)
+            .font(.system(size: iconSize, weight: .semibold))
+            .symbolReplaceTransition()
+            .frame(width: diameter, height: diameter)
+            .contentShape(Circle())
     }
 
     // MARK: 底栏
@@ -1525,16 +1525,25 @@ struct MPVFullscreenPlayer: View {
 /// 独立的 UIKit 全屏承载控制器：明确声明支持的方向、状态栏和底部指示条隐藏，
 /// 避免 SwiftUI fullScreenCover 与 requestGeometryUpdate 并发转场导致方向错位
 private final class MPVFullscreenHostingController<Content: View>: UIHostingController<Content> {
-    var allowedOrientations: UIInterfaceOrientationMask = .landscape
+    var allowedOrientations: UIInterfaceOrientationMask = .portrait
     var onUnexpectedDismiss: (() -> Void)?
+    private var sizeTransition: Int?
+    private var transitionGeneration = 0
+
+    var isChangingSize: Bool { sizeTransition != nil }
 
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         UIDevice.current.userInterfaceIdiom == .phone ? allowedOrientations : .all
     }
 
     override var preferredInterfaceOrientationForPresentation: UIInterfaceOrientation {
-        if UIDevice.current.userInterfaceIdiom == .phone, allowedOrientations == .landscape {
-            return UIDevice.current.orientation == .landscapeRight ? .landscapeLeft : .landscapeRight
+        if UIDevice.current.userInterfaceIdiom == .phone {
+            if allowedOrientations == .portrait { return .portrait }
+            if allowedOrientations == .landscape {
+                let current = presentingViewController?.viewIfLoaded?.window?.windowScene?.interfaceOrientation
+                if let current, current.isLandscape { return current }
+                return ScreenOrientation.preferredLandscapeOrientation
+            }
         }
         return super.preferredInterfaceOrientationForPresentation
     }
@@ -1544,6 +1553,19 @@ private final class MPVFullscreenHostingController<Content: View>: UIHostingCont
     override var childForStatusBarHidden: UIViewController? { nil }
     override var childForHomeIndicatorAutoHidden: UIViewController? { nil }
 
+    override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
+        super.viewWillTransition(to: size, with: coordinator)
+        transitionGeneration += 1
+        let generation = transitionGeneration
+        sizeTransition = generation
+        if !coordinator.animate(alongsideTransition: nil, completion: { [weak self] _ in
+            guard let self, self.sizeTransition == generation else { return }
+            self.sizeTransition = nil
+        }) {
+            sizeTransition = nil
+        }
+    }
+
     override func viewDidDisappear(_ animated: Bool) {
         super.viewDidDisappear(animated)
         if isBeingDismissed {
@@ -1552,8 +1574,8 @@ private final class MPVFullscreenHostingController<Content: View>: UIHostingCont
     }
 }
 
-/// 直接管理全屏 UIKit 控制器的弹出与收起：不经过后台 SwiftUI representable 的 diff 更新，
-/// 彻底避免全屏覆盖后退出按钮无法收起或提前抢走画面导致全屏黑屏
+/// 先让全屏接住同一个视频画面，再由 UIKit 旋转当前可见的控制器。
+/// 退出时全屏继续遮住底下的导航栏，直到场景和视频布局均已回到竖屏。
 @MainActor
 final class MPVFullscreenManager {
     static let shared = MPVFullscreenManager()
@@ -1561,6 +1583,8 @@ final class MPVFullscreenManager {
     private weak var presented: MPVFullscreenHostingController<MPVFullscreenPlayer>?
     private weak var ownerModel: PlayerModel?
     private var isTransitioning = false
+    private var dismissAfterPresentation = false
+    private var portraitExitTask: Task<Void, Never>?
 
     private init() {}
 
@@ -1580,19 +1604,23 @@ final class MPVFullscreenManager {
             return
         }
 
-        let wantsLandscape = UIDevice.current.userInterfaceIdiom == .phone && model.mpv.videoAspect >= 1
+        let isPhone = UIDevice.current.userInterfaceIdiom == .phone
+        let wantsLandscape = isPhone && model.mpv.videoAspect >= 1
         let mode: ScreenOrientation.Mode = wantsLandscape ? .landscape : .portrait
+        let initialScene = presenter.viewIfLoaded?.window?.windowScene
+        let startsLandscape = initialScene?.interfaceOrientation.isLandscape == true
+        let initialMode: ScreenOrientation.Mode = isPhone && startsLandscape ? .landscape : .portrait
+        let rotatesAfterPresentation = isPhone && startsLandscape != wantsLandscape
         let controller = MPVFullscreenHostingController(rootView: MPVFullscreenPlayer(model: model))
-        controller.allowedOrientations = wantsLandscape ? .landscape : .portrait
+        controller.allowedOrientations = initialMode == .landscape ? .landscape : .portrait
         controller.modalPresentationStyle = .fullScreen
+        controller.modalTransitionStyle = .crossDissolve
         controller.modalPresentationCapturesStatusBarAppearance = true
         controller.overrideUserInterfaceStyle = .dark
         controller.view.backgroundColor = .black
-        controller.onUnexpectedDismiss = { [weak self, weak model] in
-            guard let self else { return }
-            self.presented = nil
-            self.ownerModel = nil
-            self.isTransitioning = false
+        controller.onUnexpectedDismiss = { [weak self, weak controller, weak model] in
+            guard let self, let controller, self.presented === controller else { return }
+            self.clearTransition()
             model?.finishMPVFullscreenExit()
             ScreenOrientation.set(.portrait)
         }
@@ -1600,17 +1628,27 @@ final class MPVFullscreenManager {
         presented = controller
         ownerModel = model
         isTransitioning = true
-        ScreenOrientation.prepare(mode)
-        presenter.present(controller, animated: false) { [weak self, weak model] in
-            self?.isTransitioning = false
+        ScreenOrientation.prepare(initialMode)
+        presenter.present(controller, animated: !rotatesAfterPresentation) { [weak self, weak model] in
+            guard let self, self.presented === controller else { return }
             guard controller.presentingViewController != nil else {
-                self?.presented = nil
-                self?.ownerModel = nil
+                self.clearTransition()
                 model?.finishMPVFullscreenExit()
                 ScreenOrientation.set(.portrait)
                 return
             }
-            ScreenOrientation.set(mode)
+            // 避免屏幕旋转被合并进无动画的 present 事务。
+            DispatchQueue.main.async { [weak self, weak controller, weak model] in
+                guard let self, let controller, self.presented === controller else { return }
+                self.isTransitioning = false
+                if self.dismissAfterPresentation {
+                    self.dismissAfterPresentation = false
+                    if let model { self.dismiss(model: model) }
+                    return
+                }
+                controller.allowedOrientations = wantsLandscape ? .landscape : .portrait
+                ScreenOrientation.set(mode, in: controller.view.window?.windowScene)
+            }
         }
     }
 
@@ -1625,46 +1663,93 @@ final class MPVFullscreenManager {
             ScreenOrientation.set(.portrait)
             return
         }
-        guard !isTransitioning else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self, weak model] in
-                guard let self, let model else { return }
-                self.dismiss(model: model)
+        if isTransitioning {
+            if portraitExitTask == nil, !controller.isBeingDismissed {
+                dismissAfterPresentation = true
             }
             return
         }
 
-        presented = nil
-        ownerModel = nil
-        controller.onUnexpectedDismiss = nil
+        isTransitioning = true
+        let scene = controller.view.window?.windowScene
+        let restoresPortrait = UIDevice.current.userInterfaceIdiom == .phone
+            && (ScreenOrientation.mode == .landscape
+                || controller.isChangingSize
+                || (scene.map { !ScreenOrientation.isPortraitSettled(in: $0) } ?? false))
         controller.allowedOrientations = .portrait
-        ScreenOrientation.prepare(.portrait)
+        ScreenOrientation.set(.portrait, in: scene, verifyPortrait: false, forcePortraitGeometry: restoresPortrait)
 
-        let finish: () -> Void = { [weak self, weak model] in
-            self?.isTransitioning = false
-            model?.finishMPVFullscreenExit()
-            ScreenOrientation.set(.portrait)
+        guard restoresPortrait, let scene else {
+            finishDismiss(controller, model: model, animated: true)
+            return
         }
 
+        portraitExitTask = Task { @MainActor [weak self, weak controller, weak model] in
+            // 不能用写入方向掩码的时刻当作动画完成。等待 UIKit 转场结束，
+            // 再确认连续两帧是竖屏；系统拒绝旋转时仍允许有界退出。
+            var settledFrames = 0
+            for _ in 0..<60 {
+                try? await Task.sleep(nanoseconds: 16_000_000)
+                guard !Task.isCancelled, let self, let controller,
+                      self.presented === controller else { return }
+                let bounds = controller.view.bounds
+                if !controller.isChangingSize, ScreenOrientation.isPortraitSettled(in: scene),
+                   bounds.height >= bounds.width, !bounds.isEmpty {
+                    settledFrames += 1
+                    if settledFrames >= 2 { break }
+                } else {
+                    settledFrames = 0
+                }
+            }
+            guard !Task.isCancelled, let self, let controller,
+                  self.presented === controller else { return }
+            if settledFrames < 2 {
+                Diag.log("屏幕方向", "等待全屏竖屏布局超时，退出后复查")
+            }
+            self.finishDismiss(controller, model: model, animated: settledFrames < 2)
+        }
+    }
+
+    private func finishDismiss(
+        _ controller: MPVFullscreenHostingController<MPVFullscreenPlayer>,
+        model: PlayerModel?,
+        animated: Bool
+    ) {
+        controller.onUnexpectedDismiss = nil
+        let scene = controller.view.window?.windowScene
+        let finish: () -> Void = { [weak self, weak model] in
+            guard let self, self.presented === controller else { return }
+            self.clearTransition()
+            model?.finishMPVFullscreenExit()
+            ScreenOrientation.set(.portrait, in: scene)
+        }
         if let presenting = controller.presentingViewController {
-            isTransitioning = true
-            presenting.dismiss(animated: false, completion: finish)
+            presenting.dismiss(animated: animated, completion: finish)
         } else {
             finish()
         }
     }
 
-    private func dismissImmediate() {
-        guard let controller = presented else { return }
+    private func clearTransition() {
+        portraitExitTask?.cancel()
+        portraitExitTask = nil
         presented = nil
-        let previous = ownerModel
         ownerModel = nil
         isTransitioning = false
+        dismissAfterPresentation = false
+    }
+
+    private func dismissImmediate() {
+        guard let controller = presented else { return }
+        let previous = ownerModel
+        let scene = controller.view.window?.windowScene
+        clearTransition()
         controller.onUnexpectedDismiss = nil
         controller.allowedOrientations = .portrait
         ScreenOrientation.prepare(.portrait)
         controller.presentingViewController?.dismiss(animated: false)
         previous?.finishMPVFullscreenExit()
-        ScreenOrientation.set(.portrait)
+        ScreenOrientation.set(.portrait, in: scene)
     }
 
     private static func topPresenter() -> UIViewController? {
@@ -1713,12 +1798,15 @@ enum ScreenOrientation {
     }
 
     /// 更新允许的方向并通知系统旋转到位
-    static func set(_ newMode: Mode) {
-        mode = newMode
-        verifyTask?.cancel()
-        verifyTask = nil
+    static func set(
+        _ newMode: Mode,
+        in scene: UIWindowScene? = nil,
+        verifyPortrait: Bool = true,
+        forcePortraitGeometry: Bool = false
+    ) {
+        prepare(newMode)
         guard UIDevice.current.userInterfaceIdiom == .phone else { return }
-        guard let scene = activeScene else { return }
+        guard let scene = scene ?? activeScene else { return }
 
         notifyAllViewControllers(in: scene)
 
@@ -1727,16 +1815,31 @@ enum ScreenOrientation {
             // 系统播放器自己管旋转，这里只放开方向掩码，不主动抢几何更新
             return
         case .landscape:
-            applyGeometry(in: scene, mask: preferredLandscapeMask())
+            if !scene.interfaceOrientation.isLandscape {
+                let mask: UIInterfaceOrientationMask = preferredLandscapeOrientation == .landscapeLeft
+                    ? .landscapeLeft : .landscapeRight
+                applyGeometry(in: scene, mask: mask)
+            }
         case .portrait:
-            applyGeometry(in: scene, mask: .portrait)
+            if forcePortraitGeometry || !isPortraitSettled(in: scene) {
+                applyGeometry(in: scene, mask: .portrait)
+                if verifyPortrait { schedulePortraitVerification(in: scene) }
+            }
             refreshSystemBars(in: scene)
-            schedulePortraitVerification()
         }
     }
 
-    private static func preferredLandscapeMask() -> UIInterfaceOrientationMask {
+    static var preferredLandscapeOrientation: UIInterfaceOrientation {
         UIDevice.current.orientation == .landscapeRight ? .landscapeLeft : .landscapeRight
+    }
+
+    static func isPortraitSettled(in scene: UIWindowScene) -> Bool {
+        guard !scene.interfaceOrientation.isLandscape else { return false }
+        guard let window = scene.windows.first(where: \.isKeyWindow)
+            ?? scene.windows.first(where: { $0.rootViewController != nil }) else {
+            return scene.interfaceOrientation.isPortrait
+        }
+        return !window.bounds.isEmpty && window.bounds.height >= window.bounds.width
     }
 
     private static var activeScene: UIWindowScene? {
@@ -1802,13 +1905,12 @@ enum ScreenOrientation {
     }
 
     /// 退出全屏后复查窗口尺寸与场景方向，避免转场尚未落地导致 UI 停在横屏
-    private static func schedulePortraitVerification() {
-        verifyTask = Task { @MainActor in
+    private static func schedulePortraitVerification(in scene: UIWindowScene) {
+        verifyTask = Task { @MainActor [weak scene] in
             for delay in [150_000_000 as UInt64, 420_000_000 as UInt64] {
                 try? await Task.sleep(nanoseconds: delay)
-                guard !Task.isCancelled, mode == .portrait, let scene = activeScene else { return }
-                let windowLandscape = scene.windows.contains { $0.bounds.width > $0.bounds.height }
-                if scene.interfaceOrientation.isLandscape || windowLandscape {
+                guard !Task.isCancelled, mode == .portrait, let scene else { return }
+                if !isPortraitSettled(in: scene) {
                     Diag.log("屏幕方向", "退出全屏后窗口仍为横屏，再次请求切回竖屏")
                     notifyAllViewControllers(in: scene)
                     applyGeometry(in: scene, mask: .portrait)

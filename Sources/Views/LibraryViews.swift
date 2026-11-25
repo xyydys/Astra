@@ -346,6 +346,15 @@ extension View {
             .glass(interactive: true, in: shape)
     }
 
+    @ViewBuilder
+    func libraryHistoryLinkIndicatorHidden() -> some View {
+        if #available(iOS 26, *) {
+            navigationLinkIndicatorVisibility(.hidden)
+        } else {
+            self
+        }
+    }
+
     func libraryGlassListRow() -> some View {
         self
             .listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
@@ -373,6 +382,7 @@ struct HistoryView: View {
                         .libraryGlassCard()
                 }
                 .buttonStyle(.plain)
+                .libraryHistoryLinkIndicatorHidden()
                 .libraryGlassListRow()
             }
             .onDelete { offsets in
