@@ -283,10 +283,10 @@ struct ContentModeMenu: View {
                     title: mode.title,
                     systemImage: mode.icon,
                     showsChevron: true,
-                    fontSize: 14.5,
-                    iconSize: 13.5,
-                    height: 35,
-                    horizontalPadding: 14,
+                    fontSize: AstraHomePillMetrics.font,
+                    iconSize: AstraHomePillMetrics.icon,
+                    height: AstraHomePillMetrics.height,
+                    horizontalPadding: AstraHomePillMetrics.sidePadding,
                     tone: .dark,
                     accessibilityLabel: "切换内容：当前\(mode.title)"
                 ) {

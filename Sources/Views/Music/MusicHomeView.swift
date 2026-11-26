@@ -7,6 +7,7 @@ import UIKit
 /// 这一层只依赖封面取色，特效菜单展开时不会被反复重建（否则点按、按住滑选都会失灵）
 struct MusicHomeView: View {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.displayScale) private var displayScale
     @ObservedObject private var player = MusicPlayer.shared
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
@@ -85,20 +86,24 @@ struct MusicHomeView: View {
     private var lyricsSceneMask: some View {
         if usesLightPlaybackArea {
             GeometryReader { proxy in
+                let fadeHeight = min(104, proxy.size.height)
                 VStack(spacing: 0) {
                     Color.black
-                    // 近似 smoothstep，两端斜率接近零；流体背景和歌词共用这一道渐隐。
-                    LinearGradient(stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black.opacity(0.972), location: 0.1),
-                        .init(color: .black.opacity(0.844), location: 0.25),
-                        .init(color: .black.opacity(0.5), location: 0.5),
-                        .init(color: .black.opacity(0.156), location: 0.75),
-                        .init(color: .black.opacity(0.028), location: 0.9),
-                        .init(color: .clear, location: 1),
-                    ], startPoint: .top, endPoint: .bottom)
-                    .frame(height: min(192, proxy.size.height * 0.38))
+                    if fadeHeight > 0, proxy.size.width > 0 {
+                        let pixelWidth = max(1, Int((proxy.size.width * displayScale).rounded()))
+                        let pixelHeight = max(1, Int((fadeHeight * displayScale).rounded()))
+                        if let mask = MusicFadeMask.image(width: pixelWidth, height: pixelHeight) {
+                            Image(decorative: mask, scale: displayScale, orientation: .up)
+                                .resizable()
+                                .interpolation(.none)
+                                .frame(height: fadeHeight)
+                        } else {
+                            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                                .frame(height: fadeHeight)
+                        }
+                    }
                 }
+                .frame(width: proxy.size.width, height: proxy.size.height)
             }
         } else {
             LinearGradient(stops: [
@@ -107,6 +112,50 @@ struct MusicHomeView: View {
                 .init(color: .clear, location: 1),
             ], startPoint: .top, endPoint: .bottom)
         }
+    }
+}
+
+/// 直接按物理像素绘制一条连续的透明度曲线。静态有序抖动把小数透明度分给相邻像素，
+/// 避免 8-bit 合成时一整行一起跳一级；上下两端分别准确接到画布和白底。
+@MainActor
+private enum MusicFadeMask {
+    private static let cache = NSCache<NSString, UIImage>()
+    private static let thresholds = [
+         0, 32,  8, 40,  2, 34, 10, 42,
+        48, 16, 56, 24, 50, 18, 58, 26,
+        12, 44,  4, 36, 14, 46,  6, 38,
+        60, 28, 52, 20, 62, 30, 54, 22,
+         3, 35, 11, 43,  1, 33,  9, 41,
+        51, 19, 59, 27, 49, 17, 57, 25,
+        15, 47,  7, 39, 13, 45,  5, 37,
+        63, 31, 55, 23, 61, 29, 53, 21,
+    ]
+
+    static func image(width: Int, height: Int) -> CGImage? {
+        let key = "\(width)x\(height)" as NSString
+        if let cached = cache.object(forKey: key)?.cgImage { return cached }
+        cache.countLimit = 4
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        for y in 0..<height {
+            let t = Double(y) / Double(max(1, height - 1))
+            let alpha = 255 * (1 - t * t * (3 - 2 * t))
+            let base = Int(alpha)
+            let fraction = alpha - Double(base)
+            for x in 0..<width {
+                let threshold = (Double(thresholds[(y & 7) * 8 + (x & 7)]) + 0.5) / 64
+                bytes[(y * width + x) * 4 + 3] = UInt8(base + (fraction > threshold ? 1 : 0))
+            }
+        }
+        guard let provider = CGDataProvider(data: Data(bytes) as CFData),
+              let image = CGImage(
+                width: width, height: height, bitsPerComponent: 8, bitsPerPixel: 32,
+                bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue),
+                provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent
+              )
+        else { return nil }
+        cache.setObject(UIImage(cgImage: image), forKey: key)
+        return image
     }
 }
 
@@ -318,10 +367,10 @@ private struct FoliaEffectMenu: View {
             title: mode.name,
             systemImage: "wand.and.sparkles",
             showsChevron: true,
-            fontSize: 14.5,
-            iconSize: 13.5,
-            height: 35,
-            horizontalPadding: 14,
+            fontSize: AstraHomePillMetrics.font,
+            iconSize: AstraHomePillMetrics.icon,
+            height: AstraHomePillMetrics.height,
+            horizontalPadding: AstraHomePillMetrics.sidePadding,
             tone: .dark,
             menuTitle: "歌词特效",
             accessibilityLabel: "切换歌词特效：当前\(mode.name)"

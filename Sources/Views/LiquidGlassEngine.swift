@@ -1138,6 +1138,14 @@ struct BarGlassIconMenuButton: View {
 
 // MARK: - 首页原生导航栏玻璃菜单
 
+// 首页胶囊的可见高度与标签尺寸分开定：保留早期的字重、图文间距和左右留白。
+enum AstraHomePillMetrics {
+    static let height: CGFloat = 31
+    static let font: CGFloat = 14.5
+    static let icon: CGFloat = 13.5
+    static let sidePadding: CGFloat = 14
+}
+
 @available(iOS 26.0, *)
 struct AstraHomeGlassMenuBar: UIViewRepresentable {
     struct Menu {
@@ -1148,8 +1156,8 @@ struct AstraHomeGlassMenuBar: UIViewRepresentable {
         let elements: @MainActor () -> [UIMenuElement]
     }
 
-    // 沿用原首页 35pt 胶囊。固定导航栏比例，UIKit 仍负责整块玻璃和原生菜单过场。
-    static let height: CGFloat = 35
+    // UIKit 仍负责整块玻璃和原生菜单过场。标签按可见尺寸单独绘制。
+    static let height = AstraHomePillMetrics.height
     private static let layoutScale = height / AstraBarGlassMeasure.nominalGlass
     private static let sideMargin: CGFloat = 16
 
@@ -1224,7 +1232,8 @@ struct AstraHomeGlassMenuBar: UIViewRepresentable {
                 // 文字只作为系统栏按钮的模板图内容，不能单独承担按钮或菜单。
                 item.image = AstraBarGlassMeasure.renderPillGlyph(
                     symbol: menu.systemImage, title: menu.title, showsChevron: true,
-                    fontSize: 14.5, iconPointSize: 13.5, horizontalPadding: 14,
+                    fontSize: AstraHomePillMetrics.font, iconPointSize: AstraHomePillMetrics.icon,
+                    horizontalPadding: AstraHomePillMetrics.sidePadding,
                     layoutScale: AstraHomeGlassMenuBar.layoutScale, renderScale: AstraHomeGlassMenuBar.layoutScale,
                     displayScale: displayScale, monospacedDigits: false
                 )
