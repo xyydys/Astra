@@ -17,7 +17,7 @@ enum AstraGlyph {
         if let hit = resized.object(forKey: cacheKey) { return hit }
         guard let vector = UIImage(named: asset) else {
             if let configuration { return UIImage(systemName: key, withConfiguration: configuration) }
-            return UIImage(systemName: key, withConfiguration: .init(pointSize: side))
+            return UIImage(systemName: key, withConfiguration: UIImage.SymbolConfiguration(pointSize: side))
         }
         let format = UIGraphicsImageRendererFormat()
         format.opaque = false
