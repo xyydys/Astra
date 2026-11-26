@@ -207,7 +207,7 @@ private struct MusicLyricsArea: View {
     private var emptyHint: some View {
         if player.current == nil {
             VStack(spacing: 10) {
-                Image(systemName: "music.note")
+                AstraIcon("music.note", pointSize: 34)
                     .font(.system(size: 34, weight: .light))
                 Text(sources.entries.isEmpty ? "先在「我的 → 音乐 → 音源管理」导入洛雪音源" : "在底栏的搜索里找一首歌开始播放")
                     .font(.callout)
@@ -250,7 +250,7 @@ private struct MusicControls: View {
                     Button {
                         library.toggleFavorite(track)
                     } label: {
-                        Image(systemName: library.isFavorite(track) ? "heart.fill" : "heart")
+                        AstraIcon(library.isFavorite(track) ? "heart.fill" : "heart", pointSize: 20)
                             .font(.title3)
                             .foregroundStyle(library.isFavorite(track) ? Color.pink : Color.primary)
                             .symbolReplaceTransition()
@@ -262,7 +262,7 @@ private struct MusicControls: View {
             }
 
             if let error = player.error {
-                Label(error, systemImage: "exclamationmark.triangle")
+                AstraLabel(error, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
@@ -302,13 +302,13 @@ private struct MusicControls: View {
                     let all = MusicPlayer.RepeatMode.allCases
                     player.repeatMode = all[((all.firstIndex(of: player.repeatMode) ?? 0) + 1) % all.count]
                 } label: {
-                    Image(systemName: player.repeatMode.icon)
+                    AstraIcon(player.repeatMode.icon, pointSize: 17)
                         .font(.body.weight(.semibold))
                         .frame(width: 44, height: 44)
                 }
                 Spacer()
                 Button { player.previous() } label: {
-                    Image(systemName: "backward.fill").font(.title2).frame(width: 54, height: 54)
+                    AstraIcon("backward.fill", pointSize: 22).font(.title2).frame(width: 54, height: 54)
                 }
                 Spacer()
                 Button { player.togglePlay() } label: {
@@ -316,7 +316,7 @@ private struct MusicControls: View {
                         if player.isLoading {
                             ProgressView().controlSize(.large)
                         } else {
-                            Image(systemName: player.isPlaying ? "pause.fill" : "play.fill")
+                            AstraIcon(player.isPlaying ? "pause.fill" : "play.fill", pointSize: 30)
                                 .font(.system(size: 30))
                                 .symbolReplaceTransition()
                         }
@@ -327,11 +327,11 @@ private struct MusicControls: View {
                 .accessibilityLabel(player.isPlaying ? "暂停" : "播放")
                 Spacer()
                 Button { player.next() } label: {
-                    Image(systemName: "forward.fill").font(.title2).frame(width: 54, height: 54)
+                    AstraIcon("forward.fill", pointSize: 22).font(.title2).frame(width: 54, height: 54)
                 }
                 Spacer()
                 Button(action: onQueue) {
-                    Image(systemName: "list.bullet")
+                    AstraIcon("list.bullet", pointSize: 17)
                         .font(.body.weight(.semibold))
                         .frame(width: 44, height: 44)
                 }
@@ -383,7 +383,7 @@ private struct FoliaEffectMenu: View {
             let amll = UIMenu.picker(options: [option(.amll)], selected: modeRaw) { modeRaw = $0 }
             let mineradio = UIMenu.picker(
                 title: mode.isMineradio ? "Mineradio：\(mode.name)" : "Mineradio 粒子",
-                image: UIImage(systemName: "circle.hexagongrid"),
+                image: AstraGlyph.image("circle.hexagongrid"),
                 inline: false,
                 options: FoliaMode.mineradio.map(option),
                 selected: modeRaw
@@ -392,7 +392,7 @@ private struct FoliaEffectMenu: View {
             if mode.isFolia {
                 children.append(UIMenu.picker(
                     title: "背景：\(background.name)",
-                    image: UIImage(systemName: "circle.lefthalf.filled"),
+                    image: AstraGlyph.image("circle.lefthalf.filled"),
                     inline: false,
                     options: FoliaBackground.allCases.map { MenuOption(value: $0.rawValue, title: $0.name) },
                     selected: backgroundRaw
@@ -401,7 +401,7 @@ private struct FoliaEffectMenu: View {
             children.append(UIMenu(options: .displayInline, children: [
                 UIAction(
                     title: "底栏对照：静态画布",
-                    image: UIImage(systemName: "rectangle"),
+                    image: AstraGlyph.image("rectangle"),
                     state: useStaticLyrics ? .on : .off
                 ) { _ in useStaticLyrics.toggle() }
             ]))
@@ -422,7 +422,7 @@ struct MusicTrackRow: View {
                 .frame(width: 46, height: 46)
                 .overlay {
                     if track.cover.isEmpty {
-                        Image(systemName: "music.note")
+                        AstraIcon("music.note")
                             .foregroundStyle(.secondary)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .background(Color.secondary.opacity(0.15))
@@ -547,11 +547,11 @@ struct MusicQueueSheet: View {
                     Menu {
                         Picker("播放顺序", selection: $player.repeatMode) {
                             ForEach(MusicPlayer.RepeatMode.allCases, id: \.self) { mode in
-                                Label(mode.name, systemImage: mode.icon).tag(mode)
+                                AstraLabel(mode.name, systemImage: mode.icon).tag(mode)
                             }
                         }
                     } label: {
-                        Image(systemName: player.repeatMode.icon)
+                        AstraIcon(player.repeatMode.icon)
                     }
                 }
             }

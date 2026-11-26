@@ -109,7 +109,7 @@ struct NovelHomeView: View {
         VStack(alignment: .leading, spacing: 12) {
             SectionHeader(title: "书架", subtitle: shelf.isEmpty ? nil : "\(shelf.count) 本")
             if shelf.isEmpty {
-                Text("在书籍详情页点 \(Image(systemName: "books.vertical")) 把书放上书架")
+                Text("在书籍详情页点 \(AstraIcon("books.vertical")) 把书放上书架")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal)
@@ -169,7 +169,7 @@ struct NoBookSourcesBanner: View {
             BookSourcesView()
         } label: {
             HStack(spacing: 14) {
-                Image(systemName: "text.book.closed.fill")
+                AstraIcon("text.book.closed.fill", pointSize: 22)
                     .font(.title2)
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 2) {
@@ -180,7 +180,7 @@ struct NoBookSourcesBanner: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Image(systemName: "chevron.right")
+                AstraIcon("chevron.right")
                     .foregroundStyle(.tertiary)
             }
             .padding()
@@ -283,7 +283,7 @@ struct NovelExploreSection: View {
                             }
                         }
                     } label: {
-                        Label(selected?.bookSourceName ?? "书源", systemImage: "chevron.up.chevron.down")
+                        AstraLabel(selected?.bookSourceName ?? "书源", systemImage: "chevron.up.chevron.down")
                             .font(.subheadline)
                             .lineLimit(1)
                     }

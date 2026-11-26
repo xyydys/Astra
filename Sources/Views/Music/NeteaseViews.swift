@@ -23,18 +23,18 @@ struct NeteaseAccountView: View {
                         LabeledRow {
                             Text(account.likedIDs.isEmpty ? "" : "\(account.likedIDs.count) 首")
                         } label: {
-                            Label("我喜欢的音乐", systemImage: "heart")
+                            AstraLabel("我喜欢的音乐", systemImage: "heart")
                         }
                     }
                     NavigationLink {
                         NeteasePlaylistsView()
                     } label: {
-                        Label("我的歌单", systemImage: "music.note.list")
+                        AstraLabel("我的歌单", systemImage: "music.note.list")
                     }
                     NavigationLink {
                         NeteaseTrackListView(source: .daily)
                     } label: {
-                        Label("每日推荐", systemImage: "calendar")
+                        AstraLabel("每日推荐", systemImage: "calendar")
                     }
                     Button("刷新账号信息", icon: "arrow.clockwise") {
                         run {
@@ -72,7 +72,7 @@ struct NeteaseAccountView: View {
                         }
                     }
                     Toggle(isOn: $syncLikes) {
-                        Label("收藏时同步红心", systemImage: "arrow.triangle.2.circlepath")
+                        AstraLabel("收藏时同步红心", systemImage: "arrow.triangle.2.circlepath")
                     }
                     .selectionFeedback(trigger: syncLikes)
                 } header: {
@@ -83,7 +83,7 @@ struct NeteaseAccountView: View {
 
                 Section {
                     Toggle(isOn: $accountPlayback) {
-                        Label("用账号播放网易云的歌", systemImage: "play.circle")
+                        AstraLabel("用账号播放网易云的歌", systemImage: "play.circle")
                     }
                     .selectionFeedback(trigger: accountPlayback)
                     if accountPlayback {
@@ -92,7 +92,7 @@ struct NeteaseAccountView: View {
                                 Text(item.name).tag(item.level)
                             }
                         } label: {
-                            Label("音质", systemImage: "waveform")
+                            AstraLabel("音质", systemImage: "waveform")
                         }
                     }
                 } header: {
@@ -418,7 +418,7 @@ struct NeteaseUserCard: View {
         HStack(spacing: 14) {
             Group {
                 if profile.avatarUrl.isEmpty {
-                    Image(systemName: "person.crop.circle.fill")
+                    AstraIcon("person.crop.circle.fill")
                         .resizable()
                         .foregroundStyle(.secondary)
                 } else {
@@ -579,7 +579,7 @@ struct NeteaseTrackListView: View {
                             message = added == 0 ? "都已经在本地收藏里了" : "新加到本地收藏 \(added) 首"
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        AstraIcon("ellipsis.circle")
                     }
                     Button("全部播放", icon: "play.fill") {
                         if let first = tracks.first { player.play(first, in: tracks) }

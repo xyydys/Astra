@@ -225,11 +225,11 @@ extension View {
         }
     }
 
-    /// SF Symbol 切换时的替换动画（iOS 17 起）
+    /// 自定义模板图标切换时淡入淡出（iOS 16 起）
     @ViewBuilder
     func symbolReplaceTransition() -> some View {
-        if #available(iOS 17, *) {
-            contentTransition(.symbolEffect(.replace))
+        if #available(iOS 16, *) {
+            contentTransition(.opacity)
         } else {
             self
         }
@@ -241,12 +241,12 @@ extension View {
 extension Button where Label == SwiftUI.Label<Text, Image> {
     /// 带图标的按钮（Button(_:systemImage:) 要 iOS 17）
     init(_ title: LocalizedStringKey, icon: String, role: ButtonRole? = nil, action: @escaping () -> Void) {
-        self.init(role: role, action: action) { SwiftUI.Label(title, systemImage: icon) }
+        self.init(role: role, action: action) { AstraLabel(title, systemImage: icon) }
     }
 
     @_disfavoredOverload
     init<S: StringProtocol>(_ title: S, icon: String, role: ButtonRole? = nil, action: @escaping () -> Void) {
-        self.init(role: role, action: action) { SwiftUI.Label(title, systemImage: icon) }
+        self.init(role: role, action: action) { AstraLabel(title, systemImage: icon) }
     }
 }
 
@@ -262,7 +262,7 @@ struct EmptyStateView<Actions: View>: View {
     var body: some View {
         if #available(iOS 17, *) {
             ContentUnavailableView {
-                SwiftUI.Label { title } icon: { Image(systemName: systemImage) }
+                SwiftUI.Label { title } icon: { AstraIcon(systemImage) }
             } description: {
                 description
             } actions: {
@@ -270,7 +270,7 @@ struct EmptyStateView<Actions: View>: View {
             }
         } else {
             VStack(spacing: 10) {
-                Image(systemName: systemImage)
+                AstraIcon(systemImage, pointSize: 44)
                     .font(.system(size: 44, weight: .regular))
                     .foregroundStyle(.secondary)
                     .padding(.bottom, 6)

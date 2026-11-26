@@ -45,14 +45,14 @@ struct MenuButton: UIViewRepresentable {
         config.contentInsets = NSDirectionalEdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14)
         config.baseForegroundColor = tint ?? .label
         if !systemImage.isEmpty {
-            config.image = UIImage(systemName: systemImage, withConfiguration: UIImage.SymbolConfiguration(font: font))
+            config.image = AstraGlyph.image(systemImage, pointSize: font.pointSize, withConfiguration: UIImage.SymbolConfiguration(font: font))
             config.imagePadding = 6
         }
 
         let text = NSMutableAttributedString(string: showsChevron ? (title + " ") : title, attributes: [.font: font])
         if showsChevron {
             let chevronFont = UIFont.systemFont(ofSize: font.pointSize * 0.62, weight: .bold)
-            if let chevron = UIImage(systemName: "chevron.down", withConfiguration: UIImage.SymbolConfiguration(font: chevronFont)) {
+            if let chevron = AstraGlyph.image("chevron.down", pointSize: chevronFont.pointSize, withConfiguration: UIImage.SymbolConfiguration(font: chevronFont)) {
                 let attachment = NSTextAttachment(image: chevron.withRenderingMode(.alwaysTemplate))
                 text.append(NSAttributedString(attachment: attachment))
             }
@@ -95,7 +95,7 @@ extension UIMenu {
         let actions = options.map { option in
             let action = UIAction(
                 title: option.title,
-                image: option.systemImage.flatMap { UIImage(systemName: $0) },
+                image: option.systemImage.flatMap { AstraGlyph.image($0) },
                 state: option.value == selected ? .on : .off
             ) { _ in onSelect(option.value) }
             if let subtitle = option.subtitle { action.subtitle = subtitle }

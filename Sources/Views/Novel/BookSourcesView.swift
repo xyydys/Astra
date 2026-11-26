@@ -37,7 +37,7 @@ struct BookSourcesView: View {
             if store.sources.isEmpty, store.isLoaded {
                 Section {
                     VStack(alignment: .leading, spacing: 10) {
-                        Label("还没有书源", systemImage: "text.book.closed")
+                        AstraLabel("还没有书源", systemImage: "text.book.closed")
                             .font(.headline)
                         Text("小说内容全部来自你导入的书源。支持「阅读」（Legado 3.x）格式：书源 JSON、JSON 地址，或者 legado:// 一键导入链接。")
                             .font(.callout)
@@ -101,7 +101,7 @@ struct BookSourcesView: View {
                     Button("删除失效书源", icon: "trash", role: .destructive) { deleteFailed() }
                         .disabled(!health.values.contains { if case .failed = $0 { return true } else { return false } })
                 } label: {
-                    Image(systemName: "plus")
+                    AstraIcon("plus")
                 }
             }
             ToolbarItem(placement: .navigationBarTrailing) {
@@ -134,7 +134,7 @@ struct BookSourcesView: View {
                         .font(.body)
                         .lineLimit(1)
                     if source.hasExplore {
-                        Image(systemName: "safari")
+                        AstraIcon("safari", pointSize: 11)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -330,13 +330,13 @@ struct NovelSettingsSection: View {
                 LabeledRow {
                     Text(store.isLoaded ? "\(store.searchable.count) / \(store.sources.count)" : "")
                 } label: {
-                    Label("书源管理", systemImage: "text.book.closed")
+                    AstraLabel("书源管理", systemImage: "text.book.closed")
                 }
             }
             Button {
                 showReaderSettings = true
             } label: {
-                Label("阅读排版", systemImage: "textformat.size")
+                AstraLabel("阅读排版", systemImage: "textformat.size")
             }
             .foregroundStyle(.primary)
             Button(role: .destructive) {
@@ -346,7 +346,7 @@ struct NovelSettingsSection: View {
                 LabeledRow {
                     Text(ByteCountFormatter.string(fromByteCount: cacheSize, countStyle: .file))
                 } label: {
-                    Label("清除已缓存的章节", systemImage: "trash")
+                    AstraLabel("清除已缓存的章节", systemImage: "trash")
                 }
             }
         } header: {

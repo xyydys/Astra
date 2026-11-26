@@ -79,7 +79,8 @@ struct NovelSearchView: View {
                             ForEach(store.groups, id: \.self) { Text($0).tag($0) }
                         }
                     } label: {
-                        Image(systemName: group.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                        AstraIcon(group.isEmpty ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                            .foregroundStyle(group.isEmpty ? Color.primary : Color.accentColor)
                     }
                 }
             }

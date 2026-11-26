@@ -65,14 +65,14 @@ struct UZSettingsView: View {
                         LabeledRow {
                             Text(Self.status(login, store: store))
                         } label: {
-                            Label(login.name, systemImage: "externaldrive")
+                            AstraLabel(login.name, systemImage: "externaldrive")
                         }
                     }
                 }
                 NavigationLink {
                     UZEnvListView()
                 } label: {
-                    Label("其他网盘与设置", systemImage: "slider.horizontal.3")
+                    AstraLabel("其他网盘与设置", systemImage: "slider.horizontal.3")
                 }
             } header: {
                 Text("网盘账号")
@@ -109,7 +109,7 @@ struct UZSettingsView: View {
                 NavigationLink {
                     UZLogView()
                 } label: {
-                    Label("运行日志", systemImage: "doc.text.magnifyingglass")
+                    AstraLabel("运行日志", systemImage: "doc.text.magnifyingglass")
                 }
             } header: {
                 Text("网盘工具")
@@ -478,7 +478,7 @@ struct UZWebLoginSheet: View {
                         } label: {
                             HStack(spacing: 4) {
                                 Text(desktop ? "电脑版页面" : "手机版页面")
-                                Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
+                                AstraIcon("chevron.down", pointSize: 11).font(.caption2.weight(.semibold))
                             }
                             .font(.subheadline.weight(.semibold))
                         }

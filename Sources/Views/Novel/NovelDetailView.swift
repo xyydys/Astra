@@ -177,7 +177,7 @@ struct NovelDetailView: View {
                 header(book)
                 actions
                 if let error {
-                    Label(error, systemImage: "exclamationmark.triangle")
+                    AstraLabel(error, systemImage: "exclamationmark.triangle")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
@@ -243,9 +243,9 @@ struct NovelDetailView: View {
                 } label: {
                     Group {
                         if let record, !chapters.isEmpty {
-                            Label("继续 \(record.episodeName)", systemImage: "book.fill")
+                            AstraLabel("继续 \(record.episodeName)", systemImage: "book.fill")
                         } else {
-                            Label(chapters.isEmpty ? (isLoading ? "正在获取目录…" : "开始阅读") : "开始阅读", systemImage: "book.fill")
+                            AstraLabel(chapters.isEmpty ? (isLoading ? "正在获取目录…" : "开始阅读") : "开始阅读", systemImage: "book.fill")
                         }
                     }
                     .lineLimit(1)
@@ -258,7 +258,7 @@ struct NovelDetailView: View {
                 Button {
                     toggleFavorite()
                 } label: {
-                    Image(systemName: isFavorite ? "books.vertical.fill" : "books.vertical")
+                    AstraIcon(isFavorite ? "books.vertical.fill" : "books.vertical")
                         .symbolReplaceTransition()
                 }
                 .glassButtonStyle()
@@ -268,7 +268,7 @@ struct NovelDetailView: View {
                 Button {
                     showSources = true
                 } label: {
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                    AstraIcon("arrow.triangle.2.circlepath")
                 }
                 .glassButtonStyle()
                 .controlSize(.large)
@@ -284,7 +284,7 @@ struct NovelDetailView: View {
             showTOC = true
         } label: {
             HStack(spacing: 12) {
-                Image(systemName: "list.bullet.rectangle")
+                AstraIcon("list.bullet.rectangle", pointSize: 20)
                     .font(.title3)
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 3) {
@@ -302,7 +302,7 @@ struct NovelDetailView: View {
                 if isLoading {
                     ProgressView()
                 } else {
-                    Image(systemName: "chevron.right")
+                    AstraIcon("chevron.right")
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -446,7 +446,7 @@ struct NovelSourceSheet: View {
                                 }
                                 Spacer()
                                 if item.origin == book.origin {
-                                    Image(systemName: "checkmark").foregroundStyle(.tint)
+                                    AstraIcon("checkmark").foregroundStyle(.tint)
                                 }
                             }
                         }

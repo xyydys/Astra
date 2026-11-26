@@ -119,7 +119,7 @@ struct SubjectDetailView: View {
                     if subject.scoreText != nil || subject.rank > 0 {
                         HStack(spacing: 12) {
                             if let score = subject.scoreText {
-                                Label(score, systemImage: "star.fill")
+                                AstraLabel(score, systemImage: "star.fill")
                                     .foregroundStyle(.orange)
                             }
                             if subject.rank > 0 {
@@ -147,7 +147,7 @@ struct SubjectDetailView: View {
                 Button {
                     toggleFavorite()
                 } label: {
-                    Image(systemName: isFavorite ? "heart.fill" : "heart")
+                    AstraIcon(isFavorite ? "heart.fill" : "heart")
                         .symbolReplaceTransition()
                 }
                 .glassButtonStyle()
@@ -164,7 +164,7 @@ struct SubjectDetailView: View {
             Button {
                 playRequest = record.playRequest
             } label: {
-                Label("继续 \(record.episodeName)", systemImage: "play.fill")
+                AstraLabel("继续 \(record.episodeName)", systemImage: "play.fill")
                     .lineLimit(1)
                     .frame(maxWidth: .infinity)
             }
@@ -174,14 +174,14 @@ struct SubjectDetailView: View {
             Button {
                 play(0)
             } label: {
-                Label("开始观看", systemImage: "play.fill")
+                AstraLabel("开始观看", systemImage: "play.fill")
                     .frame(maxWidth: .infinity)
             }
             .glassProminentButtonStyle()
             .controlSize(.large)
         } else {
             Button {} label: {
-                Label(
+                AstraLabel(
                     candidates.isEmpty ? "还没有添加片源" : (search.isSearching ? "正在查找片源…" : "未找到相关资源"),
                     systemImage: search.isSearching ? "magnifyingglass" : "exclamationmark.circle"
                 )

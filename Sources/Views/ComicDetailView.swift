@@ -39,7 +39,7 @@ struct ComicDetailView: View {
                 header
                 actions
                 if let error {
-                    Label(error, systemImage: "exclamationmark.triangle")
+                    AstraLabel(error, systemImage: "exclamationmark.triangle")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
@@ -129,7 +129,7 @@ struct ComicDetailView: View {
                         let index = min(max(record.episodeIndex, 0), chapters.count - 1)
                         open(chapter: index, page: index == record.episodeIndex ? Int(record.position) : 0)
                     } label: {
-                        Label("继续 \(record.episodeName) · 第 \(Int(record.position) + 1) 页", systemImage: "book.fill")
+                        AstraLabel("继续 \(record.episodeName) · 第 \(Int(record.position) + 1) 页", systemImage: "book.fill")
                             .lineLimit(1)
                             .frame(maxWidth: .infinity)
                     }
@@ -139,7 +139,7 @@ struct ComicDetailView: View {
                     Button {
                         open(chapter: 0, page: 0)
                     } label: {
-                        Label(album == nil ? "正在加载…" : "开始阅读", systemImage: "book.fill")
+                        AstraLabel(album == nil ? "正在加载…" : "开始阅读", systemImage: "book.fill")
                             .frame(maxWidth: .infinity)
                     }
                     .glassProminentButtonStyle()
@@ -150,7 +150,7 @@ struct ComicDetailView: View {
                 Button {
                     toggleFavorite()
                 } label: {
-                    Image(systemName: isFavorite ? "heart.fill" : "heart")
+                    AstraIcon(isFavorite ? "heart.fill" : "heart")
                         .symbolReplaceTransition()
                 }
                 .glassButtonStyle()
@@ -172,7 +172,7 @@ struct ComicDetailView: View {
                 Button {
                     withAnimation(.snappyCompat) { chaptersReversed.toggle() }
                 } label: {
-                    Label(chaptersReversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
+                    AstraLabel(chaptersReversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
                         .font(.subheadline)
                 }
                 .glassButtonStyle()

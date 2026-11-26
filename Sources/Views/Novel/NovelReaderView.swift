@@ -460,7 +460,7 @@ struct NovelReaderView: View {
             Button {
                 dismiss()
             } label: {
-                Image(systemName: "chevron.backward")
+                AstraIcon("chevron.backward", pointSize: 20)
                     .font(.system(size: 20, weight: .semibold))
                     .frame(width: titleHeight, height: titleHeight)
                     .contentShape(Circle())
@@ -493,7 +493,7 @@ struct NovelReaderView: View {
                 }
                 Text("书源：\(model.book.originName)")
             } label: {
-                Image(systemName: "ellipsis")
+                AstraIcon("ellipsis", pointSize: 20)
                     .font(.system(size: 20, weight: .semibold))
                     .frame(width: titleHeight, height: titleHeight)
                     .contentShape(Circle())
@@ -562,7 +562,7 @@ struct NovelReaderView: View {
     private func menuButton(_ title: String, _ icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             VStack(spacing: 5) {
-                Image(systemName: icon)
+                AstraIcon(icon, pointSize: 20)
                     .font(.title3)
                     .frame(height: 24)
                 Text(title)
@@ -850,7 +850,7 @@ struct ReaderSettingsSheet: View {
                                 } else {
                                     Circle()
                                         .fill(Color.secondary.opacity(0.12))
-                                        .overlay(Image(systemName: "photo.badge.plus").font(.callout).foregroundStyle(.secondary))
+                                        .overlay(AstraIcon("photo.badge.plus", pointSize: 16).font(.callout).foregroundStyle(.secondary))
                                 }
                             }
                             .id(store.settings.imageVersion)
@@ -936,7 +936,7 @@ struct ReaderSettingsSheet: View {
 
     private func stepButton(_ icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            Image(systemName: icon).font(.title3).frame(width: 44, height: 36)
+            AstraIcon(icon, pointSize: 20).font(.title3).frame(width: 44, height: 36)
         }
         .glassButtonStyle()
     }
@@ -989,7 +989,7 @@ struct NovelTOCSheet: View {
                                 .lineLimit(1)
                             Spacer()
                             if chapter.isVip || chapter.isPay {
-                                Image(systemName: "lock").font(.caption).foregroundStyle(.secondary)
+                                AstraIcon("lock", pointSize: 12).font(.caption).foregroundStyle(.secondary)
                             }
                         }
                     }

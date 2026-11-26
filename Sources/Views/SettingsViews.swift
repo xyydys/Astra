@@ -26,7 +26,7 @@ struct SettingsView: View {
                 NavigationLink {
                     PromoListView()
                 } label: {
-                    Label("更多插件", systemImage: "sparkles")
+                    AstraLabel("更多插件", systemImage: "sparkles")
                 }
             }
 
@@ -37,7 +37,7 @@ struct SettingsView: View {
                     LabeledRow {
                         Text("\(ruleStore.entries.filter(\.enabled).count) / \(ruleStore.entries.count)")
                     } label: {
-                        Label("规则管理", systemImage: "puzzlepiece.extension")
+                        AstraLabel("规则管理", systemImage: "puzzlepiece.extension")
                     }
                 }
                 NavigationLink {
@@ -46,7 +46,7 @@ struct SettingsView: View {
                     LabeledRow {
                         Text(uz.vodSources.isEmpty ? "未导入" : "\(uz.vodSources.count) 个资源站")
                     } label: {
-                        Label("网盘资源", systemImage: "externaldrive.connected.to.line.below")
+                        AstraLabel("网盘资源", systemImage: "externaldrive.connected.to.line.below")
                     }
                 }
                 NavigationLink {
@@ -55,7 +55,7 @@ struct SettingsView: View {
                     LabeledRow {
                         Text(cat.hasPackage ? "\(cat.vodSources.count) 个站点" : "未添加")
                     } label: {
-                        Label("猫影视插件", systemImage: "pawprint")
+                        AstraLabel("猫影视插件", systemImage: "pawprint")
                     }
                 }
                 NavigationLink {
@@ -64,11 +64,11 @@ struct SettingsView: View {
                     LabeledRow {
                         Text("\(SourceKindOrder.parse(kindOrderRaw).first?.label ?? "")优先")
                     } label: {
-                        Label("片源大类顺序", systemImage: "arrow.up.arrow.down.square")
+                        AstraLabel("片源大类顺序", systemImage: "arrow.up.arrow.down.square")
                     }
                 }
                 Toggle(isOn: $filterAdult) {
-                    Label("隐藏标记的成人内容", systemImage: "eye.slash")
+                    AstraLabel("隐藏标记的成人内容", systemImage: "eye.slash")
                 }
                 .selectionFeedback(trigger: filterAdult)
             } header: {
@@ -79,7 +79,7 @@ struct SettingsView: View {
                 NavigationLink {
                     JMSettingsView()
                 } label: {
-                    Label("禁漫天堂", systemImage: "book")
+                    AstraLabel("禁漫天堂", systemImage: "app.mode.comic")
                 }
             } header: {
                 Text("漫画")
@@ -95,11 +95,11 @@ struct SettingsView: View {
                         Text(rate == 1 ? "正常（1x）" : String(format: "%gx", rate)).tag(rate)
                     }
                 } label: {
-                    Label("mpv 默认倍速", systemImage: "speedometer")
+                    AstraLabel("mpv 默认倍速", systemImage: "speedometer")
                 }
                 .selectionFeedback(trigger: defaultPlaybackSpeed)
                 Toggle(isOn: $hlsAdFilter) {
-                    Label("跳过视频内广告", systemImage: "forward.frame")
+                    AstraLabel("跳过视频内广告", systemImage: "forward.frame")
                 }
                 .selectionFeedback(trigger: hlsAdFilter)
             } header: {
@@ -113,7 +113,7 @@ struct SettingsView: View {
                     LabeledRow {
                         AppIconImage(option: appIcon, size: 30)
                     } label: {
-                        Label("应用图标", systemImage: "app.badge")
+                        AstraLabel("应用图标", systemImage: "app.badge")
                     }
                 }
                 NavigationLink {
@@ -122,11 +122,11 @@ struct SettingsView: View {
                     LabeledRow {
                         Circle().fill(AppAccent.color(accentHex)).frame(width: 22, height: 22)
                     } label: {
-                        Label("强调色", systemImage: "paintpalette")
+                        AstraLabel("强调色", systemImage: "paintpalette")
                     }
                 }
                 Toggle(isOn: $nativeModeMenu) {
-                    Label("首页模式菜单显示详情", systemImage: "filemenu.and.selection")
+                    AstraLabel("首页模式菜单显示详情", systemImage: "filemenu.and.selection")
                 }
                 .selectionFeedback(trigger: nativeModeMenu)
             } header: {
@@ -137,7 +137,7 @@ struct SettingsView: View {
                 NavigationLink {
                     BackupView()
                 } label: {
-                    Label("备份与恢复", systemImage: "externaldrive.badge.timemachine")
+                    AstraLabel("备份与恢复", systemImage: "externaldrive.badge.timemachine")
                 }
             } header: {
                 Text("数据")
@@ -148,13 +148,13 @@ struct SettingsView: View {
             Section {
                 LabeledRow("版本", value: version)
                 Link(destination: URL(string: "https://github.com/Predidit/Kazumi")!) {
-                    Label("Kazumi 原项目", systemImage: "arrow.up.right.square")
+                    AstraLabel("Kazumi 原项目", systemImage: "arrow.up.right.square")
                 }
                 Link(destination: URL(string: "https://github.com/LibreSpark/LibreTV")!) {
-                    Label("LibreTV（影视模式参考）", systemImage: "arrow.up.right.square")
+                    AstraLabel("LibreTV（影视模式参考）", systemImage: "arrow.up.right.square")
                 }
                 Link(destination: URL(string: "https://bgm.tv")!) {
-                    Label("Bangumi 番组计划", systemImage: "arrow.up.right.square")
+                    AstraLabel("Bangumi 番组计划", systemImage: "arrow.up.right.square")
                 }
             } header: {
                 Text("关于")
@@ -224,7 +224,7 @@ struct JMSettingsView: View {
                     Task { await testLatency() }
                 } label: {
                     HStack {
-                        Label("测速", systemImage: "speedometer")
+                        AstraLabel("测速", systemImage: "speedometer")
                         Spacer()
                         if testing { ProgressView() }
                     }
@@ -245,7 +245,7 @@ struct JMSettingsView: View {
                         LabeledRow {
                             Text(user.favoritesMax > 0 ? "\(user.favorites) / \(user.favoritesMax)" : "\(user.favorites)")
                         } label: {
-                            Label("云端收藏夹", systemImage: "icloud")
+                            AstraLabel("云端收藏夹", systemImage: "icloud")
                         }
                     }
                     Button("刷新账号信息", icon: "arrow.clockwise") {
@@ -277,7 +277,7 @@ struct JMSettingsView: View {
                         }
                     }
                     Toggle(isOn: $syncFavorites) {
-                        Label("收藏时同步到账号", systemImage: "arrow.triangle.2.circlepath")
+                        AstraLabel("收藏时同步到账号", systemImage: "arrow.triangle.2.circlepath")
                     }
                     .selectionFeedback(trigger: syncFavorites)
                 } header: {
@@ -367,7 +367,7 @@ struct JMUserCard: View {
                 if let avatar = user.avatarURL {
                     PosterImage(url: avatar)
                 } else {
-                    Image(systemName: "person.crop.circle.fill")
+                    AstraIcon("person.crop.circle.fill")
                         .resizable()
                         .foregroundStyle(.secondary)
                 }
@@ -379,10 +379,10 @@ struct JMUserCard: View {
                     .font(.headline)
                 HStack(spacing: 10) {
                     if !user.levelName.isEmpty || user.level > 0 {
-                        Label(user.levelName.isEmpty ? "Lv.\(user.level)" : "Lv.\(user.level) \(user.levelName)", systemImage: "star.circle")
+                        AstraLabel(user.levelName.isEmpty ? "Lv.\(user.level)" : "Lv.\(user.level) \(user.levelName)", systemImage: "star.circle")
                     }
                     if !user.coin.isEmpty {
-                        Label(user.coin, systemImage: "bitcoinsign.circle")
+                        AstraLabel(user.coin, systemImage: "bitcoinsign.circle")
                     }
                 }
                 .font(.caption)
@@ -544,7 +544,7 @@ struct RulesView: View {
                     }
                     Button("粘贴 / 订阅导入", icon: "doc.on.clipboard") { showImport = true }
                 } label: {
-                    Image(systemName: "plus")
+                    AstraIcon("plus")
                 }
             }
         }
@@ -653,7 +653,7 @@ struct RuleRepoView: View {
         List {
             if let error {
                 Section {
-                    Label(error, systemImage: "exclamationmark.triangle")
+                    AstraLabel(error, systemImage: "exclamationmark.triangle")
                         .foregroundStyle(.secondary)
                     Button("重试") { Task { await load() } }
                 }
@@ -864,7 +864,7 @@ struct AddCMSView: View {
                     test()
                 } label: {
                     HStack {
-                        Label("检测接口", systemImage: "speedometer")
+                        AstraLabel("检测接口", systemImage: "speedometer")
                         Spacer()
                         switch testState {
                         case .testing:

@@ -71,7 +71,7 @@ struct AccentColorPicker: View {
                                     .frame(width: 40, height: 40)
                                     .overlay {
                                         if current == preset.hex {
-                                            Image(systemName: "checkmark")
+                                            AstraIcon("checkmark", pointSize: 17)
                                                 .font(.headline.weight(.bold))
                                                 .foregroundStyle(.white)
                                         }

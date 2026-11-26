@@ -146,7 +146,7 @@ struct HomeView: View {
                 }
 
                 if let error = model.error {
-                    Label(error, systemImage: "wifi.exclamationmark")
+                    AstraLabel(error, systemImage: "wifi.exclamationmark")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
@@ -240,7 +240,7 @@ struct NoRulesBanner: View {
             RulesView()
         } label: {
             HStack(spacing: 14) {
-                Image(systemName: "puzzlepiece.extension.fill")
+                AstraIcon("puzzlepiece.extension.fill", pointSize: 22)
                     .font(.title2)
                     .foregroundStyle(.tint)
                 VStack(alignment: .leading, spacing: 2) {
@@ -251,7 +251,7 @@ struct NoRulesBanner: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Image(systemName: "chevron.right")
+                AstraIcon("chevron.right")
                     .foregroundStyle(.tertiary)
             }
             .padding()
@@ -431,7 +431,7 @@ struct HeroPage: View {
                 }
                 if let score = subject.scoreText {
                     HStack(spacing: 10) {
-                        Label(score, systemImage: "star.fill")
+                        AstraLabel(score, systemImage: "star.fill")
                             .foregroundStyle(.orange)
                         if subject.rank > 0 {
                             Text("排名 #\(subject.rank)")

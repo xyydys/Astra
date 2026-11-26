@@ -66,7 +66,7 @@ struct ComicReaderView: View {
                 .foregroundStyle(.white.opacity(0.8))
             } else if let error {
                 VStack(spacing: 14) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                    AstraIcon("exclamationmark.triangle.fill", pointSize: 28)
                         .font(.title)
                         .foregroundStyle(.yellow)
                     Text(error)
@@ -153,7 +153,7 @@ struct ComicReaderView: View {
                 Button {
                     go(to: chapterIndex + 1)
                 } label: {
-                    Label("下一话：\(request.chapters[chapterIndex + 1].title)", systemImage: "chevron.forward.2")
+                    AstraLabel("下一话：\(request.chapters[chapterIndex + 1].title)", systemImage: "chevron.forward.2")
                         .lineLimit(1)
                 }
                 .glassProminentButtonStyle()
@@ -176,7 +176,7 @@ struct ComicReaderView: View {
                 saveProgress(currentPage)
                 dismiss()
             } label: {
-                Image(systemName: "xmark")
+                AstraIcon("xmark", pointSize: 17)
                     .font(.headline)
                     .frame(width: 36, height: 36)
             }
@@ -197,11 +197,11 @@ struct ComicReaderView: View {
             Menu {
                 Picker("阅读方式", selection: $mode) {
                     ForEach(ComicReadingMode.allCases) { item in
-                        Label(item.title, systemImage: item.icon).tag(item)
+                        AstraLabel(item.title, systemImage: item.icon).tag(item)
                     }
                 }
             } label: {
-                Image(systemName: mode.icon)
+                AstraIcon(mode.icon, pointSize: 17)
                     .font(.headline)
                     .frame(width: 36, height: 36)
             }
@@ -218,7 +218,7 @@ struct ComicReaderView: View {
                 Button {
                     go(to: chapterIndex - 1)
                 } label: {
-                    Label("上一话", systemImage: "chevron.backward.2")
+                    AstraLabel("上一话", systemImage: "chevron.backward.2")
                 }
                 .disabled(chapterIndex == 0)
                 Spacer()
@@ -228,7 +228,7 @@ struct ComicReaderView: View {
                 Button {
                     go(to: chapterIndex + 1)
                 } label: {
-                    Label("下一话", systemImage: "chevron.forward.2")
+                    AstraLabel("下一话", systemImage: "chevron.forward.2")
                         .labelStyle(.titleAndIcon)
                 }
                 .disabled(chapterIndex + 1 >= request.chapters.count)

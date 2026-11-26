@@ -121,7 +121,7 @@ struct SourceListSection: View {
                 NavigationLink {
                     UZSettingsView()
                 } label: {
-                    Label("网盘片源要先登录网盘（夸克、UC 等）才能播放，没登录时排在最后", systemImage: "person.crop.circle.badge.exclamationmark")
+                    AstraLabel("网盘片源要先登录网盘（夸克、UC 等）才能播放，没登录时排在最后", systemImage: "person.crop.circle.badge.exclamationmark")
                         .font(.footnote)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -140,7 +140,7 @@ struct SourceListSection: View {
                         Button {
                             withAnimation(.snappyCompat) { search.problemsExpanded = !showOthers }
                         } label: {
-                            Label(
+                            AstraLabel(
                                 [failed.isEmpty ? "" : "\(failed.count) 个出错", empty.isEmpty ? "" : "\(empty.count) 个没找到"]
                                     .filter { !$0.isEmpty }.joined(separator: " · "),
                                 systemImage: showOthers ? "chevron.up" : "chevron.down"
@@ -154,7 +154,7 @@ struct SourceListSection: View {
                     Button {
                         search.refresh()
                     } label: {
-                        Image(systemName: "arrow.clockwise")
+                        AstraIcon("arrow.clockwise", pointSize: 15)
                             .font(.subheadline)
                     }
                     .glassButtonStyle()
@@ -221,7 +221,7 @@ struct SourceListSection: View {
             Button {
                 withAnimation(.snappyCompat) { foundExpanded.toggle() }
             } label: {
-                Label(foundExpanded ? "收起" : "再显示 \(hidden) 个片源", systemImage: foundExpanded ? "chevron.up" : "chevron.down")
+                AstraLabel(foundExpanded ? "收起" : "再显示 \(hidden) 个片源", systemImage: foundExpanded ? "chevron.up" : "chevron.down")
                     .font(.subheadline)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 14)
@@ -286,7 +286,7 @@ struct SourceListSection: View {
                 }
                 Spacer()
                 if selected {
-                    Image(systemName: "checkmark.circle.fill")
+                    AstraIcon("checkmark.circle.fill")
                         .foregroundStyle(.tint)
                 }
             }
@@ -316,7 +316,7 @@ struct SourceListSection: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                Image(systemName: "info.circle")
+                AstraIcon("info.circle")
                     .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 14)
@@ -397,7 +397,7 @@ struct EpisodePanel: View {
                     Button {
                         withAnimation(.snappyCompat) { reversed.toggle() }
                     } label: {
-                        Label(reversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
+                        AstraLabel(reversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
                             .font(.subheadline)
                     }
                     .glassButtonStyle()
@@ -463,7 +463,7 @@ struct EpisodePanel: View {
                     Button {
                         withAnimation(.snappyCompat) { expanded.toggle() }
                     } label: {
-                        Label(expanded ? "收起" : "展开全部 \(list.count) 集", systemImage: expanded ? "chevron.up" : "chevron.down")
+                        AstraLabel(expanded ? "收起" : "展开全部 \(list.count) 集", systemImage: expanded ? "chevron.up" : "chevron.down")
                             .font(.subheadline.weight(.medium))
                             .frame(maxWidth: .infinity, minHeight: 36)
                     }

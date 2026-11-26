@@ -216,7 +216,7 @@ struct ComicHomeView: View {
                 HeroCarousel(items: model.hero, scroll: scroll)
 
                 if let error = model.error {
-                    Label(error, systemImage: "wifi.exclamationmark")
+                    AstraLabel(error, systemImage: "wifi.exclamationmark")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)
@@ -225,7 +225,7 @@ struct ComicHomeView: View {
                 if let user = account.user {
                     NavigationLink(destination: JMFavoritesView()) {
                         HStack(spacing: 14) {
-                            Image(systemName: "icloud.fill")
+                            AstraIcon("icloud.fill", pointSize: 22)
                                 .font(.title2)
                                 .foregroundStyle(.tint)
                             VStack(alignment: .leading, spacing: 2) {
@@ -236,7 +236,7 @@ struct ComicHomeView: View {
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
-                            Image(systemName: "chevron.right")
+                            AstraIcon("chevron.right")
                                 .foregroundStyle(.tertiary)
                         }
                         .padding()
@@ -300,7 +300,7 @@ struct ComicHomeView: View {
                         }
                     }
                 } label: {
-                    Label(JMCatalog.sortName(sort), systemImage: "arrow.up.arrow.down")
+                    AstraLabel(JMCatalog.sortName(sort), systemImage: "arrow.up.arrow.down")
                         .font(.subheadline)
                 }
                 .glassButtonStyle()
@@ -353,7 +353,7 @@ struct ComicSearchView: View {
             VStack(spacing: 16) {
                 if let id = directID ?? model.redirectID {
                     NavigationLink(destination: AppDestination(BangumiSubject.comic(jmID: Int(id) ?? 0, title: "JM\(id)", author: "", tags: [], description: ""))) {
-                        Label("打开 JM\(id)", systemImage: "book.pages")
+                        AstraLabel("打开 JM\(id)", systemImage: "book.pages")
                             .font(.headline)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
@@ -397,7 +397,7 @@ struct ComicSearchView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
+                    AstraIcon("arrow.up.arrow.down")
                 }
             }
         }
@@ -442,7 +442,7 @@ struct ComicTagResultsView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "arrow.up.arrow.down")
+                    AstraIcon("arrow.up.arrow.down")
                 }
             }
         }

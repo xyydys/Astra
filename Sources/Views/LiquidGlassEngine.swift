@@ -391,12 +391,12 @@ private enum AstraBarGlassMeasure {
 
         let leadingImage: UIImage? = symbol.flatMap { name in
             let config = UIImage.SymbolConfiguration(pointSize: iconPointSize / scale, weight: .semibold)
-            return UIImage(systemName: name, withConfiguration: config)?
+            return AstraGlyph.image(name, pointSize: iconPointSize / scale, withConfiguration: config)?
                 .withTintColor(.black, renderingMode: .alwaysOriginal)
         }
         let chevronImage: UIImage? = showsChevron ? {
             let config = UIImage.SymbolConfiguration(pointSize: (fontSize * 0.62) / scale, weight: .bold)
-            return UIImage(systemName: "chevron.down", withConfiguration: config)?
+            return AstraGlyph.image("chevron.down", pointSize: (fontSize * 0.62) / scale, withConfiguration: config)?
                 .withTintColor(.black, renderingMode: .alwaysOriginal)
         }() : nil
 
@@ -902,7 +902,7 @@ final class AstraBarGlassButtonView: UIView {
         switch content {
         case .icon(let systemName, let pointSize, let weight, _):
             let config = UIImage.SymbolConfiguration(pointSize: pointSize / scale * shrink, weight: weight)
-            image = UIImage(systemName: systemName, withConfiguration: config)?
+            image = AstraGlyph.image(systemName, pointSize: pointSize / scale * shrink, withConfiguration: config)?
                 .withRenderingMode(.alwaysTemplate)
         case .pill(let symbol, let title, let showsChevron, let fontSize, let iconSize, _, let horizontalPadding, let monospaced):
             image = AstraBarGlassMeasure.renderPillGlyph(
@@ -1016,7 +1016,7 @@ struct BarGlassIconButton: View {
                     if isLoading {
                         ProgressView()
                     } else {
-                        Image(systemName: systemImage)
+                        AstraIcon(systemImage, pointSize: pointSize)
                             .font(.system(size: pointSize, weight: weight.swiftUI))
                             .foregroundStyle(tint.map { Color(uiColor: $0) } ?? .primary)
                     }
@@ -1074,7 +1074,7 @@ struct BarGlassPillButton: View {
             Button(action: action) {
                 HStack(spacing: 5) {
                     if let systemImage {
-                        Image(systemName: systemImage)
+                        AstraIcon(systemImage, pointSize: iconSize)
                             .font(.system(size: iconSize, weight: .semibold))
                     }
                     Text(title)
@@ -1416,7 +1416,7 @@ private struct LegacyIconMenuButton: UIViewRepresentable {
 
     private func apply(to button: UIButton) {
         let config = UIImage.SymbolConfiguration(pointSize: pointSize, weight: weight)
-        button.setImage(UIImage(systemName: systemImage, withConfiguration: config), for: .normal)
+        button.setImage(AstraGlyph.image(systemImage, pointSize: pointSize, withConfiguration: config), for: .normal)
         button.tintColor = tint ?? .label
     }
 }

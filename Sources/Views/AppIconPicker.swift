@@ -73,10 +73,10 @@ struct AppIconPicker: View {
                                 .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
                                 .overlay(alignment: .bottomTrailing) {
                                     if option == selected {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .font(.title3)
-                                            .symbolRenderingMode(.palette)
-                                            .foregroundStyle(.white, Color.accentColor)
+                                        AstraIcon("checkmark", pointSize: 14)
+                                            .foregroundStyle(.white)
+                                            .frame(width: 22, height: 22)
+                                            .background(Color.accentColor, in: Circle())
                                             .offset(x: 6, y: 6)
                                             .transition(.scale.combined(with: .opacity))
                                     }

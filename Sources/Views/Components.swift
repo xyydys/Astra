@@ -63,7 +63,7 @@ struct PosterImage: View {
             if showsPlaceholder {
                 Rectangle().fill(Color.secondary.opacity(0.15))
                 if image == nil {
-                    Image(systemName: "photo")
+                    AstraIcon("photo", pointSize: 22)
                         .font(.title2)
                         .foregroundStyle(.tertiary)
                 }

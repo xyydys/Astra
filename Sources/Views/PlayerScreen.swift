@@ -106,7 +106,7 @@ private struct PlayerContent: View {
 
     private func failure(_ message: String) -> some View {
         VStack(spacing: 12) {
-            Image(systemName: "exclamationmark.triangle.fill")
+            AstraIcon("exclamationmark.triangle.fill", pointSize: 22)
                 .font(.title2)
                 .foregroundStyle(.yellow)
             Text(message)
@@ -140,7 +140,7 @@ private struct PlayerContent: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
             if model.adSegmentsRemoved > 0 {
-                Label("已跳过 \(model.adSegmentsRemoved) 个广告片段", systemImage: "eye.slash")
+                AstraLabel("已跳过 \(model.adSegmentsRemoved) 个广告片段", systemImage: "eye.slash")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -186,7 +186,7 @@ private struct PlayerContent: View {
                     Button {
                         withAnimation(.snappyCompat) { episodesReversed.toggle() }
                     } label: {
-                        Label(episodesReversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
+                        AstraLabel(episodesReversed ? "倒序" : "正序", systemImage: "arrow.up.arrow.down")
                             .font(.subheadline)
                     }
                     .glassButtonStyle()

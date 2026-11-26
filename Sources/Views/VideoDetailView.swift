@@ -107,7 +107,7 @@ struct VideoDetailView: View {
                             .lineLimit(2)
                     }
                     if let score = subject.scoreText {
-                        Label("豆瓣 \(score)", systemImage: "star.fill")
+                        AstraLabel("豆瓣 \(score)", systemImage: "star.fill")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.orange)
                     }
@@ -128,7 +128,7 @@ struct VideoDetailView: View {
                 Button {
                     toggleFavorite()
                 } label: {
-                    Image(systemName: isFavorite ? "heart.fill" : "heart")
+                    AstraIcon(isFavorite ? "heart.fill" : "heart")
                         .symbolReplaceTransition()
                 }
                 .glassButtonStyle()
@@ -145,7 +145,7 @@ struct VideoDetailView: View {
             Button {
                 playRequest = record.playRequest
             } label: {
-                Label("继续 \(record.episodeName)", systemImage: "play.fill")
+                AstraLabel("继续 \(record.episodeName)", systemImage: "play.fill")
                     .lineLimit(1)
                     .frame(maxWidth: .infinity)
             }
@@ -155,14 +155,14 @@ struct VideoDetailView: View {
             Button {
                 play(0)
             } label: {
-                Label("播放", systemImage: "play.fill")
+                AstraLabel("播放", systemImage: "play.fill")
                     .frame(maxWidth: .infinity)
             }
             .glassProminentButtonStyle()
             .controlSize(.large)
         } else {
             Button {} label: {
-                Label(
+                AstraLabel(
                     candidates.isEmpty ? "还没有添加采集站" : (search.isSearching ? "正在查找片源…" : "未找到相关资源"),
                     systemImage: search.isSearching ? "magnifyingglass" : "exclamationmark.circle"
                 )

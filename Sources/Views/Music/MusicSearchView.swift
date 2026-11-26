@@ -48,7 +48,7 @@ struct MusicSearchView: View {
                 .pickerStyle(.segmented)
                 .listRowSeparator(.hidden)
                 if let platform, sources.active != nil, !sources.supports(platform) {
-                    Label("当前音源不支持\(platform.name)，搜到的歌可能放不了", systemImage: "exclamationmark.triangle")
+                    AstraLabel("当前音源不支持\(platform.name)，搜到的歌可能放不了", systemImage: "exclamationmark.triangle")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -89,7 +89,7 @@ struct MusicSearchView: View {
                     query = word
                     Task { await search(keyword: word) }
                 } label: {
-                    Label(word, systemImage: "clock.arrow.circlepath")
+                    AstraLabel(word, systemImage: "clock.arrow.circlepath")
                         .foregroundStyle(.primary)
                 }
                 .swipeActions {
@@ -204,7 +204,7 @@ struct MusicSourcesView: View {
                         store.activate(entry.id)
                     } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: entry.id == store.active?.id ? "checkmark.circle.fill" : "circle")
+                            AstraIcon(entry.id == store.active?.id ? "checkmark.circle.fill" : "circle", pointSize: 20)
                                 .font(.title3)
                                 .foregroundStyle(entry.id == store.active?.id ? Color.accentColor : Color.secondary)
                             VStack(alignment: .leading, spacing: 3) {
@@ -275,7 +275,7 @@ struct MusicSourcesView: View {
                     Button("更新全部网址音源", icon: "arrow.clockwise") { update(store.entries.filter(\.isRemote)) }
                         .disabled(!store.entries.contains(where: \.isRemote))
                 } label: {
-                    if importing { ProgressView() } else { Image(systemName: "plus") }
+                    if importing { ProgressView() } else { AstraIcon("plus") }
                 }
                 .disabled(importing)
             }
@@ -367,7 +367,7 @@ struct MusicSettingsSection: View {
                 LabeledRow {
                     Text(store.active?.info.name ?? "未导入")
                 } label: {
-                    Label("音源管理", systemImage: "music.note.list")
+                    AstraLabel("音源管理", systemImage: "music.note.list")
                 }
             }
             NavigationLink {
@@ -376,7 +376,7 @@ struct MusicSettingsSection: View {
                 LabeledRow {
                     Text(netease.profile?.nickname ?? "未登录")
                 } label: {
-                    Label("网易云账号", systemImage: "person.crop.circle.badge.checkmark")
+                    AstraLabel("网易云账号", systemImage: "person.crop.circle.badge.checkmark")
                 }
             }
         } header: {

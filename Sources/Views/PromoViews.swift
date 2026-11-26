@@ -122,7 +122,7 @@ struct PromoListView: View {
                     Text("这个 App 免费、不放广告。觉得好用的话，可以看看作者做的其他插件。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    Label("目前是示例内容", systemImage: "info.circle")
+                    AstraLabel("目前是示例内容", systemImage: "info.circle")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -434,7 +434,7 @@ struct PromoDetailView: View {
                 Label {
                     Text(feature)
                 } icon: {
-                    Image(systemName: "checkmark.circle.fill")
+                    AstraIcon("checkmark.circle.fill")
                         .foregroundColor(PromoCatalog.color(plugin.palette.first ?? "#888888"))
                 }
                 .font(.callout)
@@ -518,7 +518,7 @@ struct PromoGalleryViewer: View {
                 Button {
                     dismiss()
                 } label: {
-                    Image(systemName: "xmark")
+                    AstraIcon("xmark", pointSize: 17)
                         .font(.headline)
                         .foregroundColor(.white)
                         .frame(width: 36, height: 36)
@@ -649,7 +649,7 @@ struct PromoIconView: View {
     var body: some View {
         ZStack {
             PromoArtView(art: PromoArt(palette: plugin.palette, style: .aurora, seed: Self.seed(plugin.id)))
-            Image(systemName: plugin.symbol)
+            AstraIcon(plugin.symbol, pointSize: size * 0.42)
                 .font(.system(size: size * 0.42, weight: .semibold))
                 .foregroundColor(.white)
                 .shadow(color: .black.opacity(0.25), radius: size * 0.04, y: size * 0.02)

@@ -70,7 +70,7 @@ struct CatSettingsView: View {
                     NavigationLink {
                         CatLogView()
                     } label: {
-                        Label("运行日志", systemImage: "doc.text.magnifyingglass")
+                        AstraLabel("运行日志", systemImage: "doc.text.magnifyingglass")
                     }
                     Button("删除插件包", role: .destructive) { confirmRemove = true }
                 } header: {

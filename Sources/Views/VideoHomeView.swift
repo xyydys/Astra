@@ -189,7 +189,7 @@ struct VideoHomeView: View {
                 }
 
                 if let error = model.error {
-                    Label(error, systemImage: "wifi.exclamationmark")
+                    AstraLabel(error, systemImage: "wifi.exclamationmark")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .padding(.horizontal)

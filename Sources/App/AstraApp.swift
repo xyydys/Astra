@@ -162,11 +162,11 @@ struct RootView: View {
     @available(iOS 18, *)
     private var modernTabs: some View {
         TabView(selection: $tab) {
-            Tab("首页", systemImage: "house", value: AppTab.home) { withContentAccent(homeTab) }
-            Tab("收藏", systemImage: "heart", value: AppTab.favorites) { withContentAccent(favoritesTab) }
-            Tab("历史", systemImage: "clock.arrow.circlepath", value: AppTab.history) { withContentAccent(historyTab) }
-            Tab("我的", systemImage: "person.crop.circle", value: AppTab.settings) { withContentAccent(settingsTab) }
-            Tab("搜索", systemImage: "magnifyingglass", value: AppTab.search, role: .search) { withContentAccent(searchTab) }
+            Tab("首页", image: AstraGlyph.assetName("house"), value: AppTab.home) { withContentAccent(homeTab) }
+            Tab("收藏", image: AstraGlyph.assetName("heart"), value: AppTab.favorites) { withContentAccent(favoritesTab) }
+            Tab("历史", image: AstraGlyph.assetName("clock.arrow.circlepath"), value: AppTab.history) { withContentAccent(historyTab) }
+            Tab("我的", image: AstraGlyph.assetName("person.crop.circle"), value: AppTab.settings) { withContentAccent(settingsTab) }
+            Tab("搜索", image: AstraGlyph.assetName("magnifyingglass"), value: AppTab.search, role: .search) { withContentAccent(searchTab) }
         }
         .tabBarMinimizeOnScroll()
     }
@@ -175,19 +175,19 @@ struct RootView: View {
     private var legacyTabs: some View {
         TabView(selection: $tab) {
             withContentAccent(homeTab)
-                .tabItem { Label("首页", systemImage: "house") }
+                .tabItem { Label("首页", image: AstraGlyph.assetName("house")) }
                 .tag(AppTab.home)
             withContentAccent(favoritesTab)
-                .tabItem { Label("收藏", systemImage: "heart") }
+                .tabItem { Label("收藏", image: AstraGlyph.assetName("heart")) }
                 .tag(AppTab.favorites)
             withContentAccent(historyTab)
-                .tabItem { Label("历史", systemImage: "clock.arrow.circlepath") }
+                .tabItem { Label("历史", image: AstraGlyph.assetName("clock.arrow.circlepath")) }
                 .tag(AppTab.history)
             withContentAccent(settingsTab)
-                .tabItem { Label("我的", systemImage: "person.crop.circle") }
+                .tabItem { Label("我的", image: AstraGlyph.assetName("person.crop.circle")) }
                 .tag(AppTab.settings)
             withContentAccent(searchTab)
-                .tabItem { Label("搜索", systemImage: "magnifyingglass") }
+                .tabItem { Label("搜索", image: AstraGlyph.assetName("magnifyingglass")) }
                 .tag(AppTab.search)
         }
     }
@@ -321,7 +321,7 @@ struct ContentModeMenu: View {
                                 Text(item.title)
                                 Text(item.subtitle)
                             } icon: {
-                                Image(systemName: item.icon)
+                                AstraIcon(item.icon)
                             }
                             .tag(item)
                         }
@@ -329,9 +329,9 @@ struct ContentModeMenu: View {
                     .pickerStyle(.inline)
                 } label: {
                     HStack(spacing: 6) {
-                        Image(systemName: mode.icon)
+                        AstraIcon(mode.icon)
                         Text(mode.title)
-                        Image(systemName: "chevron.down")
+                        AstraIcon("chevron.down", pointSize: 11)
                             .font(.caption2.weight(.bold))
                     }
                     .font(.subheadline.weight(.semibold))

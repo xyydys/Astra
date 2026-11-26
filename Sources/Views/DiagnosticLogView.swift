@@ -24,19 +24,19 @@ struct DiagnosticLogView: View {
                     copied = true
                     UINotificationFeedbackGenerator().notificationOccurred(.success)
                 } label: {
-                    Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    AstraIcon(copied ? "checkmark" : "doc.on.doc")
                 }
                 .accessibilityLabel("复制")
                 if let url = DiagnosticLog.shared.exportFile() {
                     ShareLinkCompat(url: url) {
-                        Image(systemName: "square.and.arrow.up")
+                        AstraIcon("square.and.arrow.up")
                     }
                 }
                 Button(role: .destructive) {
                     DiagnosticLog.shared.clear()
                     reload()
                 } label: {
-                    Image(systemName: "trash")
+                    AstraIcon("trash")
                 }
                 .accessibilityLabel("清空")
             }
@@ -58,7 +58,7 @@ struct DiagnosticSettingsSection: View {
     var body: some View {
         Section {
             Toggle(isOn: $enabled) {
-                Label("记录运行日志", systemImage: "waveform.path.ecg")
+                AstraLabel("记录运行日志", systemImage: "waveform.path.ecg")
             }
             .selectionFeedback(trigger: enabled)
             .onChangeCompat(of: enabled) { _, on in
@@ -71,7 +71,7 @@ struct DiagnosticSettingsSection: View {
                 NavigationLink {
                     DiagnosticLogView()
                 } label: {
-                    Label("查看运行日志", systemImage: "doc.text.magnifyingglass")
+                    AstraLabel("查看运行日志", systemImage: "doc.text.magnifyingglass")
                 }
             }
         } header: {

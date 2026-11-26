@@ -126,7 +126,7 @@ private struct VideoSearchView: View {
     var body: some View {
         ScrollView {
             if pending > 0, !groups.isEmpty {
-                Label("还在搜索 \(pending) 个采集站…", systemImage: "hourglass")
+                AstraLabel("还在搜索 \(pending) 个采集站…", systemImage: "hourglass")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -305,8 +305,8 @@ struct ComicFavoritesView: View {
                 if account.isLoggedIn {
                     Menu {
                         Picker("收藏", selection: $cloud) {
-                            Label("本地收藏", systemImage: "iphone").tag(false)
-                            Label("云端收藏", systemImage: "icloud").tag(true)
+                            AstraLabel("本地收藏", systemImage: "iphone").tag(false)
+                            AstraLabel("云端收藏", systemImage: "icloud").tag(true)
                         }
                     } label: {
                         Text(cloud ? "云端收藏" : "本地收藏")

@@ -23,12 +23,12 @@ struct BackupView: View {
                 Button {
                     export()
                 } label: {
-                    Label("导出备份", systemImage: "square.and.arrow.up.on.square")
+                    AstraLabel("导出备份", systemImage: "square.and.arrow.up.on.square")
                 }
                 Button {
                     showImporter = true
                 } label: {
-                    Label("从文件导入", systemImage: "square.and.arrow.down.on.square")
+                    AstraLabel("从文件导入", systemImage: "square.and.arrow.down.on.square")
                 }
             } footer: {
                 Text("备份包含片源（Kazumi 规则和采集站）、书源、洛雪音源、书架、收藏、观看 / 阅读历史、音乐收藏与播放历史和各项设置；不含图片缓存、离线章节和禁漫密码。导出的文件在「文件 → 我的 iPhone → \(AppBackup.displayName) → 备份」里，也可以长按分享到别处。")
@@ -41,7 +41,7 @@ struct BackupView: View {
                             load(url)
                         } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: "doc.zipper")
+                                AstraIcon("doc.zipper", pointSize: 20)
                                     .font(.title3)
                                     .foregroundStyle(Color.accentColor)
                                 VStack(alignment: .leading, spacing: 3) {
@@ -57,13 +57,13 @@ struct BackupView: View {
                         }
                         .buttonStyle(.plain)
                         ShareLinkCompat(url: url) {
-                            Image(systemName: "square.and.arrow.up")
+                            AstraIcon("square.and.arrow.up")
                         }
                         .buttonStyle(.borderless)
                     }
                     .contextMenu {
                         ShareLinkCompat(url: url) {
-                            Label("分享", systemImage: "square.and.arrow.up")
+                            AstraLabel("分享", systemImage: "square.and.arrow.up")
                         }
                         Button("恢复这个备份", icon: "arrow.counterclockwise") { load(url) }
                         Button("删除", icon: "trash", role: .destructive) { delete(url) }

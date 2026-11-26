@@ -162,7 +162,7 @@ struct MPVControls: View {
 
             // 双击播放 / 暂停反馈
             if let pulse = doubleTapPulse, !visible, !hasActiveCenterHUD {
-                Image(systemName: pulse.paused ? "pause.fill" : "play.fill")
+                AstraIcon(pulse.paused ? "pause.fill" : "play.fill", pointSize: 24)
                     .font(.system(size: 24, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: 60, height: 60)
@@ -275,7 +275,7 @@ struct MPVControls: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            Image(systemName: icon)
+            AstraIcon(icon, pointSize: pointSize)
                 .font(.system(size: pointSize, weight: .semibold))
                 .frame(width: Self.fullscreenIconDiameter, height: Self.fullscreenIconDiameter)
                 .playerGlass(interactive: true, in: Circle())
@@ -381,7 +381,7 @@ struct MPVControls: View {
     }
 
     private func centerCircleLabel(_ icon: String, iconSize: CGFloat, diameter: CGFloat) -> some View {
-        Image(systemName: icon)
+        AstraIcon(icon, pointSize: iconSize)
             .font(.system(size: iconSize, weight: .semibold))
             .symbolReplaceTransition()
             .frame(width: diameter, height: diameter)
@@ -455,7 +455,7 @@ struct MPVControls: View {
                         scheduleHide()
                     } label: {
                         HStack(spacing: 5) {
-                            Image(systemName: "forward.end.fill")
+                            AstraIcon("forward.end.fill", pointSize: 12)
                                 .font(.system(size: 12, weight: .semibold))
                             Text("下一集")
                                 .font(.system(size: 12, weight: .semibold))
@@ -533,7 +533,7 @@ struct MPVControls: View {
             )
         } else {
             Button(action: action) {
-                Image(systemName: symbol)
+                AstraIcon(symbol, pointSize: pointSize)
                     .font(.system(size: pointSize, weight: .semibold))
                     .frame(width: diameter, height: diameter)
                     .contentShape(Circle())
@@ -592,7 +592,7 @@ struct MPVControls: View {
                             }
                         }
                     } label: {
-                        Label("默认倍速 · \(Self.speedLabel(defaultSpeed))", systemImage: "speedometer")
+                        AstraLabel("默认倍速 · \(Self.speedLabel(defaultSpeed))", systemImage: "speedometer")
                     }
 
                     if abs(mpv.speed - defaultSpeed) >= 0.01,
@@ -601,13 +601,13 @@ struct MPVControls: View {
                             defaultSpeed = mpv.speed
                             scheduleHide()
                         } label: {
-                            Label("将 \(Self.speedLabel(mpv.speed)) 设为默认倍速", systemImage: "pin")
+                            AstraLabel("将 \(Self.speedLabel(mpv.speed)) 设为默认倍速", systemImage: "pin")
                         }
                     }
                 }
             } label: {
                 HStack(spacing: 4) {
-                    Image(systemName: "speedometer")
+                    AstraIcon("speedometer", pointSize: isFullscreen ? 12 : 11)
                         .font(.system(size: isFullscreen ? 12 : 11, weight: .semibold))
                     Text(chipText)
                         .font(.caption.weight(.semibold).monospacedDigit())
@@ -648,7 +648,7 @@ struct MPVControls: View {
         var footerItems: [UIMenuElement] = [
             UIMenu(
                 title: "默认倍速 · \(Self.speedLabel(defaultSpeed))",
-                image: UIImage(systemName: "speedometer"),
+                image: AstraGlyph.image("speedometer"),
                 children: defaultSubActions
             )
         ]
@@ -658,7 +658,7 @@ struct MPVControls: View {
             footerItems.append(
                 UIAction(
                     title: "将 \(Self.speedLabel(currentRate)) 设为默认倍速",
-                    image: UIImage(systemName: "pin")
+                    image: AstraGlyph.image("pin")
                 ) { _ in
                     defaultSpeed = currentRate
                     scheduleHide()
@@ -722,7 +722,7 @@ struct MPVControls: View {
                     }
                 }
             } label: {
-                Image(systemName: "captions.bubble")
+                AstraIcon("captions.bubble", pointSize: isFullscreen ? 14 : 13)
                     .font(.system(size: isFullscreen ? 14 : 13, weight: .semibold))
                     .foregroundStyle(.white)
                     .frame(width: isFullscreen ? 36 : 32, height: isFullscreen ? 36 : 32)
@@ -775,7 +775,7 @@ struct MPVControls: View {
 
     private var speedBoostHUD: some View {
         HStack(spacing: 7) {
-            Image(systemName: "forward.fill")
+            AstraIcon("forward.fill", pointSize: 12)
                 .font(.caption.weight(.bold))
                 .foregroundStyle(Color.accentColor)
                 .opacity(boostPulse ? 1 : 0.45)
@@ -800,7 +800,7 @@ struct MPVControls: View {
         return VStack(spacing: 8) {
             if let delta {
                 HStack(spacing: 6) {
-                    Image(systemName: delta >= 0 ? "forward.fill" : "backward.fill")
+                    AstraIcon(delta >= 0 ? "forward.fill" : "backward.fill", pointSize: 12)
                         .font(.caption.weight(.bold))
                         .foregroundStyle(Color.accentColor)
                     Text(Self.signedDelta(delta))
@@ -851,7 +851,7 @@ struct MPVControls: View {
         }
         let clamped = min(max(meter.value, 0), 1)
         return HStack(spacing: 10) {
-            Image(systemName: iconName)
+            AstraIcon(iconName, pointSize: 15)
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.white)
                 .frame(width: 22)
@@ -894,7 +894,7 @@ struct MPVControls: View {
             } else {
                 Button(action: unlockScreen) {
                     HStack(spacing: 6) {
-                        Image(systemName: "lock.fill")
+                        AstraIcon("lock.fill", pointSize: 13)
                             .font(.system(size: 13, weight: .semibold))
                         Text("点按解锁")
                             .font(.caption.weight(.semibold))
@@ -943,7 +943,7 @@ struct MPVControls: View {
     @ViewBuilder
     private func checkLabel(_ title: String, _ selected: Bool) -> some View {
         if selected {
-            Label(title, systemImage: "checkmark")
+            AstraLabel(title, systemImage: "checkmark")
         } else {
             Text(title)
         }

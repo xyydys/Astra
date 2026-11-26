@@ -37,9 +37,9 @@ enum ContentMode: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
-        case .anime: return "sparkles"
+        case .anime: return "app.mode.anime"
         case .video: return "film"
-        case .comic: return "book"
+        case .comic: return "app.mode.comic"
         case .novel: return "text.book.closed"
         case .music: return "music.note"
         }
