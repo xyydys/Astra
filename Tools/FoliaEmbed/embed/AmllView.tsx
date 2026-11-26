@@ -63,6 +63,9 @@ export const toAmllLines = (lines: Line[], format: string, showTranslation: bool
     return result;
 };
 
+// Keep the gradient in viewport coordinates; the player renders lines all the way to the top.
+const LYRIC_EDGE_MASK = 'linear-gradient(to bottom, transparent, #0005 min(22px, 5%), #000c min(50px, 11%), #000 min(88px, 19%), #000 81%, transparent 100%)';
+
 interface AmllViewProps {
     lines: Line[];
     format: string;
@@ -98,7 +101,7 @@ const AmllView: React.FC<AmllViewProps> = ({ lines, format, cover, getTime, play
         lyricElement.style.height = '100%';
         lyricHost.appendChild(lyricElement);
         player.setAlignAnchor(LayoutAlignAnchor.Center);
-        player.setAlignPosition(0.36);
+        player.setAlignPosition(0.42);
         player.setEnableSpring(true);
         player.setEnableScale(true);
         player.setEnableBlur(true);
@@ -185,15 +188,15 @@ const AmllView: React.FC<AmllViewProps> = ({ lines, format, cover, getTime, play
                 style={{
                     position: 'absolute',
                     inset: 0,
-                    padding: 'calc(env(safe-area-inset-top, 0px) + 24px) 26px 0',
+                    padding: '0 max(26px, env(safe-area-inset-right, 0px)) 0 max(26px, env(safe-area-inset-left, 0px))',
                     boxSizing: 'border-box',
                     fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif',
                     fontWeight: 700,
                     // 和 Apple Music 一样：字号跟屏幕宽度走，竖屏上大约一行七八个汉字
                     ['--amll-lp-font-size' as string]: 'clamp(26px, 8.4vw, 46px)',
                     ['--amll-lp-color' as string]: 'rgba(255, 255, 255, 0.96)',
-                    maskImage: 'linear-gradient(to bottom, transparent 0, #000 12%, #000 80%, transparent 96%)',
-                    WebkitMaskImage: 'linear-gradient(to bottom, transparent 0, #000 12%, #000 80%, transparent 96%)',
+                    maskImage: LYRIC_EDGE_MASK,
+                    WebkitMaskImage: LYRIC_EDGE_MASK,
                 }}
             />
         </div>

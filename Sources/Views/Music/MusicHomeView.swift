@@ -23,49 +23,32 @@ struct MusicHomeView: View {
 
     var body: some View {
         ZStack {
-            Color(uiColor: theme.background)
-                .ignoresSafeArea()
-                .animation(.easeInOut(duration: 0.6), value: theme)
+            if usesLightPlaybackArea {
+                // 同一层白色衬在歌词画布、控制区和底栏后方，不在两块视图的接缝另画遮罩。
+                playbackBackgroundColor
+                    .ignoresSafeArea()
+            } else {
+                lyricsBackdrop
+                    .ignoresSafeArea()
+            }
             VStack(spacing: 0) {
                 MusicLyricsArea(
                     mode: FoliaMode(rawValue: modeRaw) ?? .classic,
                     background: FoliaBackground(rawValue: backgroundRaw) ?? .latent,
                     theme: theme
                 )
-                .mask(
-                    LinearGradient(stops: [
-                        .init(color: .black, location: 0),
-                        .init(color: .black, location: 0.82),
-                        .init(color: .clear, location: 1),
-                    ], startPoint: .top, endPoint: .bottom)
-                )
-                .ignoresSafeArea(edges: .top)
                 .environment(\.colorScheme, .dark)
+                .background {
+                    if usesLightPlaybackArea { lyricsBackdrop }
+                }
+                .mask { lyricsSceneMask }
                 MusicControls(accent: playbackAccent) { showQueue = true }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 18)
                     .environment(\.colorScheme, usesLightPlaybackArea ? .light : .dark)
-                    .background {
-                        if usesLightPlaybackArea {
-                            playbackBackground
-                        }
-                    }
-                    .overlay(alignment: .top) {
-                        if usesLightPlaybackArea {
-                            // 从控制区上沿向上衔接歌词，避免一条生硬的白色分界线。
-                            LinearGradient(stops: [
-                                .init(color: playbackBackgroundColor.opacity(0), location: 0),
-                                .init(color: playbackBackgroundColor.opacity(0.13), location: 0.32),
-                                .init(color: playbackBackgroundColor.opacity(0.58), location: 0.72),
-                                .init(color: playbackBackgroundColor, location: 1)
-                            ], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 112)
-                            .offset(y: -112)
-                            .allowsHitTesting(false)
-                            .accessibilityHidden(true)
-                        }
-                    }
             }
+            // 让画布本身覆盖状态栏，菜单仍在外层并遵循原来的安全区。
+            .ignoresSafeArea(.container, edges: .top)
         }
         .overlay(alignment: .topTrailing) {
             FoliaEffectMenu()
@@ -93,11 +76,37 @@ struct MusicHomeView: View {
 
     private var playbackBackgroundColor: Color { Color(uiColor: .systemBackground) }
 
-    private var playbackBackground: some View {
-        playbackBackgroundColor
-            .ignoresSafeArea(.container, edges: .bottom)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
+    private var lyricsBackdrop: some View {
+        Color(uiColor: theme.background)
+            .animation(.easeInOut(duration: 0.6), value: theme)
+    }
+
+    @ViewBuilder
+    private var lyricsSceneMask: some View {
+        if usesLightPlaybackArea {
+            GeometryReader { proxy in
+                VStack(spacing: 0) {
+                    Color.black
+                    // 近似 smoothstep，两端斜率接近零；流体背景和歌词共用这一道渐隐。
+                    LinearGradient(stops: [
+                        .init(color: .black, location: 0),
+                        .init(color: .black.opacity(0.972), location: 0.1),
+                        .init(color: .black.opacity(0.844), location: 0.25),
+                        .init(color: .black.opacity(0.5), location: 0.5),
+                        .init(color: .black.opacity(0.156), location: 0.75),
+                        .init(color: .black.opacity(0.028), location: 0.9),
+                        .init(color: .clear, location: 1),
+                    ], startPoint: .top, endPoint: .bottom)
+                    .frame(height: min(192, proxy.size.height * 0.38))
+                }
+            }
+        } else {
+            LinearGradient(stops: [
+                .init(color: .black, location: 0),
+                .init(color: .black, location: 0.82),
+                .init(color: .clear, location: 1),
+            ], startPoint: .top, endPoint: .bottom)
+        }
     }
 }
 
