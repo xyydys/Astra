@@ -163,8 +163,8 @@ struct RootView: View {
     private var modernTabs: some View {
         TabView(selection: $tab) {
             Tab("首页", image: AstraGlyph.assetName("house"), value: AppTab.home) { withContentAccent(homeTab) }
-            Tab("收藏", image: AstraGlyph.assetName("heart"), value: AppTab.favorites) { withContentAccent(favoritesTab) }
-            Tab("历史", image: AstraGlyph.assetName("clock.arrow.circlepath"), value: AppTab.history) { withContentAccent(historyTab) }
+            Tab("收藏", image: AstraGlyph.assetName("tab.favorites"), value: AppTab.favorites) { withContentAccent(favoritesTab) }
+            Tab("历史", image: AstraGlyph.assetName("tab.history"), value: AppTab.history) { withContentAccent(historyTab) }
             Tab("我的", image: AstraGlyph.assetName("person.crop.circle"), value: AppTab.settings) { withContentAccent(settingsTab) }
             Tab("搜索", image: AstraGlyph.assetName("magnifyingglass"), value: AppTab.search, role: .search) { withContentAccent(searchTab) }
         }
@@ -178,10 +178,10 @@ struct RootView: View {
                 .tabItem { Label("首页", image: AstraGlyph.assetName("house")) }
                 .tag(AppTab.home)
             withContentAccent(favoritesTab)
-                .tabItem { Label("收藏", image: AstraGlyph.assetName("heart")) }
+                .tabItem { Label("收藏", image: AstraGlyph.assetName("tab.favorites")) }
                 .tag(AppTab.favorites)
             withContentAccent(historyTab)
-                .tabItem { Label("历史", image: AstraGlyph.assetName("clock.arrow.circlepath")) }
+                .tabItem { Label("历史", image: AstraGlyph.assetName("tab.history")) }
                 .tag(AppTab.history)
             withContentAccent(settingsTab)
                 .tabItem { Label("我的", image: AstraGlyph.assetName("person.crop.circle")) }

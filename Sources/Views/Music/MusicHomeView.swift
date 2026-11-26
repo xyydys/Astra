@@ -38,7 +38,7 @@ struct MusicHomeView: View {
                     background: FoliaBackground(rawValue: backgroundRaw) ?? .latent,
                     theme: theme
                 )
-                .environment(\.colorScheme, .dark)
+                // 歌词画布用自身的封面配色，不向系统界面注入深色 trait。
                 .background {
                     if usesLightPlaybackArea { lyricsBackdrop }
                 }
@@ -46,7 +46,6 @@ struct MusicHomeView: View {
                 MusicControls(accent: playbackAccent) { showQueue = true }
                     .padding(.horizontal, 22)
                     .padding(.bottom, 18)
-                    .environment(\.colorScheme, usesLightPlaybackArea ? .light : .dark)
             }
             // 让画布本身覆盖状态栏，菜单仍在外层并遵循原来的安全区。
             .ignoresSafeArea(.container, edges: .top)
@@ -66,8 +65,8 @@ struct MusicHomeView: View {
             withAnimation(.easeInOut(duration: 0.6)) { tint = value }
         }
         .sheet(isPresented: $showQueue) {
+            // Keep the sheet, its navigation toolbar and the list on one system appearance.
             MusicQueueSheet()
-                .environment(\.colorScheme, .dark)
         }
         .onAppear {
             Diag.log("音乐", "音乐首页出现")
@@ -162,8 +161,6 @@ private enum MusicFadeMask {
 // MARK: 歌词动画
 
 private struct MusicLyricsArea: View {
-    // This switch belongs to the device diagnostic build only.
-    @AppStorage("astraDeviceProbeStaticLyrics") private var useStaticLyrics = false
     let mode: FoliaMode
     let background: FoliaBackground
     let theme: FoliaTheme
@@ -172,18 +169,7 @@ private struct MusicLyricsArea: View {
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
-        if useStaticLyrics {
-            Color.clear
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay { emptyHint }
-                .overlay(alignment: .bottom) {
-                    Text("底栏测试：静态画布")
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.bottom, 24)
-                        .allowsHitTesting(false)
-                }
-        } else if FoliaSchemeHandler.isAvailable {
+        if FoliaSchemeHandler.isAvailable {
             FoliaLyricsView(
                 player: player, mode: mode, background: background, theme: theme,
                 songRevision: player.songRevision, clockRevision: player.clockRevision,
@@ -355,7 +341,6 @@ private struct MusicControls: View {
 /// iOS 26 用真导航栏玻璃按钮（UINavigationBar + UIBarButtonItem(menu:)），展开菜单与按钮深浅完美互通；
 /// 播放时菜单独立于 SwiftUI 刷新，点按和滑选始终稳定
 private struct FoliaEffectMenu: View {
-    @AppStorage("astraDeviceProbeStaticLyrics") private var useStaticLyrics = false
     @AppStorage("foliaMode") private var modeRaw = FoliaMode.classic.rawValue
     @AppStorage("foliaBackground") private var backgroundRaw = FoliaBackground.latent.rawValue
 
@@ -398,13 +383,6 @@ private struct FoliaEffectMenu: View {
                     selected: backgroundRaw
                 ) { backgroundRaw = $0 })
             }
-            children.append(UIMenu(options: .displayInline, children: [
-                UIAction(
-                    title: "底栏对照：静态画布",
-                    image: AstraGlyph.image("rectangle"),
-                    state: useStaticLyrics ? .on : .off
-                ) { _ in useStaticLyrics.toggle() }
-            ]))
             return children
         }
     }
@@ -516,6 +494,7 @@ struct MusicTrackListView: View {
 struct MusicQueueSheet: View {
     @ObservedObject private var player = MusicPlayer.shared
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         NavigationStackCompat {
@@ -541,22 +520,37 @@ struct MusicQueueSheet: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("关闭", icon: "xmark") { dismiss() }
+                    queueToolbarAppearance {
+                        Button("关闭", icon: "xmark") { dismiss() }
+                    }
                 }
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Menu {
-                        Picker("播放顺序", selection: $player.repeatMode) {
-                            ForEach(MusicPlayer.RepeatMode.allCases, id: \.self) { mode in
-                                AstraLabel(mode.name, systemImage: mode.icon).tag(mode)
+                    queueToolbarAppearance {
+                        Menu {
+                            Picker("播放顺序", selection: $player.repeatMode) {
+                                ForEach(MusicPlayer.RepeatMode.allCases, id: \.self) { mode in
+                                    AstraLabel(mode.name, systemImage: mode.icon).tag(mode)
+                                }
                             }
+                        } label: {
+                            AstraIcon(player.repeatMode.icon)
                         }
-                    } label: {
-                        AstraIcon(player.repeatMode.icon)
+                        .accessibilityLabel("播放顺序")
                     }
                 }
             }
         }
         .sheetDetents([.medium, .large])
+    }
+
+    @ViewBuilder
+    private func queueToolbarAppearance<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        if colorScheme == .light {
+            // Neutral foreground on light native glass; the current track keeps the app accent.
+            content().tint(Color.primary)
+        } else {
+            content()
+        }
     }
 }
 

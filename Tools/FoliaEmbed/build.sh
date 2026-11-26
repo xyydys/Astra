@@ -58,6 +58,10 @@ AMLL_CORE="@applemusic-like-lyrics/core@0.6.0"
 echo "==> npm install $AMLL_CORE"
 (cd "$WORK" && npm install --no-save --ignore-scripts --no-audit --no-fund --legacy-peer-deps --loglevel=error "$AMLL_CORE")
 
+# WKWebView 可在手指离开后保留合成的 :hover；AMLL 的悬停规则会同时留下底色、盖掉歌词模糊。
+# 仅真实悬停设备使用这些规则，保留触屏按压反馈、点击定位和滑动。
+node "$HERE/patch-amll-hover.cjs" "$WORK"
+
 echo "==> vite build"
 (cd "$WORK" && npx vite build --config vite.embed.config.ts --logLevel warn)
 

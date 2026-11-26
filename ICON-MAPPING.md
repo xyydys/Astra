@@ -8,6 +8,8 @@
 
 | Astra 键 | IconMCP 名称 | 样式 |
 |---|---|---|
+| `tab.favorites` | [bookmarks](https://iconmcp.com/library?q=bookmarks) | 底栏 A4 · 双书签 |
+| `tab.history` | [clock-play](https://iconmcp.com/library?q=clock-play) | 底栏 B4 · 时钟＋播放 |
 | `app.badge` | [app-container](https://iconmcp.com/library?q=app-container) | 线性 |
 | `app.mode.anime` | [animation-disc](https://iconmcp.com/library?q=animation-disc) | 线性 |
 | `app.mode.comic` | [comic-bubble](https://iconmcp.com/library?q=comic-bubble) | 线性 |
